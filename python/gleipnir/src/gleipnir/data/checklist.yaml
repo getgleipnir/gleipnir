@@ -6,7 +6,7 @@
 #
 # Item IDs are stable. Never renumber or reuse an ID; deprecate instead.
 
-version: 0.1.0
+version: 0.1.1
 updated: 2026-10-14
 
 groups:
@@ -276,7 +276,7 @@ items:
     not_enough:
       - A static sub-processor page.
     often_unevidenced: true
-    capabilities: [action_record]
+    capabilities: [endpoint_record]
     references:
       - {fw: aicm, ref: STA-16, note: "Service bill of materials", confidence: title-only}
       - {fw: aicm, ref: DSP-05, note: "Data flow documentation", confidence: title-only}
@@ -296,7 +296,7 @@ items:
     not_enough:
       - Citations shown in the UI but not retained.
     often_unevidenced: false
-    capabilities: [action_record]
+    capabilities: [source_record]
     references:
       - {fw: finos, ref: AIR-DET-013, note: "Citations and source traceability", confidence: verified, url: "https://air-governance-framework.finos.org/mitigations/mi-13_providing-citations-and-source-traceability-for-ai-generated-information.html"}
       - {fw: finos, ref: AIR-DET-016, note: "Preserve source data access controls", confidence: verified, url: "https://air-governance-framework.finos.org/mitigations/mi-16_preserving-source-data-access-controls-in-ai-systems.html"}
@@ -353,7 +353,7 @@ items:
     not_enough:
       - "QA reviews a sample of calls."
     often_unevidenced: true
-    capabilities: [action_record, config_version]
+    capabilities: []
     references:
       - {fw: eu_ai_act, ref: "Art. 50(1)", note: "Inform people they are interacting with an AI system", confidence: verified, url: "https://artificialintelligenceact.eu/article/50/"}
       - {fw: aicm, ref: LOG-11, note: "Transaction/activity logging", confidence: title-only}

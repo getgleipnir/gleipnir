@@ -57,6 +57,8 @@ def capabilities_from_records(records: list[dict[str, Any]], anchor_options: dic
         ("outcome_check", lambda a: a.get("outcome", {}).get("check") in ("match", "mismatch"),
          "actions with outcome checks"),
         ("redaction", lambda a: bool(a.get("redaction")), "actions with redaction"),
+        ("source_record", lambda a: bool(a.get("sources")), "actions with source records"),
+        ("endpoint_record", lambda a: bool(a.get("calls")), "actions with outbound call records"),
     ]
     for cap, pred, label in checks:
         n = any_action(pred)
@@ -114,6 +116,8 @@ HINTS = {
     "signed_records": "chain does not verify; run gleipnir-verify on an export",
     "hash_chain": "chain does not verify; run gleipnir-verify on an export",
     "action_record": "wrap tools with @rec.tool",
+    "source_record": "pass sources=[...] to rec.record_action for retrieval-based actions",
+    "endpoint_record": "pass calls=[...] (model endpoints, APIs) to rec.record_action",
 }
 
 
