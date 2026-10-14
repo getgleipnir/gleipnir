@@ -5,11 +5,12 @@ from datetime import timedelta
 
 import pytest
 from chainbuilder import Builder, Key, resign
+from hypothesis import HealthCheck, given, settings
+from hypothesis import strategies as st
+
 from gleipnir_verify import cli, verify_records
 from gleipnir_verify.canon import record_hash
 from gleipnir_verify.verifier import verify_bundle
-from hypothesis import HealthCheck, given, settings
-from hypothesis import strategies as st
 
 OPTS = {"local_anchor_entries": None}
 

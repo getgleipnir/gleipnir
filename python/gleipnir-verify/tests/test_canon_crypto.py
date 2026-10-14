@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 import pytest
+
 from gleipnir_verify.canon import canonicalize, hash_to_bytes, record_hash
 from gleipnir_verify.crypto import decode_public_key, encode_public_key, verify_signature
 

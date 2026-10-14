@@ -12,6 +12,7 @@ from typing import Any
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
 from gleipnir_verify import merkle
 from gleipnir_verify.anchors import local_log_entry_hash
 from gleipnir_verify.canon import hash_to_bytes, record_hash

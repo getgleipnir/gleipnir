@@ -122,6 +122,7 @@ class RekorAnchor:
 
         from cryptography.hazmat.primitives import hashes
         from cryptography.hazmat.primitives.asymmetric import ec
+
         from gleipnir_verify.rekor import anchor_message, verify_rekor_receipt
 
         message = anchor_message(segment_hash)
