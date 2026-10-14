@@ -1,0 +1,55 @@
+{
+  "description": "record 02-action-unicode-numbers",
+  "private_key_seed_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "public_key": "ed25519:A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+  "key_id": "k_ed25519_56475aa75463474c",
+  "record": {
+    "v": 1,
+    "kind": "action",
+    "chain": "ch_vector",
+    "seq": 1,
+    "id": "act_1",
+    "time": "2026-10-14T09:00:01.250Z",
+    "key": "k_ed25519_56475aa75463474c",
+    "prev": "sha256:abababababababababababababababababababababababababababababababab",
+    "agent": {
+      "id": "support-agent",
+      "version": "3.2.4"
+    },
+    "tool": {
+      "name": "issue_refund",
+      "system": "payments-api"
+    },
+    "args": {
+      "order_id": "A-1001",
+      "amount": 42.1,
+      "note": "Grüße €",
+      "big": 9007199254740991,
+      "small": 1e-07,
+      "neg": -0.0,
+      "card": {
+        "redacted": "hmac-sha256:0000000000000000000000000000000000000000000000000000000000000000"
+      }
+    },
+    "response": {
+      "status": "ok",
+      "body": {
+        "refund_id": "R-9",
+        "amount": 42.1,
+        "ok": true,
+        "x": null
+      }
+    },
+    "outcome": {
+      "check": "match",
+      "method": "verify_outcome"
+    },
+    "t": {
+      "start": "2026-10-14T09:00:01.000Z",
+      "end": "2026-10-14T09:00:01.250Z"
+    },
+    "sig": "ed25519:NKAwF8RdYiqiS6fPuBf2FQbRzCC0nU9Kxg-bbcMcSOM12LWbOovS3Ka4vJAJnhrPMMDOYAl0Ac7ZeUu1u9ujAg"
+  },
+  "canonical": "{\"agent\":{\"id\":\"support-agent\",\"version\":\"3.2.4\"},\"args\":{\"amount\":42.1,\"big\":9007199254740991,\"card\":{\"redacted\":\"hmac-sha256:0000000000000000000000000000000000000000000000000000000000000000\"},\"neg\":0,\"note\":\"Grüße €\",\"order_id\":\"A-1001\",\"small\":1e-7},\"chain\":\"ch_vector\",\"id\":\"act_1\",\"key\":\"k_ed25519_56475aa75463474c\",\"kind\":\"action\",\"outcome\":{\"check\":\"match\",\"method\":\"verify_outcome\"},\"prev\":\"sha256:abababababababababababababababababababababababababababababababab\",\"response\":{\"body\":{\"amount\":42.1,\"ok\":true,\"refund_id\":\"R-9\",\"x\":null},\"status\":\"ok\"},\"seq\":1,\"t\":{\"end\":\"2026-10-14T09:00:01.250Z\",\"start\":\"2026-10-14T09:00:01.000Z\"},\"time\":\"2026-10-14T09:00:01.250Z\",\"tool\":{\"name\":\"issue_refund\",\"system\":\"payments-api\"},\"v\":1}",
+  "hash": "sha256:14a45fbbd54158b34e3a28d2a5ee5fdf7938fa77bcef071c5f21adaae25c8747"
+}
