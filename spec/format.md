@@ -30,7 +30,7 @@ Key ids: `"k_ed25519_" || first 16 hex chars of SHA-256(raw 32-byte public key)`
 
 **genesis**: `public_key: {id, public}`, `config: {heartbeat_seconds, segment_max_records}`. Signed by that key.
 
-**action**: `agent: {id, version}`, `tool: {name, system}`, `args`, `response: {status: "ok", body} | {status: "error", error}`, `t: {start, end}`. Optional: `claim: {text}`, `outcome: {check, method, observed?, fields?, detail?}` with `check` in `match | mismatch | error | not_checked`, `context: {trace_id, span_id, session, run_id, on_behalf_of, parent_action}`, `model`, `versions`, `identity`, `redaction: {fields, default}`.
+**action**: `agent: {id, version}`, `tool: {name, system}`, `args`, `response: {status: "ok", body} | {status: "error", error}`, `t: {start, end}`. Optional: `claim: {text}`, `outcome: {check, method, observed?, fields?, detail?}` with `check` in `match | mismatch | error | not_checked`, `context: {trace_id, span_id, session, run_id, on_behalf_of, parent_action, tool_call_id}`, `model`, `versions`, `identity`, `redaction: {fields, default}`.
 
 Redacted values are replaced before hashing by `{"redacted": "dropped"}` or `{"redacted": "hmac-sha256:<hex>"}` (HMAC-SHA256 with a vendor-held key over the JCS encoding of the original value).
 

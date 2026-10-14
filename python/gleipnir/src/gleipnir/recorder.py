@@ -22,7 +22,7 @@ from .util import Clock, iso, new_id, to_jsonable, utcnow
 F = TypeVar("F", bound=Callable[..., Any])
 
 _CONTEXT: contextvars.ContextVar[dict[str, Any] | None] = contextvars.ContextVar("gleipnir_context", default=None)
-_CONTEXT_KEYS = {"trace_id", "span_id", "session", "on_behalf_of", "run_id", "parent_action"}
+_CONTEXT_KEYS = {"trace_id", "span_id", "session", "on_behalf_of", "run_id", "parent_action", "tool_call_id"}
 _TOP_LEVEL_KEYS = {"model", "versions", "identity"}
 
 
@@ -199,7 +199,8 @@ class Recorder:
     def context(self, **values: Any) -> Iterator[None]:
         """Attach context to every record made inside this block.
 
-        Known keys: trace_id, span_id, session, run_id, on_behalf_of, parent_action, plus
+        Known keys: trace_id, span_id, session, run_id, on_behalf_of, parent_action, tool_call_id
+        (the framework's or model's id for this tool call), plus
         model={...}, versions={...} (prompt/config/policy) and identity={...}
         (principal, credential_id, scope).
         """
