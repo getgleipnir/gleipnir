@@ -98,6 +98,8 @@ def _verify_records(
     expect_key: str | None = None,
     expect_until: datetime | None = None,
     known_head: tuple[int, str] | None = None,
+    require_anchor: str | None = None,
+    require_full: bool = False,
     anchor_verifiers: dict[str, Callable[..., anchor_mod.AnchorResult]] | None = None,
     anchor_options: dict[str, Any] | None = None,
 ) -> Report:
@@ -198,7 +200,9 @@ def _verify_records(
             # Partial bundle: chain resumes after genesis. The first body record must open a segment;
             # its prev is accepted and checked through the segment's Merkle root and anchor.
             first_body_seq = seq
-            report.add(INFO, "partial_bundle", f"bundle starts at seq {seq} (records 1..{seq - 1} not included)")
+            report.add(ERROR if require_full else WARN, "partial_bundle",
+                       f"bundle starts at seq {seq}: records 1..{seq - 1} are not included, so nothing is proven "
+                       "about them")
         else:
             if prev_seq is not None and seq != prev_seq + 1:
                 if seq <= prev_seq:
@@ -278,11 +282,14 @@ def _verify_records(
 
     anchored = 0
     independent = 0
+    unchecked = 0
     last_anchored_close: str | None = None
     for seg_rec in segments:
         sseq = seg_rec["seq"]
         recs = receipts.get(sseq, [])
         ok_any = False
+        seen_unchecked = False
+        seg_independent = False
         for r in recs:
             a = r["anchor"]
             if a.get("segment_hash") != hashes[sseq]:
@@ -297,21 +304,34 @@ def _verify_records(
                 report.add(ERROR, "anchor_invalid", f"anchor receipt invalid: {res.detail}", r["seq"])
             elif res.ok is None:
                 report.add(INFO, "anchor_unchecked", f"anchor receipt not checked: {res.detail}", r["seq"])
-                ok_any = True
+                seen_unchecked = True
             else:
                 ok_any = True
                 if res.independent:
-                    independent += 1
+                    seg_independent = True
         if ok_any:
             anchored += 1
             last_anchored_close = seg_rec["segment"]["closed_at"]
-    unanchored = len(segments) - anchored
+        elif seen_unchecked:
+            unchecked += 1
+        if seg_independent:
+            independent += 1
+        elif require_anchor:
+            report.add(ERROR, "anchor_required", f"segment has no verified {require_anchor} anchor (receipt missing, "
+                       "removed or not independent)", sseq)
+    unanchored = len(segments) - anchored - unchecked
     if unanchored:
-        report.add(WARN, "unanchored_segments", f"{unanchored} of {len(segments)} segments have no anchor receipt "
-                   "in this bundle")
+        report.add(WARN, "unanchored_segments", f"{unanchored} of {len(segments)} segments have no verified anchor "
+                   "receipt in this bundle")
+    if unchecked:
+        report.add(WARN, "anchors_unchecked", f"{unchecked} segments have anchor receipts that could not be checked")
 
     # ---- bundle expectations ---------------------------------------------------------
+    if require_full and body and body[0] != 1:
+        report.add(ERROR, "partial_bundle", "a full bundle was required but records are missing at the start")
     if manifest is not None:
+        if manifest.get("key") is not None and manifest.get("key") != genesis_key:
+            report.add(ERROR, "manifest_key", "manifest key does not match the genesis key")
         if manifest.get("chain") != chain_id:
             report.add(ERROR, "manifest_chain", "manifest chain does not match records")
         if manifest.get("to_seq") is not None and manifest.get("to_seq") != last_seq:
@@ -359,11 +379,18 @@ def _summarize(report: Report, records: list[dict[str, Any]], genesis: dict[str,
         "by_kind": kinds,
         "segments": len(segments),
         "segments_anchored": anchored,
+        "partial": _first_body_seq(records) not in (None, 1),
         "anchors_independent": independent,
         "anchored_until": last_anchored_close,
         "covered_from": genesis.get("time"),
         "covered_until": segments[-1]["segment"]["closed_at"] if segments else None,
     }
+
+
+def _first_body_seq(records: list[Any]) -> Any:
+    if len(records) > 1 and isinstance(records[1], dict):
+        return records[1].get("seq")
+    return None
 
 
 def read_bundle(path: str | Path) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]] | None]:
@@ -379,12 +406,19 @@ def read_bundle(path: str | Path) -> tuple[dict[str, Any], list[dict[str, Any]],
 
 
 def verify_bundle(path: str | Path, **kwargs: Any) -> Report:
+    """Verify a bundle file. Never raises on malformed input; problems become findings."""
     try:
         manifest, records, local_log = read_bundle(path)
-    except (KeyError, OSError, zipfile.BadZipFile, json.JSONDecodeError) as exc:
+    except Exception as exc:  # noqa: BLE001 - zip, UTF-8, JSON, recursion and int-size errors alike
         report = Report()
-        report.add(ERROR, "bad_bundle", f"cannot read bundle: {exc}")
+        report.add(ERROR, "bad_bundle", f"cannot read bundle: {type(exc).__name__}: {str(exc)[:300]}")
         return report
+    if not isinstance(manifest, dict) or not isinstance(records, list):
+        report = Report()
+        report.add(ERROR, "bad_bundle", "manifest.json must be a JSON object")
+        return report
+    if local_log is not None and not all(isinstance(e, dict) for e in local_log):
+        local_log = None
     if manifest.get("format") != FORMAT_VERSION:
         report = Report()
         report.add(ERROR, "format_version", f"unsupported bundle format {manifest.get('format')!r}")
