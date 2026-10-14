@@ -1,0 +1,866 @@
+# AI Agent Security Review Checklist
+#
+# Source of truth. checklist.md, checklist.csv and mappings/*.md are generated
+# from this file by scripts/build.py. Edit here, then run:
+#   python scripts/build.py
+#
+# Item IDs are stable. Never renumber or reuse an ID; deprecate instead.
+
+version: 0.1.0
+updated: 2026-10-14
+
+groups:
+  - id: ACC
+    title: Access & scope
+    summary: What the agent can do in the buyer's systems, under which identity, and how that is enforced.
+  - id: ACT
+    title: Action records
+    summary: What is recorded for each agent action, and whether one action can be produced end to end.
+  - id: OUT
+    title: Outcome verification
+    summary: Whether what the agent reports matches what actually happened in the system of record.
+  - id: TMP
+    title: Tamper evidence
+    summary: Whether records can be changed after the fact without anyone noticing, and who can check.
+  - id: INC
+    title: Incident reconstruction
+    summary: Detecting, reporting, stopping and reconstructing what went wrong.
+  - id: RET
+    title: Retention
+    summary: How long records are kept, by whom, and how the buyer gets them.
+  - id: CHG
+    title: Model & prompt changes
+    summary: Which models run, how changes are controlled, and how behaviour is monitored over time.
+  - id: DAT
+    title: Data handling
+    summary: Training use, retention and deletion of buyer data, including inside agent records.
+  - id: HUM
+    title: Human oversight (as the buyer defines it)
+    summary: Evidence that the oversight model the buyer chose was actually followed.
+  - id: SUB
+    title: Sub-processors
+    summary: Model, voice and tool providers behind the agent, and the buyer's audit and regulator rights.
+
+# Frameworks referenced by items. "kind": binding = law/regulation;
+# supervisory = regulator guidance or model bulletin; industry = industry body;
+# voluntary = government voluntary framework; standard = certifiable standard.
+frameworks:
+  finos:
+    name: FINOS AI Governance Framework
+    short: FINOS AIR
+    url: https://air-governance-framework.finos.org/
+    version: Live site incl. v2.0 agentic additions (accessed 2026-10-14)
+    kind: industry
+    access: public
+  fsisac:
+    name: FS-ISAC Generative AI Vendor Risk Assessment Guide
+    short: FS-ISAC GenAI
+    url: https://www.fsisac.com/hubfs/Knowledge/AI/FSISAC_GenerativeAI-VendorEvaluation&QualitativeRiskAssessment.pdf
+    version: February 2024 (guide; question workbook not public)
+    kind: industry
+    access: public guide, workbook gated
+  naic:
+    name: NAIC Model Bulletin on the Use of Artificial Intelligence Systems by Insurers
+    short: NAIC AI Bulletin
+    url: https://content.naic.org/sites/default/files/inline-files/2023-12-4%20Model%20Bulletin_Adopted_0.pdf
+    version: Adopted 2023-12-04
+    kind: supervisory
+    access: public
+  nydfs500:
+    name: NYDFS Cybersecurity Regulation, 23 NYCRR Part 500
+    short: NYDFS 500
+    url: https://www.law.cornell.edu/regulations/new-york/title-23/chapter-I/part-500
+    version: As amended 2023-11-01
+    kind: binding
+    access: public
+  nydfs_ai:
+    name: NYDFS Industry Letter, Cybersecurity Risks Arising from Artificial Intelligence
+    short: NYDFS AI Letter
+    url: https://www.dfs.ny.gov/industry-guidance/industry-letters/il20241016-cyber-risks-ai-and-strategies-combat-related-risks
+    version: 2024-10-16
+    kind: supervisory
+    access: public
+  nydfs_cl7:
+    name: NYDFS Insurance Circular Letter No. 7 (AIS and ECDIS in underwriting and pricing)
+    short: NYDFS CL7
+    url: https://www.dfs.ny.gov/industry-guidance/circular-letters/cl2024-07
+    version: 2024-07-11
+    kind: supervisory
+    access: public
+  aicm:
+    name: CSA AI Controls Matrix (AICM) and AI-CAIQ
+    short: CSA AICM
+    url: https://cloudsecurityalliance.org/artifacts/ai-controls-matrix
+    version: v1.0.3 control titles; v1.1 (Jul 2026) has 247 controls and 320 AI-CAIQ questions
+    kind: industry
+    access: free with CSA login
+  iso42001:
+    name: ISO/IEC 42001:2023 AI management system, Annex A
+    short: ISO 42001
+    url: https://www.iso.org/standard/81230.html
+    version: "2023"
+    kind: standard
+    access: paywalled
+  nist_rmf:
+    name: NIST AI Risk Management Framework 1.0 (NIST AI 100-1)
+    short: NIST AI RMF
+    url: https://nvlpubs.nist.gov/nistpubs/ai/NIST.AI.100-1.pdf
+    version: January 2023
+    kind: voluntary
+    access: public
+  nist_600_1:
+    name: NIST AI 600-1 Generative AI Profile
+    short: NIST AI 600-1
+    url: https://nvlpubs.nist.gov/nistpubs/ai/NIST.AI.600-1.pdf
+    version: July 2024
+    kind: voluntary
+    access: public
+  eu_ai_act:
+    name: EU AI Act, Regulation (EU) 2024/1689
+    short: EU AI Act
+    url: https://eur-lex.europa.eu/eli/reg/2024/1689/oj
+    version: As amended by the Digital Omnibus on AI, Regulation (EU) 2026/1744; Annex III high-risk obligations apply from 2027-12-02
+    kind: binding
+    access: public
+  dora:
+    name: Digital Operational Resilience Act, Regulation (EU) 2022/2554, and its RTS
+    short: DORA
+    url: https://eur-lex.europa.eu/eli/reg/2022/2554/oj
+    version: Applies from 2025-01-17; RTS 2024/1773, 2024/1774, 2025/301, 2025/532
+    kind: binding
+    access: public
+  sig:
+    name: Shared Assessments Standardized Information Gathering (SIG) questionnaire
+    short: SIG
+    url: https://sharedassessments.org/sig/
+    version: SIG 2026 (AI risk domain since SIG 2024; ISO 42001 mapping added in 2026)
+    kind: industry
+    access: licensed; question text not reviewed
+
+items:
+
+  # ---------------------------------------------------------------- ACC
+  - id: ACC-01
+    group: ACC
+    origin: buyer-question
+    question: What actions can your agent take in our systems, and how are those permissions enforced at the moment a tool is called?
+    why: The buyer stays responsible for everything that happens in its systems. An agent acting outside its intended authority is a named risk in agent frameworks, and instructions in a prompt are not an enforcement mechanism.
+    evidence:
+      - Per-agent inventory of tools and actions, with the systems and scopes each one can touch.
+      - Enforcement in code at the tool-invocation layer (allowlists, parameter validation, scoped credentials), not only in the prompt.
+      - Test results showing out-of-scope calls are blocked.
+      - Per-action records that show which scope or permission applied.
+    not_enough:
+      - "The model is instructed not to do X."
+      - A workflow diagram with no enforcement point.
+    often_unevidenced: false
+    capabilities: [scope_record, action_record]
+    references:
+      - {fw: finos, ref: AIR-PREV-018, note: "Agent authority least privilege", confidence: verified, url: "https://air-governance-framework.finos.org/mitigations/mi-18_agent-authority-least-privilege-framework.html"}
+      - {fw: finos, ref: AIR-SEC-024, note: "Risk: agent action authorization bypass", confidence: verified, url: "https://air-governance-framework.finos.org/risks/ri-24_agent-action-authorization-bypass.html"}
+      - {fw: finos, ref: AIR-PREV-019, note: "Tool chain validation and sanitization", confidence: verified, url: "https://air-governance-framework.finos.org/mitigations/mi-19_tool-chain-validation-and-sanitization.html"}
+      - {fw: aicm, ref: IAM-19, note: "Agent access restriction", confidence: title-only}
+      - {fw: aicm, ref: AIS-11, note: "Agents security boundaries", confidence: title-only}
+      - {fw: aicm, ref: IAM-05, note: "Least privilege", confidence: title-only}
+      - {fw: nydfs500, ref: "500.7(a)", note: "Limit access and privileged accounts to what is needed", confidence: verified, url: "https://www.law.cornell.edu/regulations/new-york/23-NYCRR-500.7"}
+      - {fw: nydfs_ai, ref: Access controls, note: "Least privilege and access review apply to AI", confidence: verified}
+      - {fw: iso42001, ref: A.9.4, note: "Intended use of the AI system", confidence: secondary}
+      - {fw: dora, ref: "Art. 9(4)", note: "Least-privilege access and strong authentication", confidence: verified, url: "https://www.digital-operational-resilience-act.com/Article_9.html"}
+      - {fw: sig, ref: AI domain, note: "Domain-level only; question text not reviewed", confidence: title-only}
+
+  - id: ACC-02
+    group: ACC
+    origin: buyer-question
+    question: For every write in our systems, which identity performed it? Which agent and version, under which credential and scope, on whose behalf?
+    why: Agents often act through shared service accounts or human-style browser logins, so the buyer's own logs cannot tell the agent from a staff member, and the vendor's logs cannot be matched to the buyer's.
+    evidence:
+      - A distinct non-human identity per agent deployment, visible in the buyer's system logs.
+      - Each action record carries agent ID and version, credential ID (never the secret), scope, and the initiating user, case or ticket.
+      - Credentials isolated from the model and injected per call.
+    not_enough:
+      - A shared integration user for all agent traffic.
+      - Identity known only inside the vendor's database.
+    often_unevidenced: true
+    capabilities: [identity_binding, action_record]
+    references:
+      - {fw: finos, ref: AIR-PREV-023, note: "Agentic credential protection, signed agent API requests", confidence: verified, url: "https://air-governance-framework.finos.org/mitigations/mi-23_agentic-system-credential-protection-framework.html"}
+      - {fw: finos, ref: AIR-DET-021, note: "Log decision initiation, including the triggering event and context", confidence: verified, url: "https://air-governance-framework.finos.org/mitigations/mi-21_agent-decision-audit-and-explainability.html"}
+      - {fw: finos, ref: AIR-SEC-029, note: "Risk: agent-mediated credential harvesting", confidence: verified, url: "https://air-governance-framework.finos.org/risks/ri-29_agent-mediated-credential-discovery-and-harvesting.html"}
+      - {fw: aicm, ref: IAM-13, note: "Uniquely identifiable users, including non-human", confidence: title-only}
+      - {fw: aicm, ref: IAM-19, note: "Agent access restriction", confidence: title-only}
+      - {fw: aicm, ref: LOG-12, note: "Access control logs", confidence: title-only}
+      - {fw: nydfs500, ref: "500.7(a)", note: "Access privileges and management", confidence: verified, url: "https://www.law.cornell.edu/regulations/new-york/23-NYCRR-500.7"}
+      - {fw: nydfs500, ref: "500.11(b)(1)", note: "Third-party access control guidelines", confidence: verified, url: "https://www.law.cornell.edu/regulations/new-york/23-NYCRR-500.11"}
+
+  - id: ACC-03
+    group: ACC
+    origin: buyer-question
+    question: What stops prompt injection or a manipulated tool chain from causing the agent to take an action in our systems?
+    why: Agents read untrusted content (emails, documents, web pages, tool outputs). If that content can steer a tool call, an attacker can act inside the buyer's systems through the agent.
+    evidence:
+      - Separation of instructions from untrusted data, plus input and output filtering.
+      - Validation of tool selection and parameters before execution.
+      - Red-team results that include indirect injection through retrieved content.
+      - Detection of out-of-pattern actions in the action records.
+    not_enough:
+      - "We use a safe model."
+    often_unevidenced: false
+    capabilities: []
+    references:
+      - {fw: finos, ref: AIR-SEC-025, note: "Risk: tool chain manipulation and injection", confidence: verified, url: "https://air-governance-framework.finos.org/risks/ri-25_tool-chain-manipulation-and-injection.html"}
+      - {fw: finos, ref: AIR-SEC-010, note: "Risk: prompt injection", confidence: verified, url: "https://air-governance-framework.finos.org/risks/ri-10_prompt-injection.html"}
+      - {fw: finos, ref: AIR-PREV-019, note: "Tool chain validation and sanitization", confidence: verified, url: "https://air-governance-framework.finos.org/mitigations/mi-19_tool-chain-validation-and-sanitization.html"}
+      - {fw: finos, ref: AIR-PREV-003, note: "User/app/model firewalling and filtering", confidence: verified, url: "https://air-governance-framework.finos.org/mitigations/mi-3_user-app-model-firewalling-filtering.html"}
+      - {fw: aicm, ref: AIS-15, note: "Prompt differentiation", confidence: title-only}
+      - {fw: aicm, ref: AIS-08 / AIS-09, note: "Input and output validation", confidence: title-only}
+      - {fw: aicm, ref: MDS-06 / MDS-07, note: "Adversarial attack analysis and robustness", confidence: title-only}
+      - {fw: nist_600_1, ref: MS-2.7-007, note: "Red-team for prompt injection and related attacks", confidence: verified}
+      - {fw: nist_rmf, ref: MEASURE 2.7, note: "Security and resilience evaluated and documented", confidence: verified}
+      - {fw: eu_ai_act, ref: "Art. 15(5)", note: "Resilience against manipulation of inputs and outputs (high-risk)", confidence: verified, url: "https://artificialintelligenceact.eu/article/15/"}
+
+  # ---------------------------------------------------------------- ACT
+  - id: ACT-01
+    group: ACT
+    origin: buyer-question
+    question: For any single agent action, can you produce the complete record? What triggered it, which inputs and sources it used, the exact tool call and arguments, the system's response, and the downstream effect.
+    why: Reviewers and examiners pick one case and ask you to walk through it. If the record is spread across chat transcripts, APM traces and the vendor UI, the answer takes days and cannot be checked.
+    evidence:
+      - A per-action record with trigger, inputs, retrieved sources, tool name, arguments (redacted where needed), the system response, timestamps and a trace ID.
+      - A sample export for one real (redacted) case, produced on request in minutes.
+    not_enough:
+      - A chat transcript without the tool calls.
+      - Infrastructure logs only.
+    often_unevidenced: true
+    capabilities: [action_record]
+    references:
+      - {fw: finos, ref: AIR-DET-021, note: "Log inputs, reasoning, tool selection, actions taken and downstream effects", confidence: verified, url: "https://air-governance-framework.finos.org/mitigations/mi-21_agent-decision-audit-and-explainability.html"}
+      - {fw: aicm, ref: LOG-11, note: "Transaction/activity logging", confidence: title-only}
+      - {fw: aicm, ref: LOG-08, note: "Log records contain relevant security information", confidence: secondary}
+      - {fw: aicm, ref: LOG-14 / LOG-15, note: "AI input and output monitoring", confidence: title-only}
+      - {fw: eu_ai_act, ref: "Art. 12(1)-(2)", note: "Automatic event logging over the lifetime that enables traceability (high-risk)", confidence: verified, url: "https://artificialintelligenceact.eu/article/12/"}
+      - {fw: iso42001, ref: A.6.2.8, note: "AI system recording of event logs", confidence: secondary}
+      - {fw: nydfs500, ref: "500.6(a)(1)", note: "Systems able to reconstruct material financial transactions", confidence: verified, url: "https://www.law.cornell.edu/regulations/new-york/23-NYCRR-500.6"}
+      - {fw: naic, ref: "Sec. 3, 3.3(b)-(c)", note: "Model documentation, traceability and auditability", confidence: verified}
+      - {fw: nydfs_cl7, ref: "¶19", note: "Be able to explain at all times how the AIS operates", confidence: verified}
+
+  - id: ACT-02
+    group: ACT
+    origin: buyer-question
+    question: Which model and version handled a given action, including actions served by versions you have since retired?
+    why: Vendors route between several models and providers. When a past decision is challenged, the buyer must know which model produced it, even if that model is gone.
+    evidence:
+      - Model provider, model name and pinned version stored on every action record.
+      - A model inventory that keeps retired versions with their active dates.
+    not_enough:
+      - A current list of providers with no per-action version.
+    often_unevidenced: true
+    capabilities: [model_version, action_record]
+    references:
+      - {fw: finos, ref: AIR-PREV-010, note: "AI model version pinning", confidence: verified, url: "https://air-governance-framework.finos.org/mitigations/mi-10_ai-model-version-pinning.html"}
+      - {fw: finos, ref: AIR-OP-005, note: "Risk: foundation model versioning", confidence: verified, url: "https://air-governance-framework.finos.org/risks/ri-5_foundation-model-versioning.html"}
+      - {fw: nist_600_1, ref: GV-1.6-003, note: "Inventory records underlying models and versions", confidence: verified}
+      - {fw: nist_rmf, ref: GOVERN 1.6 / 1.7, note: "AI inventory and decommissioning", confidence: verified}
+      - {fw: naic, ref: "Sec. 3, 3.3(a)", note: "Model inventory", confidence: verified}
+      - {fw: nydfs_cl7, ref: "¶29", note: "Inventory including retired AIS, with change tracking", confidence: verified}
+      - {fw: aicm, ref: MDS-03 to MDS-05, note: "Model documentation", confidence: title-only}
+      - {fw: aicm, ref: MDS-09, note: "Model signing and ownership verification", confidence: title-only}
+
+  - id: ACT-03
+    group: ACT
+    origin: buyer-question
+    question: Show every model endpoint and external service the agent actually called for our traffic, not just the list in your inventory.
+    why: An inventory says what should be called. Destination records show what was called, which is what data-flow and data-residency reviews need.
+    evidence:
+      - Per-action record of each outbound call (provider, endpoint, region).
+      - A periodic summary per buyer comparing actual destinations with the declared sub-processor list.
+    not_enough:
+      - A static sub-processor page.
+    often_unevidenced: true
+    capabilities: [action_record]
+    references:
+      - {fw: aicm, ref: STA-16, note: "Service bill of materials", confidence: title-only}
+      - {fw: aicm, ref: DSP-05, note: "Data flow documentation", confidence: title-only}
+      - {fw: finos, ref: AIR-DET-004, note: "AI system observability, centralized logs", confidence: verified, url: "https://air-governance-framework.finos.org/mitigations/mi-4_ai-system-observability.html"}
+      - {fw: finos, ref: AIR-PREV-020, note: "Log all MCP traffic", confidence: verified, url: "https://air-governance-framework.finos.org/mitigations/mi-20_mcp-server-security-governance.html"}
+      - {fw: nydfs_ai, ref: Monitoring, note: "Monitor AI tool use for unusual query behaviour", confidence: verified}
+      - {fw: dora, ref: "Art. 30(2)(b)", note: "Contract specifies data processing locations and notice of changes", confidence: verified, url: "https://www.digital-operational-resilience-act.com/Article_30.html"}
+
+  - id: ACT-04
+    group: ACT
+    origin: buyer-question
+    question: Which documents and records contributed to each answer or action?
+    why: Reviewers need to trace an output back to its sources, both to check correctness and to confirm the agent only used data it was entitled to see.
+    evidence:
+      - Source IDs (document, record, version) stored on the action record.
+      - Entitlement checks that carry the source system's access controls into retrieval.
+    not_enough:
+      - Citations shown in the UI but not retained.
+    often_unevidenced: false
+    capabilities: [action_record]
+    references:
+      - {fw: finos, ref: AIR-DET-013, note: "Citations and source traceability", confidence: verified, url: "https://air-governance-framework.finos.org/mitigations/mi-13_providing-citations-and-source-traceability-for-ai-generated-information.html"}
+      - {fw: finos, ref: AIR-DET-016, note: "Preserve source data access controls", confidence: verified, url: "https://air-governance-framework.finos.org/mitigations/mi-16_preserving-source-data-access-controls-in-ai-systems.html"}
+      - {fw: aicm, ref: DSP-20, note: "Data provenance and transparency", confidence: title-only}
+      - {fw: iso42001, ref: A.7.5, note: "Data provenance", confidence: secondary}
+
+  - id: ACT-05
+    group: ACT
+    origin: buyer-question
+    question: What is the lineage of the data used in a decision? Where did each input come from, and how current was it?
+    why: Insurance and lending regulators ask for data lineage, and stale or wrong inputs are a common root cause of bad decisions.
+    evidence:
+      - Documented data flows per use case.
+      - Input source and retrieval timestamp stored with the decision.
+    not_enough:
+      - A generic architecture diagram.
+    often_unevidenced: false
+    capabilities: []
+    references:
+      - {fw: naic, ref: "Sec. 3, 3.2", note: "Data practices incl. lineage and integrity", confidence: verified}
+      - {fw: nydfs_cl7, ref: "¶29", note: "Documentation of inputs and their sources", confidence: verified}
+      - {fw: iso42001, ref: A.7.5, note: "Data provenance", confidence: secondary}
+      - {fw: aicm, ref: DSP-20, note: "Data provenance and transparency", confidence: title-only}
+      - {fw: nist_600_1, ref: GV-6.1-008, note: "Records of third-party content changes with sources and timestamps", confidence: verified}
+
+  - id: ACT-06
+    group: ACT
+    origin: buyer-question
+    question: For an adverse decision, can you give the specific reasons and the data relied on? A proprietary model is not an acceptable reason to withhold them.
+    why: Consumer-facing lenders and insurers must give specific reasons for adverse outcomes, and regulators reject vendor secrecy as an excuse.
+    evidence:
+      - Reason codes and the specific inputs relied on, stored per decision.
+      - A sample adverse-decision explanation produced from the stored record.
+    not_enough:
+      - Global feature importance for the model.
+    often_unevidenced: false
+    capabilities: []
+    references:
+      - {fw: nydfs_cl7, ref: "¶39-¶40", note: "Reasons include all information relied on; no proprietary-algorithm excuse", confidence: verified}
+      - {fw: nydfs_cl7, ref: "¶44", note: "Written reasons within 15 days in specified cases", confidence: verified}
+      - {fw: eu_ai_act, ref: "Art. 86(1)", note: "Right to explanation for affected persons (Annex III)", confidence: verified, url: "https://artificialintelligenceact.eu/article/86/"}
+      - {fw: nist_rmf, ref: MEASURE 2.9, note: "Explain and interpret output in context", confidence: verified}
+      - {fw: aicm, ref: GRC-13 / GRC-14, note: "Explainability requirement and evaluation", confidence: title-only}
+      - {fw: finos, ref: AIR-OP-017, note: "Risk: lack of explainability", confidence: verified, url: "https://air-governance-framework.finos.org/risks/ri-17_lack-of-explainability.html"}
+
+  - id: ACT-07
+    group: ACT
+    origin: buyer-question
+    question: For customer-facing agents, can you show per interaction that the conduct rules for our use case were met, such as AI disclosure, contact-time windows and contact-frequency limits?
+    why: In collections, servicing and sales, a single non-compliant contact can be a violation. Buyers want per-interaction proof, not a policy that the platform enforces rules.
+    evidence:
+      - Per-interaction record of the disclosure given, the time in the customer's time zone, and the frequency counter at the time of contact.
+      - Rule configuration and version applied to each interaction.
+    not_enough:
+      - "QA reviews a sample of calls."
+    often_unevidenced: true
+    capabilities: [action_record, config_version]
+    references:
+      - {fw: eu_ai_act, ref: "Art. 50(1)", note: "Inform people they are interacting with an AI system", confidence: verified, url: "https://artificialintelligenceact.eu/article/50/"}
+      - {fw: aicm, ref: LOG-11, note: "Transaction/activity logging", confidence: title-only}
+    note: The specific conduct rules (for example debt-collection contact limits) come from the sector law for your use case and are not mapped here.
+
+  # ---------------------------------------------------------------- OUT
+  - id: OUT-01
+    group: OUT
+    origin: derived
+    derived_from: ACT-01 (downstream effect) and INC-01
+    question: When the agent says it did something, how do you know it actually happened in our system, as described?
+    why: An agent's own summary ("refund issued") is not evidence. Agents can report success while the target system shows an error, a different amount or nothing at all. Reviewers want the system of record's response next to the claim.
+    evidence:
+      - Each action record stores both the agent's claim and the target system's actual response (status, object ID, returned values).
+      - Optional read-back that queries the system of record and records match or mismatch.
+      - Mismatch rate per period, reported to the buyer.
+    not_enough:
+      - The agent's final message.
+      - HTTP 200 without checking the returned object.
+    often_unevidenced: true
+    capabilities: [outcome_check, action_record]
+    references:
+      - {fw: finos, ref: AIR-DET-021, note: "Log actions taken and their downstream effects", confidence: verified, url: "https://air-governance-framework.finos.org/mitigations/mi-21_agent-decision-audit-and-explainability.html"}
+      - {fw: nydfs500, ref: "500.6(a)(1)", note: "Reconstruct material financial transactions", confidence: verified, url: "https://www.law.cornell.edu/regulations/new-york/23-NYCRR-500.6"}
+      - {fw: eu_ai_act, ref: "Art. 12(2)", note: "Logs enable traceability and deployer monitoring", confidence: verified, url: "https://artificialintelligenceact.eu/article/12/"}
+      - {fw: naic, ref: "Sec. 3, 3.4", note: "Validate and retest outputs after implementation", confidence: verified}
+      - {fw: nist_rmf, ref: MEASURE 2.4, note: "Monitor behaviour in production", confidence: verified}
+
+  - id: OUT-02
+    group: OUT
+    origin: derived
+    derived_from: INC-02
+    question: How do you detect and report actions that failed, only partly completed, or produced a different result than intended?
+    why: Silent failures are the hardest to catch. A buyer wants to see failures counted and reported, not discovered by a customer.
+    evidence:
+      - Failed, partial and mismatched actions counted per period, with examples, in the buyer's report.
+      - Alert thresholds and owners.
+      - Reconciliation against the system of record for high-impact actions.
+    not_enough:
+      - Error rate from APM only.
+    often_unevidenced: true
+    capabilities: [outcome_check, report]
+    references:
+      - {fw: aicm, ref: LOG-13, note: "Failures and anomalies reporting", confidence: title-only}
+      - {fw: aicm, ref: MDS-11, note: "Model failure", confidence: title-only}
+      - {fw: finos, ref: AIR-DET-004, note: "Observability and alerting on anomalies", confidence: verified, url: "https://air-governance-framework.finos.org/mitigations/mi-4_ai-system-observability.html"}
+      - {fw: nist_600_1, ref: MG-4.3-002, note: "Track errors, near-misses and negative impacts", confidence: verified}
+      - {fw: iso42001, ref: A.6.2.6, note: "AI system operation and monitoring", confidence: secondary}
+      - {fw: dora, ref: "Art. 17(1)-(3)", note: "Detect, log, classify and track ICT incidents", confidence: verified, url: "https://www.digital-operational-resilience-act.com/Article_17.html"}
+
+  # ---------------------------------------------------------------- TMP
+  - id: TMP-01
+    group: TMP
+    origin: buyer-question
+    question: Are agent action records protected so that any edit, deletion, reordering or truncation after the fact is detectable?
+    why: Access controls protect logs from outsiders, not from the party that writes them. "Immutable" is a claim; reviewers increasingly ask for the mechanism.
+    evidence:
+      - Hash-chained, append-only records (each record commits to the previous one).
+      - Digital signatures with keys separated from application operators.
+      - Periodic commitment of segment digests (for example a Merkle root) so truncation is detectable.
+      - Synchronized clocks and documented key management.
+    not_enough:
+      - '"Logs are immutable" with no mechanism.'
+      - Write-protected storage alone, where the vendor still controls the storage.
+    often_unevidenced: true
+    capabilities: [signed_records, hash_chain]
+    references:
+      - {fw: finos, ref: AIR-DET-021, note: "Tamper-evident logging and immutable records; names hash chaining and signed segments", confidence: verified, url: "https://air-governance-framework.finos.org/mitigations/mi-21_agent-decision-audit-and-explainability.html"}
+      - {fw: finos, ref: AIR-PREV-024, note: "Tamper-evident approval record; hash chaining alone is not non-repudiation", confidence: verified, url: "https://air-governance-framework.finos.org/mitigations/mi-24_human-in-the-loop-action-approval-gate.html"}
+      - {fw: dora, ref: "RTS 2024/1774 Art. 12", note: "Protect logging systems and log information against tampering and deletion", confidence: secondary, url: "https://www.springlex.eu/en/packages/dora/rts-rmf-regulation/article-12/"}
+      - {fw: aicm, ref: LOG-09, note: "Protect audit records from modification and deletion", confidence: secondary}
+      - {fw: aicm, ref: IAM-12, note: "Safeguard logs integrity", confidence: secondary}
+      - {fw: aicm, ref: LOG-02, note: "Audit logs protection", confidence: secondary}
+      - {fw: aicm, ref: LOG-06, note: "Clock synchronization", confidence: title-only}
+      - {fw: nist_600_1, ref: MS-2.8-003, note: "Tamper-proof history of generated content (content provenance) with version control", confidence: verified}
+      - {fw: nydfs500, ref: "500.6(a)", note: "Securely maintain audit trail systems (no cryptographic requirement)", confidence: verified, url: "https://www.law.cornell.edu/regulations/new-york/23-NYCRR-500.6"}
+
+  - id: TMP-02
+    group: TMP
+    origin: buyer-question
+    question: Can we, our auditor or our regulator verify those records ourselves, without access to your systems and without relying on your word?
+    why: Logs the vendor writes, stores and attests to are self-reported evidence. The strongest records are those a third party can check independently.
+    evidence:
+      - A verification tool the buyer can run offline on an exported bundle.
+      - Public keys and verification steps documented.
+      - Record digests anchored outside the vendor (for example an append-only transparency log) or held by the buyer.
+      - A worked example showing a tampered bundle failing verification.
+    not_enough:
+      - A screenshot or PDF export from the vendor's UI.
+      - A SOC 2 report, which covers controls, not individual records.
+    often_unevidenced: true
+    capabilities: [external_anchor, offline_verifier]
+    references:
+      - {fw: finos, ref: AIR-DET-021, note: "Records verifiable by deployer, auditor or authority without privileged access to the provider; anchoring to a transparency log", confidence: verified, url: "https://air-governance-framework.finos.org/mitigations/mi-21_agent-decision-audit-and-explainability.html"}
+      - {fw: dora, ref: "Art. 30(3)(e)", note: "Unrestricted rights of access, inspection and audit (critical or important functions)", confidence: verified, url: "https://www.digital-operational-resilience-act.com/Article_30.html"}
+      - {fw: eu_ai_act, ref: "Art. 13(3)(f)", note: "Mechanisms that let deployers collect, store and interpret logs (high-risk)", confidence: verified, url: "https://artificialintelligenceact.eu/article/13/"}
+    note: FINOS is the only framework found that states independent verifiability explicitly. Elsewhere it follows from audit and access rights.
+
+  - id: TMP-03
+    group: TMP
+    origin: buyer-question
+    question: Who at your company can read, change or delete agent records, and is that access itself logged?
+    why: Privileged insiders are the main threat to record integrity. Reviewers expect named roles and an access trail.
+    evidence:
+      - Named roles with access to record storage and keys.
+      - Access to records logged against individual identities and reviewed.
+      - Separation between people who run the agent and people who can touch records or keys.
+    not_enough:
+      - '"Only engineers have access."'
+    often_unevidenced: false
+    capabilities: []
+    references:
+      - {fw: aicm, ref: LOG-04, note: "Audit log access restricted and attributable", confidence: secondary}
+      - {fw: aicm, ref: IAM-12, note: "Logging infrastructure read-only to those with other write access", confidence: secondary}
+      - {fw: aicm, ref: IAM-04, note: "Separation of duties", confidence: title-only}
+      - {fw: nydfs500, ref: "500.7(c)", note: "Privileged access monitoring (Class A companies)", confidence: verified, url: "https://www.law.cornell.edu/regulations/new-york/23-NYCRR-500.7"}
+
+  # ---------------------------------------------------------------- INC
+  - id: INC-01
+    group: INC
+    origin: buyer-question
+    question: After an incident, can you reconstruct exactly what the agent did, in which of our systems, under which identity, and in what order?
+    why: Incident response, root-cause analysis and regulator notifications all depend on an ordered, complete account. Gaps are what turn an incident into a finding.
+    evidence:
+      - For a time window or case, an ordered export of all actions across all buyer systems, with identity, scope, inputs and system responses.
+      - Evidence the sequence is complete (no gaps) and unaltered.
+      - A tabletop exercise or test showing how long reconstruction takes.
+    not_enough:
+      - "Our engineers can query the database."
+    often_unevidenced: true
+    capabilities: [action_record, hash_chain, pack]
+    references:
+      - {fw: finos, ref: AIR-DET-021, note: "Tier 1 is reconstruction of what happened", confidence: verified, url: "https://air-governance-framework.finos.org/mitigations/mi-21_agent-decision-audit-and-explainability.html"}
+      - {fw: nydfs500, ref: "500.6(a)", note: "Audit trails to reconstruct transactions and respond to cybersecurity events", confidence: verified, url: "https://www.law.cornell.edu/regulations/new-york/23-NYCRR-500.6"}
+      - {fw: nydfs500, ref: "500.16(a)(1)", note: "Incident response plan incl. documentation and root cause", confidence: verified, url: "https://www.law.cornell.edu/regulations/new-york/23-NYCRR-500.16"}
+      - {fw: dora, ref: "Art. 17(1)-(3)", note: "Incident detection, logging and root-cause analysis", confidence: verified, url: "https://www.digital-operational-resilience-act.com/Article_17.html"}
+      - {fw: dora, ref: "Art. 30(2)(f)", note: "Provider assists with ICT incidents", confidence: verified, url: "https://www.digital-operational-resilience-act.com/Article_30.html"}
+      - {fw: eu_ai_act, ref: "Art. 73", note: "Serious incident reporting; provider must not alter the system before informing authorities", confidence: verified, url: "https://artificialintelligenceact.eu/article/73/"}
+      - {fw: aicm, ref: SEF-09, note: "Incident response", confidence: title-only}
+      - {fw: aicm, ref: LOG-05 / LOG-06, note: "Audit log monitoring and clock synchronization", confidence: title-only}
+      - {fw: nist_rmf, ref: MANAGE 4.3, note: "Track and recover from incidents and errors", confidence: verified}
+
+  - id: INC-02
+    group: INC
+    origin: buyer-question
+    question: How do you detect and report model failures, data leakage or harmful outputs, and on what timeline will we hear about them?
+    why: The buyer has its own notification clocks (72 hours under NYDFS 500, 4 hours from classification and at most 24 hours from awareness under DORA). Vendor timelines must fit inside them.
+    evidence:
+      - Contractual notification timeline that fits the buyer's obligations.
+      - Detection sources (monitoring, alerts, user reports) and owners.
+      - A recent incident report or tabletop record (redacted).
+    not_enough:
+      - A generic incident-response policy with no AI-specific triggers.
+    often_unevidenced: false
+    capabilities: []
+    references:
+      - {fw: nydfs500, ref: "500.11(b)(3)", note: "Third-party notice of cybersecurity events", confidence: verified, url: "https://www.law.cornell.edu/regulations/new-york/23-NYCRR-500.11"}
+      - {fw: nydfs500, ref: "500.17(a)", note: "Notify DFS within 72 hours, incl. third-party incidents", confidence: verified, url: "https://www.law.cornell.edu/regulations/new-york/23-NYCRR-500.17"}
+      - {fw: nydfs_ai, ref: Risk assessments, note: "Incident and continuity plans should address AI-related events", confidence: verified}
+      - {fw: dora, ref: "Art. 19; RTS 2025/301", note: "Major ICT incident reporting and time limits", confidence: secondary, url: "https://www.digital-operational-resilience-act.com/Article_19.html"}
+      - {fw: eu_ai_act, ref: "Art. 73(2)-(6)", note: "Serious incident reporting deadlines (high-risk)", confidence: verified, url: "https://artificialintelligenceact.eu/article/73/"}
+      - {fw: aicm, ref: SEF-07, note: "Security breach notification", confidence: title-only}
+      - {fw: aicm, ref: MDS-11, note: "Model failure", confidence: title-only}
+      - {fw: iso42001, ref: A.8.4, note: "Communication of incidents", confidence: secondary}
+      - {fw: nist_600_1, ref: MG-4.3-002, note: "Track errors and negative impacts", confidence: verified}
+      - {fw: finos, ref: AIR-DET-001, note: "AI data leakage prevention and detection", confidence: verified, url: "https://air-governance-framework.finos.org/mitigations/mi-1_ai-data-leakage-prevention-and-detection.html"}
+      - {fw: fsisac, ref: Levels 2-3, note: "Vulnerability management, DLP and log management in deeper due diligence", confidence: verified}
+
+  - id: INC-03
+    group: INC
+    origin: buyer-question
+    question: How quickly can we stop the agent, or roll it back to a previous model or configuration?
+    why: When something goes wrong the first question is how to stop it. Rollback also matters when a provider changes a model underneath you.
+    evidence:
+      - A kill switch the buyer can trigger, with tested time to effect.
+      - Pinned model and prompt versions with a documented rollback path.
+      - Results of the last rollback test.
+    not_enough:
+      - "Contact support."
+    often_unevidenced: false
+    capabilities: []
+    references:
+      - {fw: eu_ai_act, ref: "Art. 14(4)(e)", note: "Ability to interrupt the system with a stop procedure (high-risk)", confidence: verified, url: "https://artificialintelligenceact.eu/article/14/"}
+      - {fw: nist_rmf, ref: MANAGE 2.4, note: "Mechanisms to supersede, disengage or deactivate", confidence: verified}
+      - {fw: nist_600_1, ref: MG-2.4-002 / MG-2.4-004, note: "Escalation and deactivation criteria", confidence: verified}
+      - {fw: aicm, ref: CCC-09, note: "Change restoration", confidence: title-only}
+      - {fw: finos, ref: AIR-PREV-010, note: "Model version pinning", confidence: verified, url: "https://air-governance-framework.finos.org/mitigations/mi-10_ai-model-version-pinning.html"}
+      - {fw: iso42001, ref: A.6.2.5, note: "AI system deployment plan", confidence: secondary}
+      - {fw: dora, ref: "Art. 28(7)-(8); Art. 30(3)(f)", note: "Termination rights, exit plans and transition", confidence: verified, url: "https://www.digital-operational-resilience-act.com/Article_28.html"}
+      - {fw: nydfs500, ref: "500.16(a)", note: "Incident response and continuity plans", confidence: verified, url: "https://www.law.cornell.edu/regulations/new-york/23-NYCRR-500.16"}
+
+  # ---------------------------------------------------------------- RET
+  - id: RET-01
+    group: RET
+    origin: buyer-question
+    question: What do you log about agent activity, how long do you keep it, who can access it, and can you export it to our SIEM or GRC tool?
+    why: Log management is an explicit topic in the deepest tier of bank AI due diligence. Short default retention is a common finding.
+    evidence:
+      - A list of logged event types for agent actions (not just infrastructure).
+      - Retention period per log type.
+      - Export mechanism (API or scheduled delivery) and a sample export.
+    not_enough:
+      - '"Logs retained for 30 days" with no agent-action logs.'
+    often_unevidenced: false
+    capabilities: [retention_policy, export]
+    references:
+      - {fw: fsisac, ref: Level 3, note: "Log management, audit validation and data retention", confidence: verified}
+      - {fw: aicm, ref: LOG-01 / LOG-02 / LOG-07, note: "Logging policy, protection and scope", confidence: secondary}
+      - {fw: dora, ref: "RTS 2024/1774 Art. 12", note: "Define logged events and retention", confidence: secondary, url: "https://www.springlex.eu/en/packages/dora/rts-rmf-regulation/article-12/"}
+      - {fw: iso42001, ref: A.6.2.8, note: "AI system recording of event logs", confidence: secondary}
+      - {fw: finos, ref: AIR-DET-004, note: "Centralize AI logs, for example in a SIEM", confidence: verified, url: "https://air-governance-framework.finos.org/mitigations/mi-4_ai-system-observability.html"}
+      - {fw: nydfs_ai, ref: Monitoring, note: "Monitor user activity and AI tool use", confidence: verified}
+      - {fw: sig, ref: AI domain, note: "Domain-level only; question text not reviewed", confidence: title-only}
+
+  - id: RET-02
+    group: RET
+    origin: buyer-question
+    question: Can we hold our own copy of the agent's event logs for the period our rules require?
+    why: Under the EU AI Act, deployers of high-risk systems must keep the logs under their control for at least six months, and financial institutions keep them under their financial-services record rules. A vendor-only copy does not meet that.
+    evidence:
+      - Continuous or scheduled delivery of records into storage the buyer controls.
+      - Format documented so the buyer's copy remains verifiable on its own.
+    not_enough:
+      - "We can send logs on request."
+    often_unevidenced: true
+    capabilities: [buyer_copy, retention_policy]
+    references:
+      - {fw: eu_ai_act, ref: "Art. 26(6)", note: "Deployer keeps logs at least six months; financial institutions under financial law (high-risk)", confidence: verified, url: "https://artificialintelligenceact.eu/article/26/"}
+      - {fw: eu_ai_act, ref: "Art. 19(1)-(2)", note: "Provider keeps logs it controls at least six months", confidence: verified, url: "https://artificialintelligenceact.eu/article/19/"}
+      - {fw: eu_ai_act, ref: "Art. 12(1)", note: "Automatic logging over the lifetime", confidence: verified, url: "https://artificialintelligenceact.eu/article/12/"}
+      - {fw: nydfs500, ref: "500.6(b)", note: "Covered entity keeps audit-trail records five years", confidence: verified, url: "https://www.law.cornell.edu/regulations/new-york/23-NYCRR-500.6"}
+    note: EU AI Act Annex III high-risk obligations (including credit scoring and life/health insurance pricing) apply from 2 Dec 2027 after the Digital Omnibus, Regulation (EU) 2026/1744.
+
+  - id: RET-03
+    group: RET
+    origin: buyer-question
+    question: How do we get timely access to our data and to reports on the agent's activity, by type and frequency?
+    why: Buyers must be able to monitor the service and to give data to auditors and regulators on demand.
+    evidence:
+      - Report types and cadence in the contract (activity, failures, incidents, changes).
+      - Self-service export of the buyer's data and records.
+    not_enough:
+      - A dashboard with no export.
+    often_unevidenced: false
+    capabilities: [pack, export]
+    references:
+      - {fw: dora, ref: "Art. 30(2)(d)", note: "Access to and return of data in an accessible format", confidence: verified, url: "https://www.digital-operational-resilience-act.com/Article_30.html"}
+      - {fw: dora, ref: "RTS 2024/1773 Art. 3", note: "Effective data access for auditors and authorities", confidence: secondary, url: "https://advisera.com/cdr-2024-1773/governance-arrangements/"}
+      - {fw: eu_ai_act, ref: "Art. 13(3)(f)", note: "Log collection mechanisms described for deployers", confidence: verified, url: "https://artificialintelligenceact.eu/article/13/"}
+      - {fw: iso42001, ref: A.8.5, note: "Information for interested parties", confidence: secondary}
+      - {fw: naic, ref: "Sec. 4, 1.1-1.3", note: "Documents regulators may request", confidence: verified}
+
+  - id: RET-04
+    group: RET
+    origin: derived
+    derived_from: RET-01 and RET-02
+    question: Does the retention of agent records match our own record-keeping obligations, and what happens to the records when the contract ends?
+    why: Vendor defaults (often weeks) rarely match the buyer's retention duties (often years). On exit, the buyer still needs the records.
+    evidence:
+      - Retention configurable per buyer, set to the buyer's requirement.
+      - Exit clause covering return of records in a verifiable format before deletion.
+    not_enough:
+      - A fixed vendor-wide retention period.
+    often_unevidenced: false
+    capabilities: [retention_policy, buyer_copy]
+    references:
+      - {fw: nydfs500, ref: "500.6(b)", note: "Five-year retention for covered entities' audit trails", confidence: verified, url: "https://www.law.cornell.edu/regulations/new-york/23-NYCRR-500.6"}
+      - {fw: eu_ai_act, ref: "Art. 19(2); Art. 26(6)", note: "Financial institutions keep logs under financial-services documentation rules", confidence: verified, url: "https://artificialintelligenceact.eu/article/26/"}
+      - {fw: dora, ref: "Art. 28(8); Art. 30(2)(d)", note: "Exit plans and return of data", confidence: verified, url: "https://www.digital-operational-resilience-act.com/Article_28.html"}
+      - {fw: naic, ref: "Sec. 3, 3.6", note: "Data and record retention in the AIS program", confidence: verified}
+
+  # ---------------------------------------------------------------- CHG
+  - id: CHG-01
+    group: CHG
+    origin: buyer-question
+    question: Which foundation models and providers sit behind each feature, and how will you notify us when they change?
+    why: The model is the most important sub-component. Silent model swaps change behaviour and can invalidate the buyer's validation.
+    evidence:
+      - Model and provider list per feature, with versions.
+      - Contractual advance notice of model or provider changes.
+      - Change log available to the buyer.
+    not_enough:
+      - "We use leading LLMs."
+    often_unevidenced: false
+    capabilities: [model_version]
+    references:
+      - {fw: fsisac, ref: Level 1, note: "Identify the foundation model", confidence: verified}
+      - {fw: nist_600_1, ref: GV-1.6-003; GV-6.2-007, note: "Inventory of models and versions; contracts address liability for changes over time", confidence: verified}
+      - {fw: finos, ref: AIR-PREV-007, note: "Contracts cover model versioning and change notification", confidence: verified, url: "https://air-governance-framework.finos.org/mitigations/mi-7_legal-and-contractual-frameworks-for-ai-systems.html"}
+      - {fw: finos, ref: AIR-PREV-010, note: "Advance notice of new versions and deprecations", confidence: verified, url: "https://air-governance-framework.finos.org/mitigations/mi-10_ai-model-version-pinning.html"}
+      - {fw: aicm, ref: CCC-05; STA-08; STA-16, note: "Change agreements, supply chain inventory, service BOM", confidence: title-only}
+      - {fw: nydfs_ai, ref: Data management, note: "Inventory of all systems that use or rely on AI", confidence: verified}
+      - {fw: dora, ref: "Art. 28(3)", note: "Register of ICT third-party arrangements", confidence: verified, url: "https://www.digital-operational-resilience-act.com/Article_28.html"}
+      - {fw: iso42001, ref: A.4.4; A.10.3, note: "Tooling resources; suppliers", confidence: secondary}
+
+  - id: CHG-02
+    group: CHG
+    origin: buyer-question
+    question: How are changes to prompts, agent logic, tools and models tested, approved and versioned before they reach our traffic?
+    why: For agents, a prompt edit is a code change. Buyers want the same change control they expect for software.
+    evidence:
+      - Versioned prompts, tool definitions and configs, with the version stored on each action record.
+      - Pre-release evaluation results and a named approver per change.
+      - Change history the buyer can review.
+    not_enough:
+      - Prompts edited in a vendor console with no history.
+    often_unevidenced: false
+    capabilities: [config_version]
+    references:
+      - {fw: fsisac, ref: Level 3, note: "Change management", confidence: verified}
+      - {fw: aicm, ref: CCC-01 to CCC-09, note: "Change control and configuration management", confidence: title-only}
+      - {fw: nydfs_cl7, ref: "¶17; ¶29", note: "Test on material changes; track changes with approvers", confidence: verified}
+      - {fw: dora, ref: "Art. 9(4)", note: "Recorded, tested and approved ICT changes", confidence: verified, url: "https://www.digital-operational-resilience-act.com/Article_9.html"}
+      - {fw: iso42001, ref: A.6.2.4; A.6.2.5, note: "Verification and validation; deployment", confidence: secondary}
+      - {fw: nist_rmf, ref: MANAGE 4.1, note: "Post-deployment monitoring incl. change management", confidence: verified}
+      - {fw: finos, ref: AIR-PREV-005, note: "System acceptance testing", confidence: verified, url: "https://air-governance-framework.finos.org/mitigations/mi-5_system-acceptance-testing.html"}
+      - {fw: finos, ref: AIR-PREV-025, note: "Skill and plugin integrity", confidence: verified, url: "https://air-governance-framework.finos.org/mitigations/mi-25_skill-plugin-integrity-and-governance.html"}
+      - {fw: nist_600_1, ref: MS-2.8-003, note: "Version control across the lifecycle (content provenance)", confidence: verified}
+
+  - id: CHG-03
+    group: CHG
+    origin: buyer-question
+    question: How is the agent validated, independently or on an ongoing basis, including drift and bias testing?
+    why: Banks and insurers apply model risk management to vendor models. They need validation evidence they can file.
+    evidence:
+      - Validation methodology and latest results, including bias testing where decisions affect consumers.
+      - Drift monitoring and re-validation triggers.
+      - Any independent validation report.
+    not_enough:
+      - Marketing benchmark numbers.
+    often_unevidenced: false
+    capabilities: []
+    references:
+      - {fw: fsisac, ref: Level 2, note: "Model validation", confidence: verified}
+      - {fw: naic, ref: "Sec. 3, 3.3(c); 3.4", note: "Drift and auditability; validation and retesting", confidence: verified}
+      - {fw: nydfs_cl7, ref: "¶15-¶17; ¶32", note: "Testing and independent review", confidence: verified}
+      - {fw: nist_rmf, ref: MEASURE 2.3 / 2.5 / 2.11, note: "Performance, validity and fairness", confidence: verified}
+      - {fw: aicm, ref: MDS-10; GRC-11; A&A-02, note: "Continuous monitoring, bias assessment, independent assessments", confidence: title-only}
+      - {fw: iso42001, ref: A.6.2.4, note: "Verification and validation", confidence: secondary}
+      - {fw: finos, ref: AIR-DET-015, note: "LLM-as-a-judge evaluation calibrated to humans", confidence: verified, url: "https://air-governance-framework.finos.org/mitigations/mi-15_using-large-language-models-for-automated-evaluation-llm-as-a-judge-.html"}
+
+  - id: CHG-04
+    group: CHG
+    origin: buyer-question
+    question: What ongoing monitoring do you report to us? Performance, error rates, complaints and drift.
+    why: Third-party oversight is continuous, not a one-time review. The buyer needs regular data to show its own supervisors.
+    evidence:
+      - A recurring report with defined metrics and thresholds.
+      - Escalation when thresholds are breached.
+    not_enough:
+      - Ad-hoc updates on request.
+    often_unevidenced: false
+    capabilities: [report]
+    references:
+      - {fw: nist_rmf, ref: GOVERN 1.5; MEASURE 2.4; MANAGE 4.1, note: "Planned and post-deployment monitoring", confidence: verified}
+      - {fw: eu_ai_act, ref: "Art. 72", note: "Post-market monitoring by the provider (high-risk)", confidence: verified, url: "https://artificialintelligenceact.eu/article/72/"}
+      - {fw: iso42001, ref: A.6.2.6, note: "Operation and monitoring", confidence: secondary}
+      - {fw: aicm, ref: MDS-10, note: "Model continuous monitoring", confidence: title-only}
+      - {fw: dora, ref: "Art. 30(3)(a)", note: "Precise service levels and reporting", confidence: verified, url: "https://www.digital-operational-resilience-act.com/Article_30.html"}
+      - {fw: nydfs_cl7, ref: "¶29-¶30", note: "Monitoring, drift testing and complaints", confidence: verified}
+      - {fw: finos, ref: AIR-DET-011, note: "Human feedback loop", confidence: verified, url: "https://air-governance-framework.finos.org/mitigations/mi-11_human-feedback-loop-for-ai-systems.html"}
+
+  # ---------------------------------------------------------------- DAT
+  - id: DAT-01
+    group: DAT
+    origin: buyer-question
+    question: Is our data used to train or improve any model? How long are prompts, uploads and outputs kept, and how is deletion verified?
+    why: The first AI question in almost every questionnaire. Buyers also check that the vendor's model providers make the same commitment.
+    evidence:
+      - Contract terms on no training and on retention, including for model providers (zero retention where available).
+      - Retention schedule per data type.
+      - Deletion procedure and a deletion confirmation on request.
+    not_enough:
+      - A privacy policy page.
+    often_unevidenced: false
+    capabilities: []
+    references:
+      - {fw: fsisac, ref: Category 2, note: "Data privacy, retention and deletion", confidence: verified}
+      - {fw: nydfs_ai, ref: Data management, note: "Dispose of NPI no longer needed, including NPI used for AI", confidence: verified}
+      - {fw: nydfs500, ref: "500.11(b)(4)", note: "Third-party representations and warranties", confidence: verified, url: "https://www.law.cornell.edu/regulations/new-york/23-NYCRR-500.11"}
+      - {fw: aicm, ref: DSP-02; DSP-12; DSP-15; DSP-16, note: "Disposal, purpose limitation, production data use, retention and deletion", confidence: title-only}
+      - {fw: dora, ref: "Art. 30(2)(c)", note: "Contract provisions on data integrity and confidentiality", confidence: verified, url: "https://www.digital-operational-resilience-act.com/Article_30.html"}
+      - {fw: finos, ref: AIR-RC-001, note: "Risk: information leaked to hosted model", confidence: verified, url: "https://air-governance-framework.finos.org/risks/ri-1_information-leaked-to-hosted-model.html"}
+      - {fw: nist_600_1, ref: MG-4.1-006, note: "Track dataset deletions and rectifications", confidence: verified}
+
+  - id: DAT-02
+    group: DAT
+    origin: derived
+    derived_from: DAT-01 and ACT-01
+    question: What personal or confidential data ends up inside your agent action records, and how is it minimized, redacted or protected?
+    why: Detailed action records are a second copy of customer data. Reviewers will ask the same data questions about the records as about the product.
+    evidence:
+      - Field-level redaction or hashing of sensitive arguments before records are stored.
+      - Documented data classes per record field.
+      - Access and retention rules for records match the data policy.
+    not_enough:
+      - Full request and response bodies logged by default.
+    often_unevidenced: false
+    capabilities: [redaction]
+    references:
+      - {fw: nydfs_ai, ref: Data management, note: "Data minimization", confidence: verified}
+      - {fw: finos, ref: AIR-PREV-014, note: "Encryption of AI data at rest", confidence: verified, url: "https://air-governance-framework.finos.org/mitigations/mi-14_encryption-of-ai-data-at-rest.html"}
+      - {fw: finos, ref: AIR-DET-001, note: "Data leakage prevention and detection", confidence: verified, url: "https://air-governance-framework.finos.org/mitigations/mi-1_ai-data-leakage-prevention-and-detection.html"}
+      - {fw: aicm, ref: DSP-12, note: "Limitation of purpose", confidence: title-only}
+      - {fw: dora, ref: "Art. 30(2)(c)", note: "Data confidentiality provisions", confidence: verified, url: "https://www.digital-operational-resilience-act.com/Article_30.html"}
+
+  # ---------------------------------------------------------------- HUM
+  - id: HUM-01
+    group: HUM
+    origin: buyer-question
+    question: Under the oversight model we define for this use case, which agent actions need human review, and can you show that the review happened whenever it was required?
+    why: The buyer chooses how much oversight a use case needs (by risk, amount, customer impact). What it needs from the vendor is evidence that its chosen model was followed, including that review came before execution where the buyer requires that.
+    evidence:
+      - Oversight rules expressed as configuration the buyer can read and change.
+      - Per-action record showing whether review applied, who reviewed, the decision, and its timing relative to execution.
+      - An exceptions report for actions that should have been reviewed but were not.
+    not_enough:
+      - A workflow screenshot.
+      - A statement that "humans are in the loop".
+    often_unevidenced: true
+    capabilities: [review_record, action_record]
+    references:
+      - {fw: naic, ref: "Sec. 3 (risk factors)", note: "Extent of human involvement in final decisions", confidence: verified}
+      - {fw: nydfs_ai, ref: Training, note: "When human review must be part of verification", confidence: verified}
+      - {fw: nist_rmf, ref: GOVERN 3.2; MAP 3.5, note: "Human-AI roles and oversight processes defined", confidence: verified}
+      - {fw: eu_ai_act, ref: "Art. 14", note: "Human oversight measures for high-risk systems", confidence: verified, url: "https://artificialintelligenceact.eu/article/14/"}
+      - {fw: finos, ref: AIR-PREV-024, note: "Where a gate is used, a tamper-evident approval record bound to the action", confidence: verified, url: "https://air-governance-framework.finos.org/mitigations/mi-24_human-in-the-loop-action-approval-gate.html"}
+      - {fw: aicm, ref: GRC-15; IAM-04, note: "Human supervision; separation of duties", confidence: title-only}
+      - {fw: iso42001, ref: A.9.2, note: "Processes for responsible use", confidence: secondary}
+
+  - id: HUM-02
+    group: HUM
+    origin: buyer-question
+    question: What audit trail exists when a person overrides, corrects or reverses what the agent did or recommended?
+    why: Overrides show where the agent is wrong and who took responsibility. Both matter in a dispute.
+    evidence:
+      - Override records linked to the original action, with who, when, what changed and why.
+      - Override rates reported over time.
+    not_enough:
+      - Overrides visible only as a later edit in the target system.
+    often_unevidenced: false
+    capabilities: [review_record]
+    references:
+      - {fw: nist_rmf, ref: MANAGE 4.1; MEASURE 3.3, note: "Appeal and override in monitoring; feedback channels", confidence: verified}
+      - {fw: eu_ai_act, ref: "Art. 14(4)(d)", note: "Overseers can disregard, override or reverse output (high-risk)", confidence: verified, url: "https://artificialintelligenceact.eu/article/14/"}
+      - {fw: aicm, ref: IAM-18, note: "Output modification and special authorization", confidence: title-only}
+      - {fw: finos, ref: AIR-DET-011, note: "Human feedback loop", confidence: verified, url: "https://air-governance-framework.finos.org/mitigations/mi-11_human-feedback-loop-for-ai-systems.html"}
+
+  # ---------------------------------------------------------------- SUB
+  - id: SUB-01
+    group: SUB
+    origin: buyer-question
+    question: Which model, voice, speech-to-text, text-to-speech and tool providers are involved, and what are their data retention and training terms?
+    why: Nth-party risk is its own category in bank AI due diligence. Each provider is another place customer data can go.
+    evidence:
+      - Complete sub-processor list including AI providers, with region and purpose.
+      - Each provider's retention and training terms.
+      - Notice process for sub-processor changes.
+    not_enough:
+      - '"No subprocessors available."'
+    often_unevidenced: false
+    capabilities: []
+    references:
+      - {fw: fsisac, ref: Category 6, note: "Nth-party risk and usage", confidence: verified}
+      - {fw: nydfs500, ref: "500.11(a)", note: "Third-party service provider security policy", confidence: verified, url: "https://www.law.cornell.edu/regulations/new-york/23-NYCRR-500.11"}
+      - {fw: nydfs_ai, ref: TPSP and vendor management, note: "Diligence on third parties' AI", confidence: verified}
+      - {fw: aicm, ref: DSP-14; STA-08; STA-09; STA-16, note: "Sub-processor disclosure, supply-chain inventory and risk, service BOM", confidence: title-only}
+      - {fw: iso42001, ref: A.10.2; A.10.3, note: "Allocating responsibilities; suppliers", confidence: secondary}
+      - {fw: nist_rmf, ref: GOVERN 6.1; MAP 4.1, note: "Third-party AI risk policies and component mapping", confidence: verified}
+      - {fw: dora, ref: "Art. 28(3); Art. 30(2)(b); RTS 2025/532", note: "Register, locations, subcontracting conditions", confidence: secondary, url: "https://www.digital-operational-resilience-act.com/Article_28.html"}
+      - {fw: finos, ref: AIR-SEC-026, note: "Risk: MCP server supply chain compromise", confidence: verified, url: "https://air-governance-framework.finos.org/risks/ri-26_mcp-server-supply-chain-compromise.html"}
+
+  - id: SUB-02
+    group: SUB
+    origin: buyer-question
+    question: What audit rights or audit reports cover the AI system itself, not just your infrastructure?
+    why: Insurers and banks are expected to secure audit rights over third-party AI. A SOC 2 report usually covers infrastructure and access, not agent behaviour.
+    evidence:
+      - Audit-rights clause covering the AI system.
+      - Reports whose scope includes agent behaviour, plus record samples the buyer can verify.
+    not_enough:
+      - A SOC 2 report alone.
+    often_unevidenced: true
+    capabilities: [pack]
+    references:
+      - {fw: naic, ref: "Sec. 3, 4.2(a); 4.3", note: "Audit rights or audit reports; exercise of audit rights", confidence: verified}
+      - {fw: nydfs_cl7, ref: "¶37", note: "Audit rights or reports in vendor contracts", confidence: verified}
+      - {fw: dora, ref: "Art. 28(6); Art. 30(3)(e)", note: "Audits; access, inspection and audit rights", confidence: verified, url: "https://www.digital-operational-resilience-act.com/Article_30.html"}
+      - {fw: fsisac, ref: Level 3, note: "Audit validation", confidence: verified}
+      - {fw: aicm, ref: A&A-02, note: "Independent assessments", confidence: title-only}
+      - {fw: nist_600_1, ref: GV-6.1-006, note: "Clauses allowing evaluation of third-party processes", confidence: verified}
+
+  - id: SUB-03
+    group: SUB
+    origin: buyer-question
+    question: Will you cooperate with regulatory inquiries and give examiners access to the documentation and records they ask for?
+    why: Regulators examine the buyer, and through the buyer, its AI vendors. Buyers need the cooperation in writing and the artifacts ready.
+    evidence:
+      - Regulatory cooperation clause.
+      - 'A ready evidence package: model documentation, validation, change history and verifiable action records.'
+    not_enough:
+      - Best-effort cooperation with no artifacts.
+    often_unevidenced: false
+    capabilities: [pack]
+    references:
+      - {fw: naic, ref: "Sec. 3, 4.2(b); Sec. 4", note: "Cooperation with regulatory inquiries; documents regulators may request", confidence: verified}
+      - {fw: nydfs_cl7, ref: "¶9; ¶37", note: "DFS exam authority; cooperation clause", confidence: verified}
+      - {fw: dora, ref: "Art. 30(2)(g)", note: "Full cooperation with competent authorities", confidence: verified, url: "https://www.digital-operational-resilience-act.com/Article_30.html"}
+      - {fw: eu_ai_act, ref: "Art. 18", note: "Provider documentation kept for authorities", confidence: verified, url: "https://artificialintelligenceact.eu/article/18/"}
+      - {fw: iso42001, ref: A.8.5, note: "Information for interested parties incl. regulators", confidence: secondary}

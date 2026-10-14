@@ -1,4 +1,4 @@
-"""gleipnir command line: init, status, export (check and pack are added in later stages)."""
+"""gleipnir command line: init, status, export, check, pack."""
 
 from __future__ import annotations
 
@@ -59,6 +59,38 @@ def cmd_export(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_check(args: argparse.Namespace) -> int:
+    import json as _json
+
+    from .check import capabilities_from_records, evaluate, load_checklist, render_text
+
+    records = _store(args).read_all()
+    caps, why = capabilities_from_records(records)
+    results = evaluate(load_checklist(args.checklist), caps)
+    if args.json:
+        print(_json.dumps({"capabilities": sorted(caps), "evidence": why,
+                           "items": [r.__dict__ for r in results]}, indent=2))
+    else:
+        print(render_text(results, why))
+    return 0
+
+
+def cmd_pack(args: argparse.Namespace) -> int:
+    from .pack import build_pack
+
+    records = _store(args).read_all()
+    if not records:
+        print("no records", file=sys.stderr)
+        return 1
+    since = parse_time(args.since) if args.since else None
+    until = parse_time(args.until) if args.until else None
+    log = Path(args.home) / "anchors" / "local-anchor-log.jsonl"
+    out = build_pack(records, args.output, since=since, until=until,
+                     local_anchor_log=log if log.exists() else None, checklist=args.checklist)
+    print(f"wrote {out} (summary.html, actions.csv, bundle.zip, VERIFY.md)")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="gleipnir", description="Verifiable action records for AI agents")
     p.add_argument("--home", default=".gleipnir", help="data directory (default: .gleipnir)")
@@ -72,6 +104,16 @@ def build_parser() -> argparse.ArgumentParser:
     e.add_argument("--since", help="ISO 8601 start time")
     e.add_argument("--until", help="ISO 8601 end time")
     e.set_defaults(fn=cmd_export)
+    c = sub.add_parser("check", help="show which security review checklist items your records evidence")
+    c.add_argument("--checklist", help="path to a checklist.yaml (default: the pinned copy shipped with the SDK)")
+    c.add_argument("--json", action="store_true")
+    c.set_defaults(fn=cmd_check)
+    k = sub.add_parser("pack", help="build a Security Review Pack for a period")
+    k.add_argument("-o", "--output", default="security-review-pack.zip")
+    k.add_argument("--since", help="ISO 8601 start time")
+    k.add_argument("--until", help="ISO 8601 end time")
+    k.add_argument("--checklist", help="path to a checklist.yaml")
+    k.set_defaults(fn=cmd_pack)
     return p
 
 

@@ -266,6 +266,25 @@ class Recorder:
         """Attach the agent's own statement about an action already recorded."""
         return self.chain.append("claim", {"claim": {"action": action_id, "text": text}})
 
+    def review(self, action_id: str, *, reviewer: str, decision: str, rule: str | None = None,
+               before_execution: bool | None = None, reason: str | None = None,
+               changes: Mapping[str, Any] | None = None) -> dict[str, Any]:
+        """Record a human review, approval, override or reversal of an action.
+
+        Oversight rules are the buyer's; this records that a rule applied and what the reviewer
+        decided. ``decision`` is free text, for example ``approved``, ``rejected``, ``overridden``.
+        """
+        body: dict[str, Any] = {"action": action_id, "reviewer": reviewer, "decision": decision}
+        if rule is not None:
+            body["rule"] = rule
+        if before_execution is not None:
+            body["before_execution"] = before_execution
+        if reason:
+            body["reason"] = reason
+        if changes:
+            body["changes"] = to_jsonable(dict(changes))
+        return self.chain.append("review", {"review": body})
+
     def note(self, text: str, **data: Any) -> dict[str, Any]:
         return self.chain.append("note", {"note": {"text": text, **to_jsonable(data)}})
 
@@ -366,6 +385,22 @@ class Recorder:
         local_log = anchor.path if isinstance(anchor, LocalFileAnchor) else None
         return export_bundle(self.chain.store.read_all(), out, since=since, until=until,
                              local_anchor_log=local_log)
+
+    def pack(self, out: str | Path, *, since: Any = None, until: Any = None) -> Path:
+        """Flush and build a Security Review Pack (summary.html, actions.csv, bundle.zip)."""
+        from .pack import build_pack
+
+        self.flush()
+        anchor = self.chain.anchor
+        local_log = anchor.path if isinstance(anchor, LocalFileAnchor) else None
+        return build_pack(self.chain.store.read_all(), out, since=since, until=until, local_anchor_log=local_log)
+
+    def check(self) -> list[Any]:
+        """Checklist coverage of the records written so far."""
+        from .check import capabilities_from_records, evaluate, load_checklist
+
+        caps, _ = capabilities_from_records(self.chain.store.read_all())
+        return evaluate(load_checklist(), caps)
 
     def flush(self) -> None:
         self.chain.flush()
