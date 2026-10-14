@@ -1,0 +1,36 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python: ["3.10", "3.11", "3.12", "3.13"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install
+        run: uv sync --all-packages
+      - name: Lint
+        run: uv run ruff check python spec
+      - name: Test (90% coverage gate on the verifier and core)
+        run: >
+          uv run pytest python -q
+          --cov=gleipnir_verify --cov=gleipnir.chain --cov=gleipnir.recorder --cov=gleipnir.export
+          --cov-report=term-missing --cov-fail-under=90
+      - name: Test vectors are reproducible
+        run: |
+          uv run python spec/make_test_vectors.py
+          git diff --exit-code spec/test-vectors
