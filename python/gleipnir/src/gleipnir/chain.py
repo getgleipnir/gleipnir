@@ -34,7 +34,7 @@ class ChainWriter:
         signer: Signer,
         *,
         clock: Clock = utcnow,
-        anchor: Anchor | None = None,
+        anchor: Anchor | list[Anchor] | None = None,
         segment_max_records: int = 1000,
         heartbeat_seconds: int = 600,
         background: bool = True,
@@ -45,7 +45,14 @@ class ChainWriter:
         self.store = store
         self.signer = signer
         self.clock = clock
-        self.anchor = anchor
+        if anchor is None:
+            self.anchors: list[Anchor] = []
+        elif isinstance(anchor, (list, tuple)):
+            self.anchors = list(anchor)
+        else:
+            self.anchors = [anchor]
+        if len({a.type for a in self.anchors}) != len(self.anchors):
+            raise ValueError("at most one anchor per type")
         self.segment_max_records = segment_max_records
         self.heartbeat_seconds = heartbeat_seconds
         self._lock = threading.RLock()
@@ -62,6 +69,7 @@ class ChainWriter:
         records = self.store.read_all()
         self.open_members: list[str] = []
         self.pending_anchor: dict[int, dict[str, Any]] = {}
+        self.anchor_done = {}
         if not records:
             self.chain_id = new_id("ch")
             self.seq = -1
@@ -90,13 +98,17 @@ class ChainWriter:
         self.last_hash = record_hash(records[-1])
         self.last_segment_hash = None
         self.segment_opened_at = genesis["time"]
-        anchored = {r["anchor"]["segment_seq"] for r in records if r.get("kind") == "anchor"}
+        self.anchor_done: dict[int, set[str]] = {}
+        for r in records:
+            if r.get("kind") == "anchor":
+                self.anchor_done.setdefault(r["anchor"]["segment_seq"], set()).add(r["anchor"]["type"])
+        wanted = {a.type for a in self.anchors}
         for r in records[1:]:
             if r.get("kind") == "segment":
                 self.open_members = []
                 self.last_segment_hash = record_hash(r)
                 self.segment_opened_at = r["segment"]["closed_at"]
-                if r["seq"] not in anchored:
+                if not wanted <= self.anchor_done.get(r["seq"], set()):
                     self.pending_anchor[r["seq"]] = r
             else:
                 self.open_members.append(record_hash(r))
@@ -159,7 +171,7 @@ class ChainWriter:
             self.open_members = []
             self.last_segment_hash = self.last_hash
             self.segment_opened_at = seg["closed_at"]
-            if self.anchor is not None:
+            if self.anchors:
                 self.pending_anchor[rec["seq"]] = rec
                 self._anchor_queue.put(rec)
             return rec
@@ -181,7 +193,7 @@ class ChainWriter:
     # -- anchoring --------------------------------------------------------------------
     def anchor_pending(self) -> int:
         """Anchor every closed segment that has no receipt yet. Returns how many were anchored."""
-        if self.anchor is None:
+        if not self.anchors:
             return 0
         done = 0
         while True:
@@ -199,18 +211,26 @@ class ChainWriter:
         return done
 
     def _anchor_one(self, seg: dict[str, Any]) -> bool:
-        assert self.anchor is not None
+        """Run every configured anchor not yet done for this segment. True when all are done."""
         h = record_hash(seg)
-        try:
-            receipt = self.anchor.anchor(segment_hash=h, chain=self.chain_id, segment_seq=seg["seq"])
-        except Exception as exc:  # noqa: BLE001 - anchoring must never break the agent
-            log.warning("gleipnir: anchoring segment %s failed, will retry: %s", seg["seq"], exc)
-            return False
-        with self._lock:
-            self._write({"kind": "anchor", "anchor": {"segment_seq": seg["seq"], "segment_hash": h,
-                                                      "type": self.anchor.type, "receipt": receipt}})
+        done = self.anchor_done.setdefault(seg["seq"], set())
+        all_ok = True
+        for anchor in self.anchors:
+            if anchor.type in done:
+                continue
+            try:
+                receipt = anchor.anchor(segment_hash=h, chain=self.chain_id, segment_seq=seg["seq"])
+            except Exception as exc:  # noqa: BLE001 - anchoring must never break the agent
+                log.warning("gleipnir: %s anchoring of segment %s failed, will retry: %s", anchor.type, seg["seq"], exc)
+                all_ok = False
+                continue
+            with self._lock:
+                self._write({"kind": "anchor", "anchor": {"segment_seq": seg["seq"], "segment_hash": h,
+                                                          "type": anchor.type, "receipt": receipt}})
+                done.add(anchor.type)
+        if all_ok:
             self.pending_anchor.pop(seg["seq"], None)
-        return True
+        return all_ok
 
     # -- background -------------------------------------------------------------------
     def _start_background(self) -> None:

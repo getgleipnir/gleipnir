@@ -47,4 +47,5 @@ def test_live_rekor_end_to_end(tmp_path):
     path = r.export(tmp_path / "live.zip")
     rep = verify_bundle(path)
     assert rep.valid(), [x.as_dict() for x in rep.findings]
-    assert rep.summary["anchors_independent"] == rep.summary["segments"] == 2
+    n = rep.summary["segments"]
+    assert n >= 2 and rep.summary["anchors_independent"] == rep.summary["segments_timestamped"] == n

@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, TypeVar, Union
 
-from .anchor import Anchor, LocalFileAnchor, RekorAnchor
+from .anchor import Anchor, LocalFileAnchor, RekorAnchor, TimestampAnchor
 from .chain import ChainWriter
 from .keys import Signer, load_or_create_secret, load_or_create_signer
 from .store import JsonlStore, Store
@@ -157,7 +157,7 @@ class Recorder:
         chain: str = "default",
         signer: Signer | None = None,
         store: Store | None = None,
-        anchor: Anchor | str | None = "local",  # "local", "rekor", an Anchor instance, or None
+        anchor: Anchor | str | list[Anchor] | None = "local",
         segment_max_records: int = 1000,
         heartbeat_seconds: int = 600,
         background: bool = True,
@@ -172,12 +172,7 @@ class Recorder:
         self.clock = clock
         signer = signer or load_or_create_signer(self.home, quiet=quiet)
         store = store or JsonlStore(self.home / "chains" / chain, fsync=fsync)
-        if anchor == "local":
-            anchor = LocalFileAnchor(self.home / "anchors" / "local-anchor-log.jsonl", clock=clock)
-        elif anchor == "rekor":
-            anchor = RekorAnchor(self.home, clock=clock)
-        elif isinstance(anchor, str):
-            raise ValueError(f"unknown anchor {anchor!r}; pass an Anchor instance")
+        anchor = self._resolve_anchor(anchor, clock)
         if redaction_key is None:
             redaction_key = load_or_create_secret(self.home, "redaction-hmac.key")
         self.redactor = Redactor(redaction_key, default_redaction)
@@ -187,6 +182,17 @@ class Recorder:
         )
         self.tools: dict[str, dict[str, Any]] = {}
         self.features: set[str] = set()
+
+    def _resolve_anchor(self, anchor: Any, clock: Clock) -> Any:
+        """"local" (test anchor), "rekor" (Sigstore Rekor log + RFC 3161 trusted timestamp), an Anchor,
+        a list of Anchors, or None."""
+        if anchor == "local":
+            return LocalFileAnchor(self.home / "anchors" / "local-anchor-log.jsonl", clock=clock)
+        if anchor == "rekor":
+            return [RekorAnchor(self.home, clock=clock), TimestampAnchor(clock=clock)]
+        if isinstance(anchor, str):
+            raise ValueError(f"unknown anchor {anchor!r}; use 'local', 'rekor', or pass Anchor instances")
+        return anchor
 
     # -- context ---------------------------------------------------------------------------
     @contextlib.contextmanager
@@ -392,8 +398,7 @@ class Recorder:
         from .export import export_bundle
 
         self.flush()
-        anchor = self.chain.anchor
-        local_log = anchor.path if isinstance(anchor, LocalFileAnchor) else None
+        local_log = next((a.path for a in self.chain.anchors if isinstance(a, LocalFileAnchor)), None)
         return export_bundle(self.chain.store.read_all(), out, since=since, until=until,
                              local_anchor_log=local_log)
 
@@ -402,8 +407,7 @@ class Recorder:
         from .pack import build_pack
 
         self.flush()
-        anchor = self.chain.anchor
-        local_log = anchor.path if isinstance(anchor, LocalFileAnchor) else None
+        local_log = next((a.path for a in self.chain.anchors if isinstance(a, LocalFileAnchor)), None)
         return build_pack(self.chain.store.read_all(), out, since=since, until=until, local_anchor_log=local_log)
 
     def check(self) -> list[Any]:

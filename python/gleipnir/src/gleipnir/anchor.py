@@ -143,3 +143,45 @@ class RekorAnchor:
         if check.ok is not True:
             raise RuntimeError(f"Rekor returned a receipt that does not verify: {check.detail}")
         return receipt
+
+
+DEFAULT_TSA_URL = "https://timestamp.sigstore.dev/api/v1/timestamp"
+
+
+class TimestampAnchor:
+    """Gets an RFC 3161 timestamp for each segment hash from a timestamp authority.
+
+    Rekor v2 proves inclusion but not time; the timestamp proves the segment existed no
+    later than the TSA's signed time. The default TSA is Sigstore's public one, whose
+    certificate chain ships in the verifier's trusted root.
+    """
+
+    type = "rfc3161"
+
+    def __init__(self, url: str = DEFAULT_TSA_URL, *, timeout: float = 30.0, clock: Clock = utcnow):
+        self.url = url
+        self.timeout = timeout
+        self.clock = clock
+
+    def _post(self, body: bytes) -> bytes:
+        import urllib.request
+
+        req = urllib.request.Request(self.url, data=body, method="POST", headers={
+            "Content-Type": "application/timestamp-query", "User-Agent": "gleipnir-sdk"})
+        with urllib.request.urlopen(req, timeout=self.timeout) as resp:  # noqa: S310 - fixed https URL
+            return resp.read()
+
+    def anchor(self, *, segment_hash: str, chain: str, segment_seq: int) -> dict[str, Any]:
+        import base64
+
+        from rfc3161_client import TimestampRequestBuilder
+
+        from gleipnir_verify.timestamp import timestamp_message, verify_timestamp_receipt
+
+        request = TimestampRequestBuilder().data(timestamp_message(segment_hash)).nonce(nonce=True).build()
+        raw = self._post(request.as_bytes())
+        receipt = {"tsa_url": self.url, "response": base64.b64encode(raw).decode(), "observed_at": iso(self.clock())}
+        check = verify_timestamp_receipt({"receipt": receipt}, segment_hash=segment_hash, options={})
+        if check.ok is not True:
+            raise RuntimeError(f"timestamp authority returned a token that does not verify: {check.detail}")
+        return receipt

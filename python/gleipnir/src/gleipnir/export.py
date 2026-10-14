@@ -27,6 +27,10 @@ What the options do:
                             (compare with the key id the vendor publishes)
     --require-anchor rekor  fail unless every segment is anchored in the public
                             Sigstore Rekor log (so receipts cannot be silently removed)
+    --require-anchor rfc3161
+                            fail unless every segment carries a trusted RFC 3161 timestamp
+    --max-anchor-delay SEC  fail if a segment was timestamped long after it closed
+                            (catches history that was rebuilt and re-anchored later)
     --require-full          fail unless the bundle starts at the beginning of the chain
     --known-head SEQ:HASH   fail unless the head you saw in an earlier bundle is still
                             there, unchanged (detects truncation and rewritten history)
@@ -43,8 +47,10 @@ recorded: reconcile the external object ids in the records with your own systems
 def verify_command(records: list[dict[str, Any]], name: str, full: bool) -> str:
     """The gleipnir-verify command a buyer should run for this bundle."""
     parts = ["pipx run gleipnir-verify", name, "--expect-key", records[0]["public_key"]["id"]]
-    if any(r.get("kind") == "anchor" and r["anchor"].get("type") == "rekor" for r in records):
-        parts += ["--require-anchor", "rekor"]
+    types = {r["anchor"].get("type") for r in records if r.get("kind") == "anchor"}
+    for t in ("rekor", "rfc3161"):
+        if t in types:
+            parts += ["--require-anchor", t]
     if full:
         parts.append("--require-full")
     return " ".join(parts)
