@@ -1,6 +1,6 @@
 # Gleipnir SDK: design
 
-Status: draft for review, 2026-10-14. Nothing here is implemented yet.
+Status: implemented in 0.1 (Python), 2026-10-14. Sections marked *later* are not built yet.
 
 ## 1. What this is
 

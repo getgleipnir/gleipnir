@@ -20,6 +20,7 @@ class AnchorResult:
     ok: bool | None  # True = verified, False = invalid, None = present but not checked
     detail: str = ""
     independent: bool = False  # True if the anchor is outside the vendor's control
+    time: str | None = None  # trusted time attested by the anchor, if any (RFC 3339, UTC)
 
 
 def local_log_entry_hash(entry: dict[str, Any]) -> str:
@@ -92,5 +93,11 @@ def verify_rekor(receipt: dict[str, Any], *, segment_hash: str, chain: str, opti
     return verify_rekor_receipt(receipt, segment_hash=segment_hash, options=options)
 
 
+def verify_rfc3161(receipt: dict[str, Any], *, segment_hash: str, chain: str, options: dict[str, Any]) -> AnchorResult:
+    from .timestamp import verify_timestamp_receipt
+
+    return verify_timestamp_receipt(receipt, segment_hash=segment_hash, options=options)
+
+
 def default_verifiers() -> dict[str, Callable[..., AnchorResult]]:
-    return {"local": verify_local, "rekor": verify_rekor}
+    return {"local": verify_local, "rekor": verify_rekor, "rfc3161": verify_rfc3161}

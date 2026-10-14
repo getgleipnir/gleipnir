@@ -98,7 +98,8 @@ def _verify_records(
     expect_key: str | None = None,
     expect_until: datetime | None = None,
     known_head: tuple[int, str] | None = None,
-    require_anchor: str | None = None,
+    require_anchor: str | list[str] | None = None,
+    max_anchor_delay: float | None = None,
     require_full: bool = False,
     anchor_verifiers: dict[str, Callable[..., anchor_mod.AnchorResult]] | None = None,
     anchor_options: dict[str, Any] | None = None,
@@ -283,6 +284,10 @@ def _verify_records(
     anchored = 0
     independent = 0
     unchecked = 0
+    required = [require_anchor] if isinstance(require_anchor, str) else list(require_anchor or [])
+    timestamped = 0
+    max_delay = 0.0
+    trusted_until: str | None = None
     last_anchored_close: str | None = None
     for seg_rec in segments:
         sseq = seg_rec["seq"]
@@ -290,6 +295,7 @@ def _verify_records(
         ok_any = False
         seen_unchecked = False
         seg_independent = False
+        verified_types: set[str] = set()
         for r in recs:
             a = r["anchor"]
             if a.get("segment_hash") != hashes[sseq]:
@@ -309,6 +315,21 @@ def _verify_records(
                 ok_any = True
                 if res.independent:
                     seg_independent = True
+                    verified_types.add(a.get("type"))
+                if res.time:
+                    ts = parse_time(res.time)
+                    closed = parse_time(seg_rec["segment"]["closed_at"])
+                    delay = (ts - closed).total_seconds()
+                    if delay < -300:
+                        report.add(WARN, "timestamp_before_close", f"trusted time {res.time} is before the segment's "
+                                   f"claimed close {seg_rec['segment']['closed_at']} (vendor clock ahead?)", sseq)
+                    if max_anchor_delay is not None and delay > max_anchor_delay:
+                        report.add(ERROR, "late_timestamp", f"segment timestamped {delay:.0f}s after it closed "
+                                   f"(limit {max_anchor_delay:.0f}s): history may have been rebuilt later", sseq)
+                    elif delay > 86400:
+                        report.add(WARN, "late_timestamp", f"segment timestamped {delay / 3600:.1f}h after it closed "
+                                   "(history may have been rebuilt later)", sseq)
+                    max_delay = max(max_delay, delay)
         if ok_any:
             anchored += 1
             last_anchored_close = seg_rec["segment"]["closed_at"]
@@ -316,9 +337,13 @@ def _verify_records(
             unchecked += 1
         if seg_independent:
             independent += 1
-        elif require_anchor:
-            report.add(ERROR, "anchor_required", f"segment has no verified {require_anchor} anchor (receipt missing, "
-                       "removed or not independent)", sseq)
+        for req in required:
+            if req not in verified_types:
+                report.add(ERROR, "anchor_required", f"segment has no verified {req} anchor (receipt missing, "
+                           "removed or not independent)", sseq)
+        if "rfc3161" in verified_types:
+            timestamped += 1
+            trusted_until = seg_rec["segment"]["closed_at"]
     unanchored = len(segments) - anchored - unchecked
     if unanchored:
         report.add(WARN, "unanchored_segments", f"{unanchored} of {len(segments)} segments have no verified anchor "
@@ -360,6 +385,9 @@ def _verify_records(
                        "(history rewritten)", kseq)
 
     _summarize(report, records, genesis, keys, segments, anchored, independent, last_anchored_close)
+    report.summary["segments_timestamped"] = timestamped
+    report.summary["trusted_time_until"] = trusted_until
+    report.summary["max_timestamp_delay_s"] = round(max_delay, 1) if timestamped else None
     report.summary["head"] = {"seq": records[-1].get("seq"), "hash": hashes.get(records[-1].get("seq"))}
     return report
 

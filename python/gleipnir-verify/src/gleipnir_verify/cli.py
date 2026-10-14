@@ -25,8 +25,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--known-head", metavar="SEQ:HASH",
                    help="fail unless the record with this seq and hash is present (from an earlier bundle); "
                         "detects truncation and rewritten history")
-    p.add_argument("--require-anchor", choices=["rekor"],
-                   help="fail unless every segment has a verified anchor in this independent log")
+    p.add_argument("--require-anchor", choices=["rekor", "rfc3161"], action="append",
+                   help="fail unless every segment has a verified independent anchor of this type "
+                        "(rekor = public transparency log, rfc3161 = trusted timestamp); repeatable")
+    p.add_argument("--max-anchor-delay", type=float, metavar="SECONDS",
+                   help="fail if a segment was timestamped more than this long after it closed")
     p.add_argument("--require-full", action="store_true",
                    help="fail unless the bundle starts at the beginning of the chain")
     p.add_argument("--trusted-root", metavar="PATH",
@@ -59,6 +62,7 @@ def main(argv: list[str] | None = None) -> int:
         known_head = (int(seq_text), hash_text)
     report = verify_bundle(args.bundle, expect_key=args.expect_key, expect_until=expect_until,
                            known_head=known_head, require_anchor=args.require_anchor,
+                           max_anchor_delay=args.max_anchor_delay,
                            require_full=args.require_full, anchor_options=options)
     valid = report.valid(strict=args.strict)
 
@@ -80,6 +84,9 @@ def main(argv: list[str] | None = None) -> int:
         if s.get("head"):
             out.write(f"head:         {s['head']['seq']}:{s['head']['hash']}\n")
             out.write("              (keep this; pass it as --known-head next time to detect truncation)\n")
+        if s.get("segments_timestamped"):
+            out.write(f"trusted time: {s['segments_timestamped']} segments timestamped (RFC 3161), max delay after "
+                      f"close {s.get('max_timestamp_delay_s')}s\n")
         if s.get("anchored_until"):
             out.write(f"anchored to:  {s.get('anchored_until')}\n")
     if report.findings:

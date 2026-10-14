@@ -8,6 +8,7 @@ requires-python = ">=3.10"
 authors = [{ name = "Gleipnir" }]
 dependencies = [
   "cryptography>=42",
+  "rfc3161-client>=1.0.0",
   "rfc8785>=0.1.4",
 ]
 classifiers = [

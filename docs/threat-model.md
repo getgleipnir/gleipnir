@@ -15,7 +15,7 @@ Who relies on Gleipnir records: the **buyer** of an AI agent (security, risk, au
 - **Intent or correctness.** Records show what the agent did, not whether it should have.
 - **Completeness.** An action the vendor never wrapped produces no record. Mitigation: the buyer reconciles `actions.csv` (external object ids) against its own system logs. A gap shows up as an object in the buyer's system with no matching record.
 - **Truth of what was signed at the moment of signing.** A vendor (or attacker) controlling the process before signing can record a false response. Mitigations: outcome read-back from the system of record, buyer reconciliation, signing keys in a KMS/HSM outside the agent process.
-- **Trusted time.** Record and anchor times come from the vendor's clock. Rekor v2 returns inclusion proofs but no signed timestamps; an RFC 3161 timestamp from an independent authority is planned. Until then, a vendor holding the key could rebuild history and re-anchor it later; the new log entries would carry later log positions, but the verifier does not yet turn that into wall-clock evidence.
+- **Trusted time is bounded, not exact.** With `anchor="rekor"` each segment also gets an RFC 3161 timestamp from an independent authority, so the segment provably existed no later than that time. Record times inside a segment are still the vendor's clock; the timestamp only bounds them from above.
 - **Records after the last anchor.** The unanchored tail is reported explicitly. Truncation inside the last heartbeat interval is detectable only with `--known-head`.
 - **Records before genesis or outside the bundle.** A partial bundle proves its own range.
 
@@ -27,7 +27,7 @@ Who relies on Gleipnir records: the **buyer** of an AI agent (security, risk, au
 | Vendor staff without the signing key | Same | Same |
 | Vendor with the signing key, after anchoring | Rewrite and re-sign anchored segments, keeping the old receipts | Receipts no longer match the segment hash |
 | Same, removing the receipts | Rewrite and drop every anchor receipt | `--require-anchor rekor` (without it: only a warning) |
-| Vendor with the signing key and the anchor key, rewriting everything | Re-anchor rewritten history with new receipts | `--known-head`; trusted timestamps (planned). Not detected otherwise |
+| Vendor with the signing key and the anchor key, rewriting everything | Rebuild history and anchor and timestamp it again | New timestamps are later than the segments claim: `--max-anchor-delay` fails them; `--known-head` too. A rewrite done within the allowed delay is not detected |
 | Vendor dropping early records | Export a bundle that starts later in the chain | `--require-full` (without it: a warning, and the summary marks the bundle partial) |
 | Vendor dropping recent records | Truncate the tail | Manifest range, `--known-head`; `--expect-until` only beyond one heartbeat |
 | Vendor not recording some actions | Omit | Buyer reconciliation against its own systems |
