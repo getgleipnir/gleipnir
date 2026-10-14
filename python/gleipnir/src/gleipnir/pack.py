@@ -109,6 +109,8 @@ th{font-weight:600}td.n{text-align:right;font-variant-numeric:tabular-nums}code{
 word-break:break-all}.ok{color:var(--ok);font-weight:600}.bad{color:var(--bad);font-weight:600}
 .warn{color:var(--warn)}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
 .card{border:1px solid var(--line);border-radius:8px;padding:12px}.card b{display:block;font-size:22px}
+td.id{white-space:nowrap}.s-covered{color:var(--ok);font-weight:600}.s-partial{color:var(--warn);font-weight:600}
+.s-missing{color:var(--bad);font-weight:600}.s-process{color:var(--muted)}
 @media print{body{margin:0}h2{break-after:avoid}tr{break-inside:avoid}}
 """
 
@@ -131,7 +133,7 @@ def render_html(s: dict[str, Any], *, verify: dict[str, Any], coverage: list[Any
              f"<meta name=viewport content='width=device-width,initial-scale=1'>"
              f"<title>Security Review Pack</title><style>{_CSS}</style></head><body>"]
     parts.append("<h1>Security Review Pack</h1>")
-    parts.append(f"<p class=muted>Agent action records for {e(period)}. Generated {e(iso(utcnow()))} by "
+    parts.append(f"<p class=muted>Agent action records covering {e(period)}. Generated {e(iso(utcnow()))} by "
                  f"gleipnir-sdk {e(__version__)}.</p>")
     parts.append("<div class=grid>")
     for label, value in [("Actions", len(a)), ("Failed", s["status"].get("error", 0)),
@@ -194,7 +196,11 @@ def render_html(s: dict[str, Any], *, verify: dict[str, Any], coverage: list[Any
     parts.append("<p class=muted>Items from the open <a href='https://github.com/getgleipnir/agent-security-review'>"
                  "agent-security-review</a> checklist that these records evidence. Process items need documents, "
                  "not records.</p>")
-    parts.append(_table(["Item", "Question", "Status"], [[c.id, c.question, c.status] for c in coverage]))
+    cov_rows = "".join(
+        f"<tr><td class=id>{e(c.id)}</td><td>{e(c.question)}</td><td class=s-{e(c.status)}>{e(c.status)}</td></tr>"
+        for c in coverage)
+    parts.append(f"<table><thead><tr><th>Item</th><th>Question</th><th>Status</th></tr></thead>"
+                 f"<tbody>{cov_rows}</tbody></table>")
     parts.append("<h2>What this pack proves and what it does not</h2><p>A VALID result shows the records were not "
                  "edited, removed, reordered or inserted after they were written, and (for anchored segments) "
                  "after they were published to the log. It does not show that the agent's decisions were correct, "
@@ -217,7 +223,10 @@ def build_pack(records: list[dict[str, Any]], out: str | Path, *, since: datetim
     s = summarize(records, since, until)
     caps, _ = capabilities_from_records(records)
     coverage = evaluate(load_checklist(checklist), caps)
-    period = f"{iso(since) if since else 'start'} to {iso(until) if until else 'now'}"
+    if since or until:
+        period = f"{iso(since) if since else 'the start of the chain'} to {iso(until) if until else 'now'}"
+    else:
+        period = "the whole chain"
     head_seq = report.summary.get("head", {}).get("seq")
     head = f"{head_seq}:{report.summary.get('head', {}).get('hash')}"
     key = records[0]["public_key"]["id"]

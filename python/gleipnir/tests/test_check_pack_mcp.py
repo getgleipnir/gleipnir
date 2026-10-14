@@ -41,6 +41,11 @@ def test_check_derives_capabilities_from_evidence(rec):
     assert results["OUT-01"].status == "covered"
     assert results["TMP-02"].status == "partial"  # offline_verifier yes, external_anchor no
     assert results["ACC-03"].status == "process"
+    assert results["ACT-03"].status == "missing"  # tool calls alone do not show model endpoints
+    rec.record_action(tool="answer", system="kb", args={}, sources=[{"type": "kb", "id": "faq-1"}],
+                      calls=[{"service": "provider-a", "endpoint": "chat"}])
+    caps2, _ = capabilities_from_records(rec.chain.store.read_all())
+    assert {"source_record", "endpoint_record"} <= caps2
     text = render_text(list(results.values()), why)
     assert "anchor='rekor'" in text
     assert a == {"refund_id": "R1"}

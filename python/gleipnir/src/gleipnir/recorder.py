@@ -238,8 +238,15 @@ class Recorder:
         end: Any = None,
         redact: RedactSpec = None,
         action_id: str | None = None,
+        sources: list[Mapping[str, Any]] | None = None,
+        calls: list[Mapping[str, Any]] | None = None,
     ) -> dict[str, Any]:
-        """Record one action. Use this directly when a decorator does not fit."""
+        """Record one action. Use this directly when a decorator does not fit.
+
+        ``sources``: documents or records the action relied on, e.g. ``[{"type": "kb", "id": "faq-7",
+        "version": "3"}]``. ``calls``: outbound services the agent called for this action (model endpoints,
+        APIs), e.g. ``[{"service": "provider-a", "endpoint": "chat", "region": "eu"}]``.
+        """
         rules = self.redactor.rules(redact)
         now = self.clock()
         fields: dict[str, Any] = {
@@ -257,6 +264,10 @@ class Recorder:
             fields["claim"] = {"text": claim}
         if outcome is not None:
             fields["outcome"] = outcome.as_record()
+        if sources:
+            fields["sources"] = to_jsonable([dict(x) for x in sources])
+        if calls:
+            fields["calls"] = to_jsonable([dict(x) for x in calls])
         if rules:
             fields["redaction"] = {"fields": sorted(rules), "default": self.redactor.default_rule}
         fields.update(self._context_fields())
