@@ -14,6 +14,7 @@ from typing import Protocol
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
 from gleipnir_verify.crypto import encode_public_key, encode_signature, key_id
 
 

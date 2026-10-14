@@ -1,7 +1,8 @@
 from datetime import datetime, timedelta, timezone
 
-import gleipnir
 import pytest
+
+import gleipnir
 
 
 class FakeClock:

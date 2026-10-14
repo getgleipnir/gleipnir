@@ -1,9 +1,10 @@
 import hashlib
 
 import pytest
-from gleipnir_verify import merkle
 from hypothesis import given
 from hypothesis import strategies as st
+
+from gleipnir_verify import merkle
 
 
 def naive_root(entries):

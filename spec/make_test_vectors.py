@@ -10,6 +10,7 @@ from pathlib import Path
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
 from gleipnir_verify import merkle
 from gleipnir_verify.canon import canonicalize, hash_to_bytes, record_hash
 from gleipnir_verify.crypto import encode_public_key, encode_signature, key_id, record_message

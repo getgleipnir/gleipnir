@@ -3,12 +3,13 @@
 import json
 import zipfile
 
-import gleipnir
 import pytest
-from gleipnir_verify import cli
-from gleipnir_verify.canon import record_hash
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
+
+import gleipnir
+from gleipnir_verify import cli
+from gleipnir_verify.canon import record_hash
 
 
 @pytest.fixture(scope="module")

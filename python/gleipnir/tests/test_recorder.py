@@ -1,8 +1,9 @@
 import asyncio
 import json
 
-import gleipnir
 import pytest
+
+import gleipnir
 from gleipnir import Outcome
 from gleipnir_verify import verify_bundle, verify_records
 
