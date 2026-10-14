@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, TypeVar, Union
 
-from .anchor import Anchor, LocalFileAnchor
+from .anchor import Anchor, LocalFileAnchor, RekorAnchor
 from .chain import ChainWriter
 from .keys import Signer, load_or_create_secret, load_or_create_signer
 from .store import JsonlStore, Store
@@ -157,7 +157,7 @@ class Recorder:
         chain: str = "default",
         signer: Signer | None = None,
         store: Store | None = None,
-        anchor: Anchor | str | None = "local",
+        anchor: Anchor | str | None = "local",  # "local", "rekor", an Anchor instance, or None
         segment_max_records: int = 1000,
         heartbeat_seconds: int = 600,
         background: bool = True,
@@ -174,6 +174,8 @@ class Recorder:
         store = store or JsonlStore(self.home / "chains" / chain, fsync=fsync)
         if anchor == "local":
             anchor = LocalFileAnchor(self.home / "anchors" / "local-anchor-log.jsonl", clock=clock)
+        elif anchor == "rekor":
+            anchor = RekorAnchor(self.home, clock=clock)
         elif isinstance(anchor, str):
             raise ValueError(f"unknown anchor {anchor!r}; pass an Anchor instance")
         if redaction_key is None:
