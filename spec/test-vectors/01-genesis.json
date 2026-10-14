@@ -1,0 +1,26 @@
+{
+  "description": "record 01-genesis",
+  "private_key_seed_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "public_key": "ed25519:A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+  "key_id": "k_ed25519_56475aa75463474c",
+  "record": {
+    "v": 1,
+    "kind": "genesis",
+    "chain": "ch_vector",
+    "seq": 0,
+    "id": "gen_1",
+    "time": "2026-10-14T09:00:00.000Z",
+    "key": "k_ed25519_56475aa75463474c",
+    "public_key": {
+      "id": "k_ed25519_56475aa75463474c",
+      "public": "ed25519:A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
+    },
+    "config": {
+      "heartbeat_seconds": 600,
+      "segment_max_records": 1000
+    },
+    "sig": "ed25519:5xoudi-VETMwAw_VAT026NgCkonGqi4ygu2STF6oB9RMofbhKytkqwstjV_IFHSywBeGww0E8GY7aXIJNNYKAQ"
+  },
+  "canonical": "{\"chain\":\"ch_vector\",\"config\":{\"heartbeat_seconds\":600,\"segment_max_records\":1000},\"id\":\"gen_1\",\"key\":\"k_ed25519_56475aa75463474c\",\"kind\":\"genesis\",\"public_key\":{\"id\":\"k_ed25519_56475aa75463474c\",\"public\":\"ed25519:A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"},\"seq\":0,\"time\":\"2026-10-14T09:00:00.000Z\",\"v\":1}",
+  "hash": "sha256:a7347fea90ed89d6dcf3a7d76d8d11e228d694211b5c4f5c68e66592d62c89ce"
+}
