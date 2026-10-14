@@ -24,7 +24,7 @@ jobs:
       - name: Install
         run: uv sync --all-packages
       - name: Lint
-        run: uv run ruff check python spec
+        run: uv run ruff check python spec examples
       - name: Test (90% coverage gate on the verifier and core)
         run: >
           uv run pytest python -q
