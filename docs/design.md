@@ -67,7 +67,7 @@ def issue_refund(order_id: str, amount: float, card_number: str) -> dict:
 - The agent's claim: by default the intended call (tool + redacted args). A framework adapter, or the vendor, can attach the agent's natural-language claim with `rec.claim(action_id, text)`.
 - First run with no key: an Ed25519 key is generated in `./.gleipnir/keys/`, with a loud warning that it is a local development key and how to configure a real one.
 
-Defaults are local-first: records go to `./.gleipnir/records/`, anchoring uses the local file anchor until Rekor is configured explicitly.
+Defaults are local-first: records go to `./.gleipnir/chains/`, anchoring uses the local file anchor until Rekor is configured explicitly.
 
 ## 4. Record format (v1)
 
@@ -110,7 +110,7 @@ Redaction happens before hashing, so a record is never signed over a value it do
 
 ## 5. Storage
 
-Pluggable `Store` interface. Default: append-only JSONL, one file per segment, in `./.gleipnir/records/<chain>/`. Writes are fsync'd before the tool's result is returned (configurable to async for latency-sensitive paths, with the trade-off documented). Optional `Sink`s replicate records to storage the buyer controls (S3/GCS bucket) for buyer-held copies.
+Pluggable `Store` interface. Default: one append-only JSONL file per chain, in `./.gleipnir/chains/<chain>/records.jsonl`. Writes are fsync'd before the tool's result is returned (configurable to async for latency-sensitive paths, with the trade-off documented). Optional `Sink`s replicate records to storage the buyer controls (S3/GCS bucket) for buyer-held copies.
 
 Concurrency: one chain per process by default; multiple workers either use one chain each (simplest, recommended) or a shared writer. Multi-writer ordering is out of scope for v0.
 
