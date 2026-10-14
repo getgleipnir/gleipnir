@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.venv/
+.gleipnir/
+dist/
+.coverage
+.DS_Store
