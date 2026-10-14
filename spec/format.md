@@ -50,7 +50,7 @@ Redacted values are replaced before hashing by `{"redacted": "dropped"}` or `{"r
 **anchor**: `anchor: {segment_seq, segment_hash, type, receipt}`. Proof that `segment_hash` (the segment record's `record_hash`) was published outside the vendor. Receipts are written after the segment closes, so they live in a later segment.
 
 - `type: "local"`: `receipt: {index, entry_hash, time, log}`, pointing into a local append-only log whose entries are `{v, index, chain, segment_seq, segment_hash, time, prev?, hash}` with `hash = sha256(JCS(entry minus "hash"))`. For tests only; not independent of the vendor.
-- `type: "rekor"`: defined in the anchor stage.
+- `type: "rekor"`: `receipt: {log_url, entry, anchor_key: {alg: "ecdsa-p256-sha256", public}, observed_at}`. `entry` is the Sigstore Rekor v2 `TransparencyLogEntry` exactly as returned. The log entry is a `hashedrekord` (v0.0.2) whose digest is SHA-256 of `"gleipnir/anchor/v1\n" || segment_hash`, signed with ECDSA P-256 by the anchor key (Rekor v2 does not accept pure Ed25519 entries). Verification: the body's digest and signature match the segment and anchor key; the RFC 6962 inclusion proof for SHA-256(0x00 || canonicalizedBody) verifies against the proof root; the checkpoint (signed note) has the log's origin, the same size and root, and a signature by the log key pinned in the Sigstore trusted root. `observed_at` is the vendor's clock, not trusted time.
 
 ## Bundle
 

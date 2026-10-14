@@ -2,7 +2,7 @@
 
 __version__ = "0.1.0.dev0"
 
-from .anchor import Anchor, LocalFileAnchor  # noqa: E402
+from .anchor import Anchor, LocalFileAnchor, RekorAnchor  # noqa: E402
 from .chain import ChainWriter  # noqa: E402
 from .export import export_bundle  # noqa: E402
 from .keys import Ed25519Signer, Signer  # noqa: E402
@@ -19,6 +19,7 @@ __all__ = [
     "MemoryStore",
     "Outcome",
     "Recorder",
+    "RekorAnchor",
     "Signer",
     "Store",
     "export_bundle",
