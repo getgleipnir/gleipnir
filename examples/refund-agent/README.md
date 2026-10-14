@@ -16,7 +16,7 @@ The fake payments API has a bug: on refunds over $100 it books 50 cents less tha
 **Verify, as the buyer would** (offline, no access to the vendor):
 
 ```bash
-uv run gleipnir-verify bundle.zip --expect-key <key id printed by agent.py>
+uv run gleipnir-verify bundle.zip --expect-key <key id printed by agent.py> --require-full
 ```
 
 **Tamper and verify again.** `tamper.py` flips one mismatch to "match", the kind of edit someone might make before a review:
@@ -35,7 +35,7 @@ uv run gleipnir-verify tampered.zip
 
 ```bash
 uv run python agent.py --rekor
-uv run gleipnir-verify bundle.zip
+uv run gleipnir-verify bundle.zip --expect-key <key id> --require-anchor rekor --require-full
 # segments: 4, anchored 4 (independent anchors: 4)
 ```
 

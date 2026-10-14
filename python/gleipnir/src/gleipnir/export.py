@@ -19,20 +19,35 @@ VERIFY_README = """\
 This bundle contains signed, hash-chained records of actions taken by an AI agent.
 You can check it yourself, offline, without access to the vendor's systems:
 
-    pipx run gleipnir-verify {name}
+    {command}
 
-Useful options:
+What the options do:
 
-    --expect-key {key}     fail unless the chain is signed with this key
-                           (compare with the key id the vendor publishes)
-    --expect-until <ISO time>   fail if the records stop earlier than this (detects truncation)
-    --json                 machine-readable result
+    --expect-key KEY        fail unless the chain is signed with this key
+                            (compare with the key id the vendor publishes)
+    --require-anchor rekor  fail unless every segment is anchored in the public
+                            Sigstore Rekor log (so receipts cannot be silently removed)
+    --require-full          fail unless the bundle starts at the beginning of the chain
+    --known-head SEQ:HASH   fail unless the head you saw in an earlier bundle is still
+                            there, unchanged (detects truncation and rewritten history)
+    --expect-until TIME     fail if the records stop earlier than this
+    --json                  machine-readable result
 
 A VALID result means: no record was edited, removed, reordered or inserted after it was
 written, every segment's Merkle root matches, and anchor receipts check out. It does not
 mean the agent's decisions were correct, and it cannot show actions the vendor never
-recorded: reconcile the external object IDs in the records with your own systems.
+recorded: reconcile the external object ids in the records with your own systems.
 """
+
+
+def verify_command(records: list[dict[str, Any]], name: str, full: bool) -> str:
+    """The gleipnir-verify command a buyer should run for this bundle."""
+    parts = ["pipx run gleipnir-verify", name, "--expect-key", records[0]["public_key"]["id"]]
+    if any(r.get("kind") == "anchor" and r["anchor"].get("type") == "rekor" for r in records):
+        parts += ["--require-anchor", "rekor"]
+    if full:
+        parts.append("--require-full")
+    return " ".join(parts)
 
 
 def select_records(records: list[dict[str, Any]], since: datetime | None = None,
@@ -103,7 +118,8 @@ def export_bundle(records: list[dict[str, Any]], out: str | Path, *, since: date
         zf.writestr("manifest.json", json.dumps(manifest, indent=2, sort_keys=True))
         zf.writestr("records.jsonl", "".join(json.dumps(r, sort_keys=True, separators=(",", ":")) + "\n"
                                              for r in picked))
-        zf.writestr("VERIFY.md", VERIFY_README.format(name=out.name, key=manifest["key"]))
+        full = bool(body) and body[0]["seq"] == 1
+        zf.writestr("VERIFY.md", VERIFY_README.format(command=verify_command(picked, out.name, full)))
         if local_anchor_log and Path(local_anchor_log).exists():
             zf.write(local_anchor_log, "anchors/local-anchor-log.jsonl")
     return out
