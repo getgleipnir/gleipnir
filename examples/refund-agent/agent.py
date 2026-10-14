@@ -71,7 +71,8 @@ def main() -> None:
     print(f"pack:        {pack.name} (open summary.html inside)")
     print()
     print("Verify, as the buyer would:")
-    print(f"  uv run gleipnir-verify bundle.zip --expect-key {rec.key_id}")
+    anchor_flag = " --require-anchor rekor" if args.rekor else ""
+    print(f"  uv run gleipnir-verify bundle.zip --expect-key {rec.key_id}{anchor_flag} --require-full")
     print("Then tamper with it and verify again:")
     print("  uv run python tamper.py bundle.zip tampered.zip && uv run gleipnir-verify tampered.zip")
 

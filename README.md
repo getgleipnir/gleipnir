@@ -23,7 +23,7 @@ rec.pack("security-review-pack.zip")   # summary.html, actions.csv, bundle.zip
 The buyer checks the bundle offline, with no account and no access to the vendor:
 
 ```bash
-pipx run gleipnir-verify bundle.zip --expect-key k_ed25519_...
+pipx run gleipnir-verify bundle.zip --expect-key k_ed25519_... --require-anchor rekor --require-full
 ```
 
 ## Try it in five minutes

@@ -8,7 +8,7 @@ Who relies on Gleipnir records: the **buyer** of an AI agent (security, risk, au
 2. **Origin.** The records were signed by the holder of the vendor's key. With `--expect-key`, it is the key the vendor publishes (for example in its trust center).
 3. **Existence no later than anchoring.** For a segment with a Rekor receipt, the segment hash was included in Sigstore's public append-only log, outside the vendor's control. Rewriting such a segment afterwards would require a different hash, which the existing receipt does not match.
 4. **Outcome agreement, where checked.** For actions with `verify_outcome`, the vendor read the external system back after the action and recorded whether it matched (`match` / `mismatch`), together with the raw response.
-5. **No silent truncation, given an expectation.** With `--known-head` (the head from an earlier pack) or `--expect-until`, a bundle that drops recent records fails.
+5. **No silent truncation or omission, given an expectation.** With `--known-head` (the head from an earlier pack) a bundle that drops recent records fails; with `--require-full` one that drops early records fails; with `--require-anchor rekor` one whose anchor receipts were removed fails. Without these flags those cases are warnings, not failures, so buyers should always pass them (the generated VERIFY.md does).
 
 ## What it does not prove
 
@@ -25,11 +25,13 @@ Who relies on Gleipnir records: the **buyer** of an AI agent (security, risk, au
 |---|---|---|
 | Anyone handling the bundle (email, storage) | Edit, delete, reorder, insert records | Signatures, hash chain, Merkle roots |
 | Vendor staff without the signing key | Same | Same |
-| Vendor with the signing key, after anchoring | Rewrite and re-sign anchored segments | Anchor receipts no longer match; `--known-head` |
-| Vendor with the signing key, rewriting everything including anchors | Re-anchor rewritten history with new receipts | `--known-head`, `--expect-key` against a previously published key, log positions; trusted timestamps (planned) |
-| Vendor dropping recent records | Truncate the tail | Manifest range, `--expect-until`, `--known-head` |
+| Vendor with the signing key, after anchoring | Rewrite and re-sign anchored segments, keeping the old receipts | Receipts no longer match the segment hash |
+| Same, removing the receipts | Rewrite and drop every anchor receipt | `--require-anchor rekor` (without it: only a warning) |
+| Vendor with the signing key and the anchor key, rewriting everything | Re-anchor rewritten history with new receipts | `--known-head`; trusted timestamps (planned). Not detected otherwise |
+| Vendor dropping early records | Export a bundle that starts later in the chain | `--require-full` (without it: a warning, and the summary marks the bundle partial) |
+| Vendor dropping recent records | Truncate the tail | Manifest range, `--known-head`; `--expect-until` only beyond one heartbeat |
 | Vendor not recording some actions | Omit | Buyer reconciliation against its own systems |
-| Malicious bundle aimed at the verifier | Malformed JSON, huge numbers, bad zip | Verifier reports findings and never crashes (tested) |
+| Malicious bundle aimed at the verifier | Invalid UTF-8, malformed or deeply nested JSON, huge numbers, bad zip, bad arguments | Verifier reports findings or a usage error instead of a traceback (regression-tested) |
 
 ## Keys
 

@@ -28,7 +28,7 @@ from gleipnir_verify.verifier import parse_time, verify_bundle
 
 from . import __version__
 from .check import capabilities_from_records, evaluate, load_checklist
-from .export import VERIFY_README, export_bundle
+from .export import VERIFY_README, export_bundle, verify_command
 from .util import iso, utcnow
 
 
@@ -125,7 +125,7 @@ def _table(headers: list[str], rows: list[list[Any]], numeric: set[int] | None =
 
 
 def render_html(s: dict[str, Any], *, verify: dict[str, Any], coverage: list[Any], period: str, key: str,
-                chain: str, head: str, bundle_name: str) -> str:
+                chain: str, head: str, command: str) -> str:
     e = html.escape
     a = s["actions"]
     v_ok = verify["result"] == "VALID"
@@ -155,8 +155,7 @@ def render_html(s: dict[str, Any], *, verify: dict[str, Any], coverage: list[Any
     findings = [f for f in verify.get("findings", []) if f["level"] in ("error", "warn")]
     if findings:
         parts.append(_table(["Level", "Code", "Detail"], [[f["level"], f["code"], f["message"]] for f in findings]))
-    parts.append(f"<p>To check it yourself, offline: <code>pipx run gleipnir-verify {e(bundle_name)} "
-                 f"--expect-key {e(key)}</code></p>")
+    parts.append(f"<p>To check it yourself, offline: <code>{e(command)}</code></p>")
 
     parts.append("<h2>Systems and tools used</h2>")
     parts.append(_table(["System", "Tool", "Actions"],
@@ -230,13 +229,16 @@ def build_pack(records: list[dict[str, Any]], out: str | Path, *, since: datetim
     head_seq = report.summary.get("head", {}).get("seq")
     head = f"{head_seq}:{report.summary.get('head', {}).get('hash')}"
     key = records[0]["public_key"]["id"]
+    with zipfile.ZipFile(bundle_path) as bz:
+        picked = [json.loads(x) for x in bz.read("records.jsonl").decode().splitlines() if x.strip()]
+    command = verify_command(picked, "bundle.zip", full=not report.summary.get("partial"))
     page = render_html(s, verify=verify, coverage=coverage, period=period, key=key, chain=records[0]["chain"],
-                       head=head, bundle_name="bundle.zip")
+                       head=head, command=command)
     with zipfile.ZipFile(out, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("summary.html", page)
         zf.writestr("actions.csv", actions_csv(s["actions"]))
         zf.write(bundle_path, "bundle.zip")
-        zf.writestr("VERIFY.md", VERIFY_README.format(name="bundle.zip", key=key))
+        zf.writestr("VERIFY.md", VERIFY_README.format(command=command))
         zf.writestr("verification.json", json.dumps(verify, indent=2, sort_keys=True))
     bundle_path.unlink()
     return out
