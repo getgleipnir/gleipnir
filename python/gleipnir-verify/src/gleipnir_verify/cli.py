@@ -25,6 +25,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--known-head", metavar="SEQ:HASH",
                    help="fail unless the record with this seq and hash is present (from an earlier bundle); "
                         "detects truncation and rewritten history")
+    p.add_argument("--require-anchor", choices=["rekor"],
+                   help="fail unless every segment has a verified anchor in this independent log")
+    p.add_argument("--require-full", action="store_true",
+                   help="fail unless the bundle starts at the beginning of the chain")
+    p.add_argument("--trusted-root", metavar="PATH",
+                   help="Sigstore trusted_root.json to use instead of the embedded one (for newer log shards)")
     p.add_argument("--local-anchor-log", metavar="PATH", help="local anchor log to check local receipts against")
     p.add_argument("--strict", action="store_true", help="treat warnings as failures")
     p.add_argument("--version", action="version", version=f"gleipnir-verify {__version__}")
@@ -32,17 +38,28 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
-    expect_until = parse_time(args.expect_until) if args.expect_until else None
-    options = {}
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    expect_until = None
+    if args.expect_until:
+        try:
+            expect_until = parse_time(args.expect_until)
+        except ValueError:
+            parser.error("--expect-until needs an ISO 8601 time with a timezone, e.g. 2026-10-14T18:00:00Z")
+    options: dict[str, object] = {}
     if args.local_anchor_log:
         options["local_anchor_log"] = args.local_anchor_log
+    if args.trusted_root:
+        options["trusted_root"] = args.trusted_root
     known_head = None
     if args.known_head:
-        seq_text, _, hash_text = args.known_head.partition(":")
+        seq_text, sep, hash_text = args.known_head.partition(":")
+        if not sep or not seq_text.isdigit() or not hash_text.startswith("sha256:"):
+            parser.error("--known-head must look like 12:sha256:<64 hex>")
         known_head = (int(seq_text), hash_text)
     report = verify_bundle(args.bundle, expect_key=args.expect_key, expect_until=expect_until,
-                           known_head=known_head, anchor_options=options)
+                           known_head=known_head, require_anchor=args.require_anchor,
+                           require_full=args.require_full, anchor_options=options)
     valid = report.valid(strict=args.strict)
 
     if args.json:

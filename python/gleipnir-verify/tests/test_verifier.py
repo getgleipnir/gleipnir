@@ -376,3 +376,73 @@ def test_unencodable_values_are_reported_not_raised():
     recs[4]["args"]["amount"] = float("nan")
     r = verify_records(recs)
     assert not r.valid()
+
+
+# ---- regressions from the independent review (2026-10-14) ------------------------------
+
+def test_stripping_anchor_receipts_fails_when_anchor_required():
+    b = Builder().standard()
+    # The key holder rebuilds the whole chain, consistently, without any anchor receipts.
+    forged = Builder(key=b.key)
+    for s in range(3):
+        for i in range(4):
+            forged.action(s * 100 + i)
+        forged.segment()
+    assert verify_records(forged.records).valid()  # without a requirement: warnings only
+    r = verify_records(forged.records, require_anchor="rekor")
+    assert "anchor_required" in codes(r)
+
+
+def test_require_anchor_rejects_non_independent_anchors():
+    b = Builder().standard()
+    r = verify_records(b.records, anchor_options={"local_anchor_entries": b.anchor_log}, require_anchor="rekor")
+    assert "anchor_required" in codes(r)
+
+
+def test_dropping_records_at_the_start_is_flagged():
+    b = Builder().standard(segments=3, per=3)
+    segs = [r for r in b.records if r["kind"] == "segment"]
+    recs = [b.records[0]] + b.records[segs[0]["seq"] + 1:]
+    r = run(recs, b)
+    assert r.valid() and not r.valid(strict=True)
+    assert r.summary["partial"] is True
+    assert "partial_bundle" in codes(run(recs, b, require_full=True))
+
+
+def test_unchecked_receipts_are_not_counted_as_anchored():
+    b = Builder().standard()
+    r = verify_records(b.records)
+    assert r.summary["segments_anchored"] == 0
+    assert "anchors_unchecked" in {f.code for f in r.warnings}
+
+
+def test_manifest_key_must_match():
+    b = Builder().standard()
+    m = {"chain": b.chain, "from_seq": 1, "to_seq": b.records[-1]["seq"], "format": 1, "key": "k_ed25519_00"}
+    assert "manifest_key" in codes(run(b.records, b, manifest=m))
+
+
+@pytest.mark.parametrize("records_bytes,manifest_bytes", [
+    (b"\xff\xfe\x00garbage", b'{"format": 1}'),
+    (b"{}\n", b"[]"),
+    (b"[" * 100000 + b"\n", b'{"format": 1}'),
+    (b'{"seq": ' + b"9" * 5000 + b"}\n", b'{"format": 1}'),
+    (b"[1, 2]\n", b'{"format": 1}'),
+])
+def test_hostile_bundles_never_crash(tmp_path, records_bytes, manifest_bytes, capsys):
+    p = tmp_path / "hostile.zip"
+    with zipfile.ZipFile(p, "w") as zf:
+        zf.writestr("manifest.json", manifest_bytes)
+        zf.writestr("records.jsonl", records_bytes)
+    assert not verify_bundle(p).valid()
+    assert cli.main([str(p)]) == 1
+    capsys.readouterr()
+
+
+@pytest.mark.parametrize("args", [["--known-head", "foo"], ["--expect-until", "yesterday"],
+                                  ["--expect-until", "2026-10-14T10:00:00"]])
+def test_bad_cli_arguments_exit_cleanly(tmp_path, args, capsys):
+    with pytest.raises(SystemExit) as exc:
+        cli.main([str(tmp_path / "x.zip"), *args])
+    assert exc.value.code == 2
+    capsys.readouterr()
