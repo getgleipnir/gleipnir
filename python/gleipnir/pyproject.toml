@@ -1,0 +1,33 @@
+[project]
+name = "gleipnir-sdk"
+version = "0.1.0.dev0"
+description = "Verifiable action records for AI agents"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.10"
+authors = [{ name = "Gleipnir" }]
+dependencies = [
+  "gleipnir-verify",
+  "cryptography>=42",
+  "pyyaml>=6",
+]
+
+[project.optional-dependencies]
+mcp = ["mcp>=1.0"]
+
+[project.urls]
+Homepage = "https://getgleipnir.com"
+Source = "https://github.com/getgleipnir/gleipnir"
+
+[project.scripts]
+gleipnir = "gleipnir.cli:main"
+
+[build-system]
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/gleipnir"]
+
+[tool.uv.sources]
+gleipnir-verify = { workspace = true }
