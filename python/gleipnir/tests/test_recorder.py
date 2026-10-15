@@ -495,3 +495,26 @@ def test_proof_warns_without_anchor_and_checks_manifest(tmp_path, clock):
             zf.writestr(n, d)
     codes = {x.code for x in verify_bundle(bad).errors}
     assert {"manifest_key", "proof_position"} <= codes
+
+
+def test_approve_refuses_dropped_fields(tmp_path, clock):
+    import pytest
+
+    r = gleipnir.Recorder("a", "1", home=tmp_path, background=False, clock=clock, quiet=True, fsync=False,
+                          redaction_key=b"")
+
+    @r.tool(system="pay", redact=["amount"])
+    def refund(order, amount):
+        return {}
+
+    with pytest.raises(ValueError):
+        r.approve(refund, {"order": "o", "amount": 10}, approver="x")
+
+
+def test_prove_rejects_non_actions(rec, tmp_path):
+    import pytest
+
+    n = rec.note("hello")
+    rec.flush()
+    with pytest.raises(ValueError):
+        rec.prove(n["id"], tmp_path / "p.zip")

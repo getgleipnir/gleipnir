@@ -29,7 +29,7 @@ def local_log_entry_hash(entry: dict[str, Any]) -> str:
 
 def read_local_log(path: str | Path) -> list[dict[str, Any]]:
     with open(path, encoding="utf-8") as fh:
-        return [json.loads(line) for line in fh if line.strip()]
+        return [json.loads(line) for line in fh if line.strip(" \t\r\n")]
 
 
 def check_local_log(entries: list[dict[str, Any]]) -> str | None:

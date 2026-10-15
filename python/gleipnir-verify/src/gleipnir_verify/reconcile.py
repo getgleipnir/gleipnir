@@ -8,6 +8,9 @@ system, filtered to what the agent's identity touched:
 
 - in your system, not in the records: the agent may have acted without recording it
 - in the records, not in your system: an action was claimed that your system does not show
+
+Only the id field at the top level of each action's response counts (``--field``, default the
+column name), and ``--tool`` limits it to the tools that create or change those objects.
 """
 
 from __future__ import annotations
@@ -18,6 +21,16 @@ from pathlib import Path
 from typing import Any
 
 from .verifier import Report, read_bundle, verify_bundle
+
+
+def top_level_ids(value: Any, wanted: str) -> set[str]:
+    """``wanted`` at the top level of a response body only (not inside lists), so a list or search
+    call that returns many objects does not count as having created them."""
+    if isinstance(value, dict):
+        x = value.get(wanted)
+        if isinstance(x, (str, int)) and not isinstance(x, bool):
+            return {str(x)}
+    return set()
 
 
 def external_ids(value: Any, wanted: str | None = None) -> set[str]:
@@ -52,7 +65,7 @@ class Reconciliation:
 
 
 def reconcile(bundle: str | Path, system_csv: str | Path, *, column: str, field_name: str | None = None,
-              **verify_kwargs: Any) -> Reconciliation:
+              tools: list[str] | None = None, **verify_kwargs: Any) -> Reconciliation:
     report = verify_bundle(bundle, **verify_kwargs)
     result = Reconciliation(report)
     if not report.valid():
@@ -61,13 +74,19 @@ def reconcile(bundle: str | Path, system_csv: str | Path, *, column: str, field_
     ids: set[str] = set()
     for r in records:
         resp = r.get("response") if isinstance(r, dict) else None
+        tool = r.get("tool", {}).get("name") if isinstance(r.get("tool"), dict) else None
+        if tools and tool not in tools:
+            continue
         if r.get("kind") == "action" and isinstance(resp, dict) and resp.get("status") == "ok":
-            ids |= external_ids(resp.get("body"), field_name or column)
-    with open(system_csv, newline="", encoding="utf-8-sig") as fh:
-        reader = csv.DictReader(fh)
-        if reader.fieldnames is None or column not in reader.fieldnames:
-            raise ValueError(f"column {column!r} not found in {system_csv}")
-        system = {(row.get(column) or "").strip() for row in reader} - {""}  # short rows are skipped
+            ids |= top_level_ids(resp.get("body"), field_name or column)
+    try:
+        with open(system_csv, newline="", encoding="utf-8-sig") as fh:
+            reader = csv.DictReader(fh)
+            if reader.fieldnames is None or column not in reader.fieldnames:
+                raise ValueError(f"column {column!r} not found in {system_csv}")
+            system = {(row.get(column) or "").strip() for row in reader} - {""}  # short rows are skipped
+    except (csv.Error, UnicodeDecodeError) as exc:
+        raise ValueError(f"cannot read {system_csv}: {exc}") from exc
     result.matched = ids & system
     result.only_in_system = system - ids
     result.only_in_records = ids - system

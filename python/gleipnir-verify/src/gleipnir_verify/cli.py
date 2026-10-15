@@ -49,10 +49,11 @@ def reconcile_main(argv: list[str]) -> int:
     p.add_argument("system_csv", help="CSV export from your system, filtered to what the agent touched")
     p.add_argument("--column", required=True, help="id column in the CSV, e.g. refund_id")
     p.add_argument("--field", help="response field holding that id in the records (default: same as --column)")
+    p.add_argument("--tool", action="append", help="only count actions of this tool (repeatable), e.g. issue_refund")
     p.add_argument("--expect-key", metavar="KEY_ID")
     args = p.parse_args(argv)
     try:
-        res = reconcile(args.bundle, args.system_csv, column=args.column, field_name=args.field,
+        res = reconcile(args.bundle, args.system_csv, column=args.column, field_name=args.field, tools=args.tool,
                         expect_key=args.expect_key)
     except (OSError, ValueError) as exc:
         p.error(str(exc))

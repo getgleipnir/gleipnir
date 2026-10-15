@@ -52,6 +52,8 @@ def verify_command(records: list[dict[str, Any]], name: str, full: bool) -> str:
     for t in ("rekor", "rfc3161"):
         if t in types:
             parts += ["--require-anchor", t]
+    if "rfc3161" in types:
+        parts += ["--max-anchor-delay", "86400"]  # fail segments timestamped more than a day after they closed
     if full:
         parts.append("--require-full")
     return " ".join(parts)
@@ -141,10 +143,10 @@ def export_proof(records: list[dict[str, Any]], action_id: str, out: str | Path,
     from gleipnir_verify.canon import hash_to_bytes, record_hash
 
     out = Path(out)
-    by_id = {r.get("id"): r for r in records}
-    action = by_id.get(action_id)
-    if action is None:
-        raise ValueError(f"no record with id {action_id!r}")
+    matches = [r for r in records if r.get("id") == action_id]
+    if len(matches) != 1 or matches[0].get("kind") != "action":
+        raise ValueError(f"{action_id!r} is not exactly one action record")
+    action = matches[0]
     if any(r.get("kind") == "key_rotation" for r in records):
         raise NotImplementedError("proofs for chains with key rotations are not supported yet")
     seq = action["seq"]
