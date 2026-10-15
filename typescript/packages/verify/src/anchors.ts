@@ -7,7 +7,7 @@
 
 import { canonicalize, sha256Tagged } from "./canon.js";
 import { decodeUtf8, parseJson } from "./json.js";
-import { PyError, dget, isBlank, isDict, isNone, isPyInt, pyEq, pyInt, pyRepr, type JsonDict } from "./py.js";
+import { PyError, dget, isDict, isNone, isPyInt, pyEq, pyInt, pyRepr, type JsonDict } from "./py.js";
 
 export interface AnchorResult {
   /** true = verified, false = invalid, null = present but not checked. */
@@ -73,7 +73,7 @@ function readLocalLog(bytes: Uint8Array): unknown[] {
   const text = decodeUtf8(bytes).replace(/\r\n?/g, "\n");
   const out: unknown[] = [];
   for (const line of text.split(/(?<=\n)/)) {
-    if (!isBlank(line)) out.push(parseJson(line));
+    if (!/^[ \t\r\n]*$/.test(line)) out.push(parseJson(line));
   }
   return out;
 }

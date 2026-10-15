@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   actionDigest,
   csvColumn,
+  topLevelIds,
   decodePublicKey,
   externalIds,
   keyId,
@@ -241,7 +242,29 @@ describe("reconcile", () => {
     expect(res.onlyInRecords).toEqual(new Set(["R3"]));
     expect(res.ok).toBe(false);
     expect(reconcile(bundle, "refund_id\nR1\nR2\nR3\n", { column: "refund_id" }).ok).toBe(true);
-    expect(reconcile(bundle, "oid\nO0\nO1\nO2\n", { column: "oid", field: "order_id" }).ok).toBe(true);
+    // only the top level of the response body counts: nested order_id values are not ids here
+    expect(reconcile(bundle, "oid\nO0\n", { column: "oid", field: "order_id" }).onlyInSystem).toEqual(new Set(["O0"]));
+  });
+
+  it("counts top-level ids only, so list calls cannot mask missing records; --tool filters", () => {
+    const l = new Builder();
+    l.action(0, { tool: { name: "issue_refund", system: "p" }, response: { status: "ok", body: { refund_id: "R1" } } });
+    l.action(1, { tool: { name: "list_refunds", system: "p" }, response: { status: "ok", body: { items: [{ refund_id: "R1" }, { refund_id: "R2" }] } } });
+    l.action(2, { tool: { name: "lookup", system: "p" }, response: { status: "ok", body: { refund_id: "R3" } } });
+    l.anchor(l.segment());
+    const zip = writeBundle(l);
+    const all = reconcile(zip, "refund_id\nR1\nR2\n", { column: "refund_id" });
+    expect(all.onlyInSystem).toEqual(new Set(["R2"]));
+    expect(all.onlyInRecords).toEqual(new Set(["R3"]));
+    const only = reconcile(zip, "refund_id\nR1\nR2\n", { column: "refund_id", tools: ["issue_refund"] });
+    expect([only.matched, only.onlyInSystem, only.onlyInRecords]).toEqual([new Set(["R1"]), new Set(["R2"]), new Set()]);
+    expect(topLevelIds({ id: 1, x: true }, "x")).toEqual(new Set());
+    expect(topLevelIds([{ id: "a" }], "id")).toEqual(new Set());
+  });
+
+  it("CSV read errors are ValueErrors (usage errors in the CLI)", () => {
+    expect(() => reconcile(bundle, new Uint8Array([0x72, 0x0a, 0xff]), { column: "r", csvName: "x.csv" })).toThrow(/^cannot read x\.csv: /);
+    expect(() => reconcile(bundle, "refund_id\nR\u00001\n", { column: "refund_id", csvName: "n.csv" })).toThrow("cannot read n.csv: line contains NUL");
   });
 
   it("does not reconcile a bundle that does not verify, and needs the column", () => {

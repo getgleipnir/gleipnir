@@ -90,7 +90,7 @@ export function main(argv: string[], io: Io = { out: (s) => process.stdout.write
 
 const RECONCILE_PROG = `${PROG} reconcile`;
 const RECONCILE_USAGE = `usage: ${RECONCILE_PROG} [-h] --column COLUMN [--field FIELD]
-                                 [--expect-key KEY_ID]
+                                 [--tool TOOL] [--expect-key KEY_ID]
                                  bundle system_csv`;
 const RECONCILE_HELP = `${RECONCILE_USAGE}
 
@@ -106,8 +106,20 @@ options:
   --column COLUMN      id column in the CSV, e.g. refund_id
   --field FIELD        response field holding that id in the records (default:
                        same as --column)
+  --tool TOOL          only count actions of this tool (repeatable), e.g.
+                       issue_refund
   --expect-key KEY_ID
 `;
+
+/** node:util parseArgs errors in argparse's words (the ones the Python CLI prints). */
+function argparseMessage(exc: unknown): string {
+  const text = exc instanceof Error ? exc.message : String(exc);
+  const missing = /^Option '(-[-\w]+)(?: <value>)?' argument missing/.exec(text);
+  if (missing) return `argument ${missing[1]}: expected one argument`;
+  const unknown = /^Unknown option '([^']+)'/.exec(text);
+  if (unknown) return `unrecognized arguments: ${unknown[1]}`;
+  return text;
+}
 
 function reconcileError(io: Io, message: string): never {
   io.err(`${RECONCILE_USAGE}\n${RECONCILE_PROG}: error: ${message}\n`);
@@ -126,10 +138,15 @@ function runReconcile(argv: string[], io: Io): number {
       args: argv,
       allowPositionals: true,
       strict: true,
-      options: { column: { type: "string" }, field: { type: "string" }, "expect-key": { type: "string" } },
+      options: {
+        column: { type: "string" },
+        field: { type: "string" },
+        tool: { type: "string", multiple: true },
+        "expect-key": { type: "string" },
+      },
     });
   } catch (exc) {
-    reconcileError(io, exc instanceof Error ? exc.message : String(exc));
+    reconcileError(io, argparseMessage(exc));
   }
   const a = parsed.values;
   const missing = [
@@ -162,7 +179,13 @@ function runReconcile(argv: string[], io: Io): number {
         reconcileError(io, osError(exc, csvPath));
       }
     };
-    res = reconcile(bundle, readCsv, { column: a.column!, field: a.field ?? null, expectKey: a["expect-key"] ?? null, csvName: csvPath });
+    res = reconcile(bundle, readCsv, {
+      column: a.column!,
+      field: a.field ?? null,
+      tools: a.tool ?? null,
+      expectKey: a["expect-key"] ?? null,
+      csvName: csvPath,
+    });
   } catch (exc) {
     if (exc instanceof Exit) throw exc;
     if (exc instanceof PyError) reconcileError(io, exc.message);
@@ -219,7 +242,7 @@ function run(argv: string[], io: Io): number {
       },
     });
   } catch (exc) {
-    usageError(io, exc instanceof Error ? exc.message : String(exc));
+    usageError(io, argparseMessage(exc));
   }
   const a = parsed.values;
   if (parsed.positionals.length === 0) usageError(io, "the following arguments are required: bundle");

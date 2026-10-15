@@ -1,5 +1,6 @@
 /** SDK: injected signers of either key type, approve() and prove(); checked by both verifiers. */
 
+import { execFileSync } from "node:child_process";
 import { createSign, generateKeyPairSync, sign as nodeSign } from "node:crypto";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -15,10 +16,11 @@ import {
   Recorder,
   SpkiSigner,
   checkSigner,
+  verifyCommand,
   type Rec,
   type Signer,
 } from "@getgleipnir/sdk";
-import { pythonAvailable, pythonCli } from "../../verify/test/oracle.js";
+import { REPO, pythonAvailable, pythonCli } from "../../verify/test/oracle.js";
 
 const tmp = () => mkdtempSync(join(tmpdir(), "gleipnir-sdk-f-"));
 
@@ -99,6 +101,31 @@ describe("signers", () => {
   });
 });
 
+describe("verify command", () => {
+  it("adds --max-anchor-delay 86400 when rfc3161 receipts exist (as the Python SDK)", () => {
+    const g = { kind: "genesis", seq: 0, public_key: { id: "k_ed25519_0000000000000000" } };
+    const anchor = (type: string) => ({ kind: "anchor", seq: 2, anchor: { type } });
+    expect(verifyCommand([g, anchor("rfc3161")], "b.zip", true)).toBe(
+      "pipx run gleipnir-verify b.zip --expect-key k_ed25519_0000000000000000 --require-anchor rfc3161 --max-anchor-delay 86400 --require-full",
+    );
+    expect(verifyCommand([g, anchor("rekor"), anchor("rfc3161")], "b.zip", false)).toBe(
+      "pipx run gleipnir-verify b.zip --expect-key k_ed25519_0000000000000000 --require-anchor rekor --require-anchor rfc3161 --max-anchor-delay 86400",
+    );
+    expect(verifyCommand([g, anchor("rekor")], "b.zip", false)).not.toContain("--max-anchor-delay");
+  });
+
+  it.runIf(pythonAvailable)("is the command the Python SDK writes", () => {
+    const g = { kind: "genesis", seq: 0, public_key: { id: "k_x" } };
+    const recs = [g, { kind: "anchor", seq: 2, anchor: { type: "rfc3161" } }, { kind: "anchor", seq: 3, anchor: { type: "rekor" } }];
+    const py = execFileSync(
+      "uv",
+      ["run", "--quiet", "python", "-I", "-c", "import json,sys\nfrom gleipnir.export import verify_command\nprint(verify_command(json.loads(sys.argv[1]), 'b.zip', True))", JSON.stringify(recs)],
+      { encoding: "utf8", cwd: REPO },
+    );
+    expect(verifyCommand(recs, "b.zip", true)).toBe(py.trim());
+  });
+});
+
 describe("approve()", () => {
   it("binds an approval to the exact action (Recorder.approve, as in Python)", async () => {
     const rec = recorder();
@@ -137,6 +164,14 @@ describe("approve()", () => {
     rec.context({ approval: id }, () => rec.recordAction({ tool: "delete_user", system: "crm", args: { user: "u1" } }));
     expect(verifyRecords(rec.chain.store.readAll()).valid()).toBe(true);
     expect(() => rec.approve("refund", {}, { approver: "x" })).toThrow("tool name together with system");
+    // an argument dropped by redaction cannot be bound by the approval
+    expect(() => rec.approve("refund", { card: "4111", n: 1 }, { approver: "x", system: "pay", redact: { card: "drop" } })).toThrow(
+      "dropped by redaction",
+    );
+    const noKey = recorder({ redactionKey: null });
+    const t = noKey.tool((card: string) => card.length, { system: "pay", name: "charge", params: ["card"], redact: ["card"] });
+    expect(() => noKey.approve(t, { card: "4111" }, { approver: "x" })).toThrow("dropped by redaction");
+    expect(() => rec.approve("refund", { card: "4111" }, { approver: "x", system: "pay", redact: ["card"] })).not.toThrow();
     expect(() => rec.context({ approval: id, bogus: 1 } as never, () => 0)).toThrow("unknown context keys");
   });
 });
@@ -181,7 +216,12 @@ describe("prove()", () => {
   it("refuses unknown actions and chains with rotations", async () => {
     const rec = recorder();
     rec.recordAction({ tool: "t", system: "s", args: {} });
-    await expect(rec.prove("act_nope", join(rec.home, "p.zip"))).rejects.toThrow("no record with id");
+    await expect(rec.prove("act_nope", join(rec.home, "p.zip"))).rejects.toThrow("is not exactly one action record");
+    const note = rec.note("hello");
+    await expect(rec.prove(note["id"] as string, join(rec.home, "p.zip"))).rejects.toThrow("is not exactly one action record");
+    rec.recordAction({ tool: "t", system: "s", args: {}, actionId: "act_dup" });
+    rec.recordAction({ tool: "t", system: "s", args: {}, actionId: "act_dup" });
+    await expect(rec.prove("act_dup", join(rec.home, "p.zip"))).rejects.toThrow("is not exactly one action record");
     rec.chain.rotateKey(Ed25519Signer.generate());
     const id = rec.chain.store.readAll().find((r) => r["kind"] === "action")!["id"] as string;
     await expect(rec.prove(id, join(rec.home, "p.zip"))).rejects.toThrow("key rotations");

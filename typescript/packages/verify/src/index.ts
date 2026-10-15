@@ -12,6 +12,7 @@ export {
   Report,
   actionDigest,
   badBundleReport,
+  hasDropped,
   defaultVerifiers,
   parseKnownHead,
   verifyBundle,
@@ -87,11 +88,12 @@ export {
   parseCsvRows,
   reconcile,
   recordIds,
+  topLevelIds,
   type ReconcileOptions,
   type Reconciliation,
 } from "./reconcile.js";
 export { inclusionProof, leafHash, merkleRoot, nodeHash, verifyInclusion } from "./merkle.js";
-export { parseJsonl, readBundle } from "./bundle.js";
+export { jsonLines, parseJsonl, readBundle } from "./bundle.js";
 export { decodeUtf8, encodeUtf8, parseJson, parseJsonBytes, pyDumps, type DumpOptions } from "./json.js";
 export { b64decodeStrict, b64encode, b64uDecode, b64uEncode, bytesToHex, concatBytes, hexToBytes, utf8 } from "./bytes.js";
 export { BigIntLiteral, PyError, PyFloat } from "./py.js";

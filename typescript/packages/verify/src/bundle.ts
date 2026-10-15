@@ -2,7 +2,7 @@
 
 import { unzipSync } from "fflate";
 import { decodeUtf8, parseJson, parseJsonBytes } from "./json.js";
-import { PyError, isBlank, splitlines } from "./py.js";
+import { PyError } from "./py.js";
 
 /** Uncompressed size limit per member, against zip bombs. */
 export const MAX_MEMBER_BYTES = 512 * 1024 * 1024;
@@ -26,6 +26,15 @@ function members(zipBytes: Uint8Array): Map<string, Uint8Array> {
   return new Map(Object.entries(files));
 }
 
+/**
+ * JSON Lines as the spec defines them: split on "\n" only; a line that is empty or holds only
+ * JSON whitespace other than newline (space, tab, CR) is skipped; every other line must be
+ * exactly one JSON value (so VT, FF, U+0085 or U+2028 after a value are an error, as in Python).
+ */
+export function jsonLines(text: string): string[] {
+  return text.split("\n").filter((l) => !/^[ \t\r]*$/.test(l));
+}
+
 /** Read a bundle: [manifest, records, local anchor log entries or null]. Throws on unreadable bundles. */
 export function readBundle(zipBytes: Uint8Array): [unknown, unknown[], unknown[] | null] {
   const m = members(zipBytes);
@@ -35,21 +44,17 @@ export function readBundle(zipBytes: Uint8Array): [unknown, unknown[], unknown[]
     return b;
   };
   const manifest = parseJsonBytes(get("manifest.json"));
-  const lines = splitlines(decodeUtf8(get("records.jsonl")));
+  const lines = jsonLines(decodeUtf8(get("records.jsonl")));
   let localLog: unknown[] | null = null;
   const log = m.get("anchors/local-anchor-log.jsonl");
   if (log !== undefined) {
-    localLog = splitlines(decodeUtf8(log))
-      .filter((l) => !isBlank(l))
-      .map((l) => parseJson(l));
+    localLog = jsonLines(decodeUtf8(log)).map((l) => parseJson(l));
   }
-  const records = lines.filter((l) => !isBlank(l)).map((l) => parseJson(l));
+  const records = lines.map((l) => parseJson(l));
   return [manifest, records, localLog];
 }
 
-/** Parse a records.jsonl text (as written by the SDK store or a bundle). */
+/** Parse a records.jsonl text (as written by the SDK store or a bundle), with the bundle line rules. */
 export function parseJsonl(text: string): unknown[] {
-  return splitlines(text)
-    .filter((l) => !isBlank(l))
-    .map((l) => parseJson(l));
+  return jsonLines(text).map((l) => parseJson(l));
 }

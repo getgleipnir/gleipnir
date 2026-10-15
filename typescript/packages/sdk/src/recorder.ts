@@ -4,7 +4,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { join } from "node:path";
 import { hmac } from "@noble/hashes/hmac.js";
 import { sha256 } from "@noble/hashes/sha2.js";
-import { actionDigest, bytesToHex, canonicalize } from "@getgleipnir/verify";
+import { actionDigest, bytesToHex, canonicalize, hasDropped } from "@getgleipnir/verify";
 import { LocalFileAnchor, type Anchor } from "./anchor.js";
 import { ChainWriter } from "./chain.js";
 import { exportBundle, exportProof, type ExportOptions } from "./export.js";
@@ -385,7 +385,14 @@ export class Recorder {
     const system = o.system || meta?.gleipnirSystem;
     if (typeof name !== "string" || !system) throw new Error("pass a rec.tool() function, or a tool name together with system");
     const rules = this.redactor.rules(o.redact !== undefined && o.redact !== null ? o.redact : meta?.gleipnirRedact);
-    const digest = actionDigest(name, system, this.redactor.apply(toJsonable({ ...args }), rules));
+    const bound = this.redactor.apply(toJsonable({ ...args }), rules);
+    if (hasDropped(bound)) {
+      throw new Error(
+        "an approved argument would be dropped by redaction, so the approval could not show what was approved; " +
+          "use 'hmac' redaction for approved tools (needs a redaction key)",
+      );
+    }
+    const digest = actionDigest(name, system, bound);
     const body: Rec = { action_digest: digest, tool: name, system, reviewer: o.approver, decision: "approved", before_execution: true };
     if (o.rule) body["rule"] = o.rule;
     if (o.reason) body["reason"] = o.reason;

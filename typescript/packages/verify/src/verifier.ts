@@ -307,6 +307,7 @@ function verifyRecordsInner(records: unknown[], o: ResolvedOptions): Report {
   let prevHash: string | null = null;
   let firstBodySeq: unknown = null;
   let currentKey = genesisKey;
+  const seenIds = new Set<string>();
 
   for (let idx = 0; idx < records.length; idx++) {
     const rec = records[idx];
@@ -334,6 +335,11 @@ function verifyRecordsInner(records: unknown[], o: ResolvedOptions): Report {
       continue;
     }
     if (bySeq.has(seq)) report.add(ERROR, "duplicate_seq", "sequence number appears twice", seq);
+    const rid = dget(rec, "id");
+    if (typeof rid === "string") {
+      if (seenIds.has(rid)) report.add(ERROR, "duplicate_id", `record id ${pyRepr(rid)} is used twice`, seq);
+      seenIds.add(rid);
+    }
     hashes.set(seq, h);
     bySeq.set(seq, rec);
 
@@ -596,6 +602,14 @@ function verifyRecordsInner(records: unknown[], o: ResolvedOptions): Report {
       unchecked += 1;
     }
     if (segIndependent) independent += 1;
+    if (o.maxAnchorDelay !== null && !verifiedTypes.has("rfc3161")) {
+      report.add(
+        ERROR,
+        "no_trusted_time",
+        "--max-anchor-delay needs a verified RFC 3161 timestamp on every segment, and this one has none",
+        sseq,
+      );
+    }
     for (const req of required) {
       if (!verifiedTypes.has(req)) {
         report.add(
@@ -697,6 +711,20 @@ export function actionDigest(tool: unknown, system: unknown, args: unknown): str
   return sha256Tagged(canonicalize(value));
 }
 
+/**
+ * True when a value contains `{"redacted": "dropped"}` (an argument removed by redaction, which an
+ * approval digest cannot bind). Port of `_has_dropped`, including its depth limit.
+ */
+export function hasDropped(value: unknown, depth = 0): boolean {
+  if (depth > 100) return true;
+  if (isDict(value)) {
+    if (pyEq(dget(value, "redacted"), "dropped") && Object.keys(value).length === 1) return true;
+    return Object.values(value).some((v) => hasDropped(v, depth + 1));
+  }
+  if (Array.isArray(value)) return value.some((v) => hasDropped(v, depth + 1));
+  return false;
+}
+
 /** Every action that names an approval must point to an earlier, matching `approved` review. */
 function checkApprovals(records: JsonDict[], report: Report, partial: boolean): void {
   const reviews = new PyMap<JsonDict>();
@@ -745,6 +773,14 @@ function checkApprovals(records: JsonDict[], report: Report, partial: boolean): 
     }
     if (!pyEq(dget(body, "action_digest"), digest)) {
       report.add(ERROR, "approval_mismatch", "the action differs from what was approved (tool, system or arguments)", seq);
+    }
+    if (hasDropped(dget(rec, "args"))) {
+      report.add(
+        ERROR,
+        "approval_unbound_field",
+        "an argument of the approved action was dropped by redaction, so the approval cannot show what was approved (use hmac redaction)",
+        seq,
+      );
     }
   }
 }
@@ -915,6 +951,9 @@ function verifyProofInner(manifest: JsonDict, records: unknown[], o: ResolvedOpt
     if (!pyEq(dget(rec, "key"), pkId) || !verifySignature(pub, recordMessage(h), dget(rec, "sig", ""))) {
       report.add(ERROR, "bad_signature", "signature does not match record content (record altered?)", dget(rec, "seq"));
     }
+  }
+  if (!pyEq(dget(action, "kind"), "action")) {
+    report.add(ERROR, "proof_not_action", `the proven record is a ${pyRepr(dget(action, "kind"))} record, not an action`, dget(action, "seq"));
   }
   if (!pyEq(dget(action, "id"), dget(manifest, "action")) || !pyEq(dget(segment, "kind"), "segment")) {
     report.add(ERROR, "malformed", "proof does not contain the named action and a segment");
