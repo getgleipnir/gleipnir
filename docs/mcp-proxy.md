@@ -86,7 +86,7 @@ gleipnir mcp-proxy [same options] -- <server command...>
 | `--system` | System name on each record. Default: the server's own `serverInfo.name` from `initialize`. |
 | `--chain` | Chain name. Default `mcp-<server>`, derived from the command. If another proxy is already writing that chain (two clients running the same server), the second one uses `mcp-<server>-2`, because a chain has one writer. |
 | `--anchor` | `local` (default; a local log, fine for trying it out), `rekor` (segment hashes go to Sigstore Rekor plus an RFC 3161 timestamp, so they are independent of you; needs network), `none`. |
-| `--redact` | Comma-separated field names. Wherever they appear in arguments or results, the value is replaced by an HMAC before it is hashed or stored, e.g. `--redact token,password,card_number`. |
+| `--redact` | Comma-separated field names, e.g. `--redact token,password,card_number`. Wherever one of these keys appears in the arguments, the result, the `content[].text` of the result when that text is a JSON object or array (tools often return JSON as text), or the `data` of a JSON-RPC error, the proxy replaces its value with an HMAC before anything is hashed or stored. For JSON text, the record stores the redacted JSON re-serialized; the client still receives the original. Free text that is not JSON is stored as is, because there are no field names to match in it: a secret written into a plain sentence or a log line is not redacted. |
 | `--print-config` | `claude-desktop`, `cursor` or `claude-code`: print the snippet instead of running. `--name` sets the server name in it. |
 
 What ends up on each record: `tool.name`, `tool.system`, `args`, `response` (`{status: ok, body: <the JSON-RPC result>}`, or `{status: error, error}` for a JSON-RPC error, an `isError: true` result, a client cancellation, or a call still pending at shutdown), `t.start`/`t.end` (when the proxy saw the request and the response), `agent` = the client's `clientInfo` name and version, and `context.session`, `context.tool_call_id` (the JSON-RPC id) and `context.run_id` (one per proxy process).
@@ -94,7 +94,8 @@ What ends up on each record: `tool.name`, `tool.system`, `args`, `response` (`{s
 ## How it behaves
 
 - **Transparent.** Bytes are copied in both directions as they arrive. They are not parsed, buffered or re-encoded on the way through. A copy goes to a background thread that splits it into newline-delimited JSON-RPC messages ([MCP stdio transport][mcp-stdio]), including batches, and pairs each `tools/call` with its response. Notifications, pings, progress messages, server-to-client requests and every other method pass through without being recorded.
-- **Never breaks the session.** If recording fails (unwritable home, full disk, a bug), the proxy logs to stderr and keeps forwarding. If the recorder falls far behind, chunks are forwarded but not observed, and a signed note in the chain says so. The same applies to single messages over 64 MiB.
+- **Never breaks the session.** If recording fails (unwritable home, full disk, a bug), the proxy logs to stderr and keeps forwarding. If the recorder falls far behind, chunks are forwarded but not observed, and a signed note in the chain says so. The same applies to single messages over 64 MiB and to any line the recorder cannot parse or process (invalid JSON, nesting too deep for the parser, and so on). Each of these is forwarded unchanged, and a signed note records its direction, size and the error, saying that tool calls in it may be missing. After 20 such notes, the total goes into one note at shutdown.
+- **Reused request ids.** A client should not reuse the id of a request that is still in flight. If one does, the proxy keeps every call: calls with the same id are queued and paired with responses first in, first out. The chain gets a signed note when the collision happens, and another note for each affected action saying its pairing is ambiguous. No call is overwritten or lost. A call that never gets a response is recorded as an error at shutdown.
 - **Shutdown.** When the client closes stdin, the server's stdin is closed and the server gets 5 seconds to exit. On SIGTERM/SIGINT/SIGHUP the server is terminated. In both cases calls still waiting for a response are recorded as errors, the open segment is sealed and anchored, and the proxy exits with the server's exit code.
 - **Overhead.** One extra pipe hop and a memory copy per chunk. Signing and the disk write (fsync) happen off the forwarding path.
 
@@ -114,6 +115,8 @@ It does not show:
 - stdio servers only. Remote servers (streamable HTTP / SSE) are not proxied.
 - Record times come from the proxy's clock. Rekor anchoring and the RFC 3161 timestamp bound them from above.
 - The agent version on each record is the client's version (`clientInfo`), not the model's.
+- `--redact` works by key name. It does not catch secrets inside non-JSON text, inside resource or image content, or under keys you did not list.
+- If a client reuses an in-flight request id, the pairing of responses to calls with that id is a first-in-first-out guess. The records flag it, but they cannot resolve it.
 
 [mcp-local]: https://modelcontextprotocol.io/docs/2026-07-28/develop/connect-local-servers
 [cursor-mcp]: https://cursor.com/docs/mcp

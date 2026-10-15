@@ -27,6 +27,7 @@ import shutil
 import signal
 import sys
 import threading
+from collections import deque
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -144,7 +145,13 @@ class Observer:
         self.q: queue.Queue[tuple[str, datetime, bytes] | None] = queue.Queue()
         self.buffers = {"c2s": bytearray(), "s2c": bytearray()}
         self.skipping = {"c2s": False, "s2c": False}
-        self.pending: dict[str, dict[str, Any]] = {}
+        # JSON-RPC ids should be unique among in-flight requests, but a buggy client can reuse one.
+        # Calls are queued per id and paired with responses first-in-first-out; a reused id is
+        # flagged as ambiguous instead of overwriting (and losing) the earlier call.
+        self.pending: dict[str, deque[dict[str, Any]]] = {}
+        self.n_pending = 0
+        self.untracked = 0
+        self.unparsed = 0
         self.init_ids: set[str] = set()
         self.client: dict[str, Any] | None = None
         self.server: dict[str, Any] | None = None
@@ -236,14 +243,58 @@ class Observer:
             return
         try:
             msg = json.loads(line)
-        except ValueError:
-            return  # not JSON (a misbehaving server's log line); forwarded anyway
+        except Exception as exc:  # noqa: BLE001 - ValueError, RecursionError (deep nesting), MemoryError...
+            self._unparsed(direction, line, exc)
+            return  # forwarded anyway
         for m in msg if isinstance(msg, list) else [msg]:
             if isinstance(m, dict):
                 try:
                     self._message(direction, t, m)
                 except Exception as exc:  # noqa: BLE001
                     self._fail(exc)
+                    self._unparsed(direction, line, exc)
+
+    def _unparsed(self, direction: str, line: bytes, exc: BaseException) -> None:
+        """A forwarded line that could not be parsed: tool calls in it cannot be recorded, so say so."""
+        self.unparsed += 1
+        if self.unparsed > 20:  # the total goes into the note written at shutdown
+            return
+        who = "client" if direction == "c2s" else "server"
+        try:
+            self.rec.note(f"a message from the {who} was forwarded but could not be parsed or recorded; tool "
+                          "calls in it may be missing from the records", direction=direction, bytes=len(line),
+                          error=f"{type(exc).__name__}: {str(exc)[:200]}")
+        except Exception as e:  # noqa: BLE001
+            self._fail(e)
+
+    def _push(self, call: dict[str, Any]) -> None:
+        if self.n_pending >= MAX_PENDING:
+            self.untracked += 1
+            if self.untracked == 1:
+                self.rec.note(f"more than {MAX_PENDING} tool calls were waiting for a response; further calls "
+                              "are forwarded but not recorded until some complete")
+            return
+        queue_ = self.pending.setdefault(_key(call["id"]), deque())
+        if queue_:
+            for c in queue_:
+                c["ambiguous"] = True
+            call["ambiguous"] = True
+            self.rec.note("duplicate in-flight JSON-RPC id: the client sent a tools/call with an id that is still "
+                          "waiting for a response; responses are paired first-in-first-out, so which response "
+                          "belongs to which call is ambiguous", request_id=call["id"], in_flight=len(queue_) + 1)
+        queue_.append(call)
+        self.n_pending += 1
+
+    def _pop(self, request_id: Any) -> dict[str, Any] | None:
+        k = _key(request_id)
+        queue_ = self.pending.get(k)
+        if not queue_:
+            return None
+        call = queue_.popleft()
+        if not queue_:
+            del self.pending[k]
+        self.n_pending -= 1
+        return call
 
     def _message(self, direction: str, t: datetime, m: dict[str, Any]) -> None:
         method = m.get("method")
@@ -260,14 +311,14 @@ class Observer:
                         self._set_client(params["clientInfo"])
                 elif method == "server/discover":
                     self.init_ids.add(_key(m["id"]))
-                elif method == "tools/call" and len(self.pending) < MAX_PENDING:
+                elif method == "tools/call":
                     args = params.get("arguments")
-                    self.pending[_key(m["id"])] = {
+                    self._push({
                         "id": m["id"], "name": str(params.get("name", "")), "start": t,
                         "args": args if isinstance(args, dict) else ({} if args is None else {"input": args}),
-                    }
+                    })
             elif method == "notifications/cancelled":
-                call = self.pending.pop(_key(params.get("requestId")), None)
+                call = self._pop(params.get("requestId"))
                 if call is not None:
                     reason = params.get("reason")
                     self._record(call, t, error="cancelled by the client" + (f": {reason}" if reason else ""))
@@ -283,21 +334,51 @@ class Observer:
             if isinstance(info, dict):
                 self.server = info
             return
-        call = self.pending.pop(k, None)
+        call = self._pop(m["id"])
         if call is None:
             return
         if "error" in m:
             err = m["error"] if isinstance(m["error"], dict) else {"message": str(m["error"])}
             text = f"JSON-RPC error {err.get('code')}: {err.get('message')}"
             if err.get("data") is not None:
-                text += f" {json.dumps(err['data'], default=str)[:1000]}"
+                data = self._redact_value(err["data"])
+                text += f" {json.dumps(data, default=str, ensure_ascii=False)[:1000]}"
             self._record(call, t, error=text)
             return
-        result = m.get("result")
+        result = self._redact_text_content(m.get("result"))
         if isinstance(result, dict) and result.get("isError"):
             self._record(call, t, error=f"tool returned isError: {_content_text(result)}")
         else:
             self._record(call, t, response=result)
+
+    def _rules(self) -> dict[str, Any]:
+        return self.rec.redactor.rules(self.redact) if self.redact and self.rec is not None else {}
+
+    def _redact_value(self, value: Any) -> Any:
+        rules = self._rules()
+        return self.rec.redactor.apply(value, rules) if rules else value
+
+    def _redact_text_content(self, result: Any) -> Any:
+        """Tools often return JSON as text (``content[].text``). With ``--redact``, such text is parsed,
+        the named keys inside it are redacted, and the record stores the re-serialized redacted text.
+        Text that is not a JSON object or array is stored as is: field names cannot be found in it."""
+        rules = self._rules()
+        if not rules or not isinstance(result, dict) or not isinstance(result.get("content"), list):
+            return result
+        content = []
+        for item in result["content"]:
+            text = item.get("text") if isinstance(item, dict) else None
+            if isinstance(text, str) and text.lstrip()[:1] in ("{", "["):
+                try:
+                    parsed = json.loads(text)
+                except Exception:  # noqa: BLE001
+                    parsed = None
+                if isinstance(parsed, (dict, list)):
+                    redacted = self.rec.redactor.apply(parsed, rules)
+                    if redacted != parsed:
+                        item = {**item, "text": json.dumps(redacted, ensure_ascii=False)}
+            content.append(item)
+        return {**result, "content": content}
 
     def _set_client(self, info: dict[str, Any]) -> None:
         self.client = info
@@ -317,18 +398,31 @@ class Observer:
         if self.client:
             ctx["session"] = f"{self.client.get('name', '')} {self.client.get('version', '')}".strip()
         with self.rec.context(**ctx):
-            self.rec.record_action(tool=call["name"], system=self._system(), args=call["args"], response=response,
-                                   error=error, start=call["start"], end=end, redact=self.redact)
+            rec = self.rec.record_action(tool=call["name"], system=self._system(), args=call["args"],
+                                         response=response, error=error, start=call["start"], end=end,
+                                         redact=self.redact)
         self.recorded += 1
+        if call.get("ambiguous"):
+            self.rec.note("this action shared its JSON-RPC id with another in-flight call; its response was paired "
+                          "first-in-first-out and may belong to the other call", action=rec["id"],
+                          request_id=call["id"])
 
     def _finish(self) -> None:
         if self.rec is None:
             return
         try:
             now = utcnow()
-            for call in list(self.pending.values()):
-                self._record(call, now, error="no response before the proxy shut down")
+            for queue_ in list(self.pending.values()):
+                for call in queue_:
+                    self._record(call, now, error="no response before the proxy shut down")
             self.pending.clear()
+            self.n_pending = 0
+            if self.untracked:
+                self.rec.note(f"{self.untracked} tool calls were forwarded but not recorded (more than "
+                              f"{MAX_PENDING} were waiting for a response)")
+            if self.unparsed > 20:
+                self.rec.note(f"{self.unparsed} forwarded messages could not be parsed in total; tool calls in "
+                              "them may be missing from the records")
             if self.dropped:
                 self.rec.note(f"{self.dropped} message chunks were forwarded but not observed "
                               "(recording backlog or oversized message); tool calls in them may be missing")
