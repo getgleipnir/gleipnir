@@ -198,6 +198,101 @@ def test_observer_reassembles_chunks(tmp_path, clock):
     assert len(acts) == 1 and acts[0]["args"] == {"a": "é "} and acts[0]["tool"]["system"] == "srv"
 
 
+def _observer(tmp_path, clock, redact=None):
+    import gleipnir
+
+    rec = gleipnir.Recorder("x", "1", home=tmp_path / "g", background=False, clock=clock, quiet=True, fsync=False)
+    obs = mcp_proxy.Observer(home=tmp_path / "g", chain=None, system=None, default_system="srv", anchor=None,
+                             redact=redact, recorder=rec)
+    obs.start()
+    return rec, obs
+
+
+def test_duplicate_in_flight_ids_never_lose_a_call(tmp_path, clock):
+    rec, obs = _observer(tmp_path, clock)
+    obs.feed("c2s", jl(call(1, "refund", {"order": "a"}), call(1, "refund", {"order": "b"}),
+                       call(1, "refund", {"order": "c"})))
+    obs.feed("s2c", jl({"jsonrpc": "2.0", "id": 1, "result": {"structuredContent": {"r": "A"}}},
+                       {"jsonrpc": "2.0", "id": 1, "error": {"code": -1, "message": "B failed"}}))
+    obs.close()  # the third call never got a response
+    records = rec.chain.store.read_all()
+    acts = [r for r in records if r["kind"] == "action"]
+    assert [a["args"]["order"] for a in acts] == ["a", "b", "c"]  # FIFO pairing, every call kept
+    assert acts[0]["response"]["body"] == {"structuredContent": {"r": "A"}}
+    assert "B failed" in acts[1]["response"]["error"]
+    assert acts[2]["response"]["error"] == "no response before the proxy shut down"
+    notes = [r["note"] for r in records if r["kind"] == "note"]
+    assert sum("duplicate in-flight JSON-RPC id" in n["text"] for n in notes) == 2
+    flagged = {n["action"] for n in notes if "shared its JSON-RPC id" in n["text"]}
+    assert flagged == {a["id"] for a in acts}
+    from gleipnir_verify import verify_bundle as vb
+    assert vb(rec.export(tmp_path / "b.zip")).valid()
+
+
+def test_deeply_nested_message_is_forwarded_and_noted(tmp_path, clock):
+    rec, obs = _observer(tmp_path, clock)
+    obs.feed("c2s", b"[" * 100_000 + b"\n" + jl(call(2, "t", {"ok": 1})))
+    obs.feed("s2c", b"{" * 100_000 + b"\n" + jl({"jsonrpc": "2.0", "id": 2, "result": {}}))
+    obs.close()
+    records = rec.chain.store.read_all()
+    assert [a["args"] for a in records if a["kind"] == "action"] == [{"ok": 1}]
+    notes = [r["note"] for r in records if r["kind"] == "note"]
+    assert len(notes) == 2 and all("could not be parsed" in n["text"] for n in notes)
+    assert {n["direction"] for n in notes} == {"c2s", "s2c"}
+    # RecursionError or a decode error, depending on the parser and stack; either way it is noted
+    assert all(n["error"].split(":")[0] in ("RecursionError", "JSONDecodeError") for n in notes)
+
+
+def test_deeply_nested_message_through_the_proxy(tmp_path):
+    home = tmp_path / "g"
+    data = jl(SESSION[0]) + b"[" * 100_000 + b"\n" + jl(call(3, "refund", {"order": "o", "amount": 1}))
+    r = run([sys.executable, "-m", "gleipnir.mcp_proxy", "--home", str(home), "--chain", "echo", "--",
+             sys.executable, "-c",
+             "import sys\nfor line in sys.stdin.buffer:\n"
+             "    sys.stdout.buffer.write(line); sys.stdout.buffer.flush()"], data)  # echo server
+    assert r.returncode == 0 and r.stdout == data
+    records = JsonlStore(home / "chains" / "echo", fsync=False).read_all()
+    notes = [x["note"] for x in records if x["kind"] == "note"]
+    assert {n["direction"] for n in notes if "could not be parsed" in n["text"]} == {"c2s", "s2c"}
+    # the call after the bad line is still tracked (recorded at shutdown, as the echo is not a response)
+    assert [x["tool"]["name"] for x in records if x["kind"] == "action"] == ["refund"]
+
+
+def test_redaction_inside_json_text_content(tmp_path, clock):
+    rec, obs = _observer(tmp_path, clock, redact=["token"])
+    payload = {"user": "u1", "token": "sk-secret", "nested": [{"token": "sk-2"}]}
+    obs.feed("c2s", jl(call(1, "login"), call(2, "echo"), call(3, "boom")))
+    obs.feed("s2c", jl(
+        {"jsonrpc": "2.0", "id": 1, "result": {"content": [
+            {"type": "text", "text": json.dumps(payload)}, {"type": "text", "text": "plain token sk-plain"}],
+            "structuredContent": payload}},
+        {"jsonrpc": "2.0", "id": 2, "result": {"content": [{"type": "text", "text": "[1, {\"token\": \"x\"}]"}]}},
+        {"jsonrpc": "2.0", "id": 3, "error": {"code": 1, "message": "no", "data": {"token": "sk-err"}}}))
+    obs.close()
+    acts = [r for r in rec.chain.store.read_all() if r["kind"] == "action"]
+    stored = json.dumps(acts)
+    assert "sk-secret" not in stored and "sk-2" not in stored and "sk-err" not in stored
+    body = acts[0]["response"]["body"]
+    inner = json.loads(body["content"][0]["text"])
+    assert inner["user"] == "u1" and inner["token"]["redacted"].startswith("hmac-sha256:")
+    assert inner["nested"][0]["token"]["redacted"].startswith("hmac-sha256:")
+    assert body["structuredContent"]["token"]["redacted"].startswith("hmac-sha256:")
+    assert body["content"][1]["text"] == "plain token sk-plain"  # non-JSON text: documented limitation
+    assert json.loads(acts[1]["response"]["body"]["content"][0]["text"])[1]["token"]["redacted"]
+    assert "hmac-sha256" in acts[2]["response"]["error"]
+
+
+def test_redaction_in_text_content_through_the_proxy(tmp_path):
+    home = tmp_path / "g"
+    data = jl(SESSION[0], call(1, "refund", {"order": "o1", "amount": 5}))
+    direct = run([sys.executable, str(FAKE)], data)
+    r = run(proxy_cmd(home, "--redact", "refund_id"), data)
+    assert r.stdout == direct.stdout and b"R-o1" in r.stdout  # the client still sees the real value
+    a = actions(home)[0]
+    assert "R-o1" not in json.dumps(a)
+    assert json.loads(a["response"]["body"]["content"][0]["text"])["refund_id"]["redacted"]
+
+
 def test_oversized_message_is_forwarded_but_not_recorded(tmp_path, clock, monkeypatch):
     import gleipnir
 
