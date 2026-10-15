@@ -2,7 +2,7 @@
 // Everything happens in this tab; the file is read with FileReader and never sent anywhere.
 // Built into verify.js by `npm run build:site` in typescript/.
 
-import { parseKnownHead, parseTime, readBundle, verifyBundle } from "@getgleipnir/verify";
+import { loadApprovers, parseJsonBytes, parseKnownHead, parseTime, readBundle, verifyBundle } from "@getgleipnir/verify";
 
 const $ = (id) => document.getElementById(id);
 const els = {
@@ -19,11 +19,17 @@ const els = {
   expectUntil: $("expect-until"),
   expectUntilError: $("expect-until-error"),
   requireFull: $("require-full"),
+  approvers: $("approvers"),
+  approversError: $("approvers-error"),
+  origins: $("webauthn-origins"),
+  requireSigned: $("require-signed"),
   result: $("result"),
   status: $("status"),
 };
 
 let current = null; // { name, bytes }
+let registry = null; // the parsed approvers file, or null
+let registryProblem = null; // why the approvers file was not accepted
 
 function el(tag, attrs = {}, ...children) {
   const n = document.createElement(tag);
@@ -66,8 +72,18 @@ const VALIDATED = [
 function options() {
   let ok = true;
   for (const [input, error, valid] of VALIDATED) ok = fieldState(input, error, valid(input.value.trim())) && ok;
+  els.approversError.textContent = registryProblem || "";
+  ok = fieldState(els.approvers, els.approversError, registryProblem === null) && ok;
+  if (els.requireSigned.checked && registry === null && registryProblem === null) {
+    els.approversError.textContent = "Choose an approvers file: who may approve is your decision.";
+    ok = fieldState(els.approvers, els.approversError, false) && ok;
+  }
   if (!ok) return null;
   const opts = { expectKey: els.expectKey.value.trim() || null, requireFull: els.requireFull.checked };
+  if (registry !== null) opts.approvers = registry;
+  const origins = els.origins.value.trim().split(/\s+/).filter(Boolean);
+  if (origins.length) opts.webauthnOrigins = origins;
+  if (els.requireSigned.checked) opts.requireSignedApprovals = true;
   const head = els.knownHead.value.trim();
   if (head) opts.knownHead = parseKnownHead(head);
   const delay = els.maxDelay.value.trim();
@@ -307,6 +323,31 @@ function buildFindings(report) {
   return el("section", { "aria-labelledby": "findings-h" }, h, list);
 }
 
+/** Read the approvers file; it stays in this tab like the bundle. */
+function loadRegistry(file) {
+  registry = null;
+  registryProblem = null;
+  if (!file) {
+    run();
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      registry = loadApprovers(parseJsonBytes(new Uint8Array(reader.result)));
+    } catch (exc) {
+      registryProblem = `${file.name}: ${exc && exc.message ? exc.message : exc}`;
+    }
+    if (!options()) return;
+    run();
+  };
+  reader.onerror = () => {
+    registryProblem = `Could not read ${file.name}. Choose the file again.`;
+    options();
+  };
+  reader.readAsArrayBuffer(file);
+}
+
 // ---- wiring --------------------------------------------------------------------------------
 els.input.addEventListener("change", () => load(els.input.files && els.input.files[0]));
 for (const ev of ["dragenter", "dragover"]) {
@@ -331,7 +372,8 @@ window.addEventListener("drop", (e) => {
   if (f) load(f);
 });
 for (const input of [els.expectKey, els.knownHead, els.maxDelay, els.expectUntil]) input.addEventListener("change", run);
-for (const input of [els.rekor, els.rfc3161, els.requireFull]) input.addEventListener("change", run);
+for (const input of [els.rekor, els.rfc3161, els.requireFull, els.requireSigned, els.origins]) input.addEventListener("change", run);
+els.approvers.addEventListener("change", () => loadRegistry(els.approvers.files && els.approvers.files[0]));
 // Clear a field's error as soon as its text is valid again, while typing: hiding it only on
 // "change" would move the controls below it at the moment the person clicks one of them.
 for (const [input, error, valid] of VALIDATED) {
@@ -352,6 +394,8 @@ try {
   if (params.get("max-anchor-delay")) els.maxDelay.value = params.get("max-anchor-delay");
   if (params.get("expect-until")) els.expectUntil.value = params.get("expect-until");
   if (params.has("require-full")) els.requireFull.checked = true;
+  if (params.has("require-signed-approvals")) els.requireSigned.checked = true;
+  if (params.getAll("webauthn-origin").length) els.origins.value = params.getAll("webauthn-origin").join(" ");
   for (const a of params.getAll("require-anchor")) {
     if (a === "rekor") els.rekor.checked = true;
     if (a === "rfc3161") els.rfc3161.checked = true;
