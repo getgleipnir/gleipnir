@@ -1,0 +1,27 @@
+{
+  "name": "gleipnir-typescript",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/verify",
+    "packages/sdk"
+  ],
+  "engines": {
+    "node": ">=20.19"
+  },
+  "scripts": {
+    "build": "npm run build -w @getgleipnir/verify && npm run build -w @getgleipnir/sdk",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.test.json",
+    "interop": "node scripts/interop.mjs"
+  },
+  "overrides": {
+    "vite": "7.3.7"
+  },
+  "devDependencies": {
+    "@types/node": "20.19.43",
+    "typescript": "5.9.3",
+    "vite": "7.3.7",
+    "vitest": "4.1.11"
+  }
+}
