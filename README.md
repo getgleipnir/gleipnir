@@ -50,7 +50,7 @@ See [docs/mcp-proxy.md](docs/mcp-proxy.md).
 | `gleipnir-sdk` (`import gleipnir`) | `Recorder.tool` decorator (sync and async), outcome read-back checks, field redaction, context (identity, scope, model, prompt versions) |
 | Adapters | MCP client middleware, OpenTelemetry span exporter (GenAI semantic conventions), OpenAI Agents SDK, Claude Agent SDK hooks, LangChain/LangGraph callback handler |
 | `gleipnir-mcp` | Zero-code stdio MCP proxy that records every `tools/call`, plus `gleipnir report` |
-| Approvals | `rec.approve(...)` binds a human approval to one exact action; the verifier checks it came first and matches |
+| Approvals | `rec.approve(...)` binds a human approval to one exact action; the verifier checks it came first and matches. Signed approvals (`signature=`, from an approver key via `gleipnir approve sign` or a passkey on `site/approve/`) are checked against the buyer's own list of approvers: `gleipnir-verify --approvers approvers.json --require-signed-approvals` |
 | Keys | Ed25519 by default; AWS KMS, Google Cloud KMS and Azure Key Vault signers (Ed25519 or ECDSA P-256), so the key never sits in the agent process |
 | Anchoring | Segment hashes in Sigstore Rekor v2 plus RFC 3161 trusted timestamps; only hashes leave your infrastructure |
 | Copies and retention | Sinks for a buyer-held copy, S3 Object Lock (WORM), webhooks and Splunk HEC; OCSF export for SIEMs; retention declared in a signed config record |

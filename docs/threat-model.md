@@ -19,7 +19,8 @@ Who relies on Gleipnir records: the **buyer** of an AI agent (security, risk, au
 - **Records after the last anchor.** The unanchored tail is reported explicitly. Truncation inside the last heartbeat interval is detectable only with `--known-head`.
 - **Records before genesis or outside the bundle.** A partial bundle proves its own range.
 
-- **Who approved.** An approval proves that a review record naming this exact action was written before the action. The `reviewer` field is the vendor's statement; it is not signed by the approver's own key yet.
+- **Who approved, without a registry.** An approval proves that a review naming this exact action was written before the action. Unsigned, `reviewer` is the vendor's statement (`approval_unsigned`). Signed but checked without `--approvers`, it proves that *some* key approved this action, not whose key it is (`approval_unknown_approver`, a warning). The buyer's approver registry is what turns a signature into a person.
+- **Signed approvals bound a person to the action, not to the moment.** With `--approvers` (and `--require-signed-approvals`), every approval must carry a signature by a key or passkey the buyer registered, over `"gleipnir/approval/v1\n" || action_digest`: the vendor cannot forge one or move it to a different action. It does not prove *when* the approver signed (the review's position in the chain bounds it, the vendor's clock dates it), that the approver read what they signed (the passkey page recomputes the digest from the arguments it shows; a CLI user signs a digest), or that a stolen approver key or passkey was not used. The WebAuthn signature counter is not checked (a stateless verifier has nothing to compare it with). Approvals over redacted arguments bind the HMAC of the value, so the approver needs to see the value elsewhere.
 - **`--max-anchor-delay` needs timestamps.** It only works on segments with an RFC 3161 receipt, and fails segments that have none.
 
 ## Attacker capabilities considered
@@ -35,6 +36,10 @@ Who relies on Gleipnir records: the **buyer** of an AI agent (security, risk, au
 | Vendor dropping recent records | Truncate the tail | Manifest range, `--known-head`; `--expect-until` only beyond one heartbeat |
 | Vendor not recording some actions | Omit | `gleipnir-verify reconcile` against the buyer's own system export |
 | Vendor claiming an approval that did not happen first | Write the approval after the action, or reuse one approval | `approval_after_action`, `approval_reused`, `approval_mismatch` |
+| Vendor (or the agent) inventing an approval | Write a review naming an approver who never approved | `--approvers` with `--require-signed-approvals`: `approval_unsigned`, `approval_unknown_approver` (without them: a warning) |
+| Vendor reusing a real approver's signature | Copy a signature onto another action, or edit the approved digest | The signature covers the digest: `approval_bad_signature` / `approval_webauthn_invalid`, and `approval_mismatch` |
+| Vendor registering its own key as an approver | Sign approvals itself | Not by the verifier: the registry is the buyer's file, so the buyer must collect keys from the approvers (not from the vendor) |
+| Phishing page collecting passkey approvals | Get a real passkey assertion for an action through another site | rpIdHash (passkeys are bound to their domain), allowed origins (`--webauthn-origin`), no cross-origin frames |
 | Someone stealing the signing key from the agent host | Sign forged records | Use a KMS/HSM signer (AWS, Google Cloud, Azure): the key cannot be copied |
 | Malicious bundle aimed at the verifier | Invalid UTF-8, malformed or deeply nested JSON, huge numbers, bad zip, bad arguments | Verifier reports findings or a usage error instead of a traceback (regression-tested) |
 
@@ -42,6 +47,7 @@ Who relies on Gleipnir records: the **buyer** of an AI agent (security, risk, au
 
 - **Record signing key** (Ed25519 by default, ECDSA P-256 allowed): auto-generated locally for development, with a warning. Production should use a KMS/HSM-backed `Signer`. Rotation is supported with a signed `key_rotation` record.
 - **Anchor key** (ECDSA P-256): only signs anchor entries in Rekor. Its compromise lets someone publish entries but not forge records.
+- **Approver keys** (Ed25519 or ECDSA P-256, or a passkey): held by each approver on their own device, never by the agent. `gleipnir approve keygen` / `sign`, or the passkey page site/approve/, which needs no backend. The buyer lists them in its approvers file; compromise of one lets someone approve as that person until the buyer removes the entry.
 - **Redaction HMAC key**: lets the vendor (and a buyer who is given the value) match redacted fields without storing the value. Losing it does not affect verification.
 
 ## Privacy
