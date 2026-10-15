@@ -1,4 +1,4 @@
-"""gleipnir command line: init, status, export, check, pack."""
+"""gleipnir command line: init, status, export, check, pack, prove, report, mcp-proxy."""
 
 from __future__ import annotations
 
@@ -109,6 +109,34 @@ def cmd_prove(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_report(args: argparse.Namespace) -> int:
+    import webbrowser
+
+    from .report import build_report
+
+    home = Path(args.home) if args.home_given else _report_home()
+    chain = args.chain if args.chain_given else None
+    out, n = build_report(home, Path(args.output), chain=chain, limit=args.limit)
+    print(f"wrote {out} ({n} tool calls from {home / 'chains'})")
+    if args.open:
+        webbrowser.open(out.resolve().as_uri())
+    return 0
+
+
+def _report_home() -> Path:
+    from .mcp_proxy import default_home
+
+    local = Path(".gleipnir")
+    return local if (local / "chains").exists() else default_home()
+
+
+def cmd_mcp_proxy(args: argparse.Namespace) -> int:
+    from .mcp_proxy import run_from_args
+
+    home = args.proxy_home or (args.home if args.home_given else None)
+    return run_from_args(args, args.server_cmd, Path(home).expanduser() if home else None)
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="gleipnir", description="Verifiable action records for AI agents")
     p.add_argument("--home", default=".gleipnir", help="data directory (default: .gleipnir)")
@@ -138,11 +166,30 @@ def build_parser() -> argparse.ArgumentParser:
     k.add_argument("--until", help="ISO 8601 end time")
     k.add_argument("--checklist", help="path to a checklist.yaml")
     k.set_defaults(fn=cmd_pack)
+    rp = sub.add_parser("report", help="write an HTML page of what your agent did (all chains in --home)")
+    rp.add_argument("-o", "--output", default="gleipnir-report.html")
+    rp.add_argument("--limit", type=int, default=1000, help="most recent tool calls to list (default 1000)")
+    rp.add_argument("--open", action="store_true", help="open the page in a browser")
+    rp.set_defaults(fn=cmd_report)
+    from .mcp_proxy import add_arguments
+
+    m = sub.add_parser("mcp-proxy", help="run an MCP server behind a recording stdio proxy",
+                       usage="gleipnir mcp-proxy [options] -- <server command...>")
+    add_arguments(m, home_dest="proxy_home")
+    m.set_defaults(fn=cmd_mcp_proxy)
     return p
 
 
 def main(argv: list[str] | None = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    server_cmd: list[str] = []
+    if "mcp-proxy" in argv and "--" in argv[argv.index("mcp-proxy"):]:
+        cut = argv.index("--", argv.index("mcp-proxy"))
+        argv, server_cmd = argv[:cut], argv[cut + 1:]
     args = build_parser().parse_args(argv)
+    args.server_cmd = server_cmd
+    args.home_given = any(a == "--home" or a.startswith("--home=") for a in argv[: argv.index(args.cmd)])
+    args.chain_given = any(a == "--chain" or a.startswith("--chain=") for a in argv[: argv.index(args.cmd)])
     return args.fn(args)
 
 
