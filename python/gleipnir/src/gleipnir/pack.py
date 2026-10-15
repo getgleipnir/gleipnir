@@ -97,22 +97,44 @@ def actions_csv(actions: list[dict[str, Any]]) -> str:
 
 
 _CSS = """
-:root{--fg:#1b1f24;--muted:#5b6470;--line:#d8dde3;--ok:#1a7f37;--bad:#b42318;--warn:#9a6700;--bg:#fff}
-@media (prefers-color-scheme:dark){:root{--fg:#e6e8eb;--muted:#9aa4af;--line:#2d333b;--ok:#3fb950;
---bad:#f85149;--warn:#d29922;--bg:#0d1117}}
-body{font:15px/1.5 -apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:var(--fg);background:var(--bg);
-max-width:980px;margin:32px auto;padding:0 16px}
-h1{font-size:24px;margin:0 0 4px}h2{font-size:18px;margin:32px 0 8px;border-bottom:1px solid var(--line);
-padding-bottom:4px}.muted{color:var(--muted)}table{border-collapse:collapse;width:100%;margin:8px 0}
-th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:top}
-th{font-weight:600}td.n{text-align:right;font-variant-numeric:tabular-nums}code{font-size:13px;
-word-break:break-all}.ok{color:var(--ok);font-weight:600}.bad{color:var(--bad);font-weight:600}
-.warn{color:var(--warn)}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
-.card{border:1px solid var(--line);border-radius:8px;padding:12px}.card b{display:block;font-size:22px}
-td.id{white-space:nowrap}.s-covered{color:var(--ok);font-weight:600}.s-partial{color:var(--warn);font-weight:600}
+:root{--fg:#17191f;--muted:#5d6068;--line:#dcd8cf;--soft:#f6f3ec;--gold:#a07a2c;--ok:#1d6a4d;--ok-bg:#e6f2ea;
+--bad:#a1271e;--bad-bg:#f8e5e1;--warn:#8a5a00}
+*{box-sizing:border-box}
+body{font:15px/1.55 -apple-system,"Segoe UI",Helvetica,Arial,sans-serif;color:var(--fg);background:#fff;
+max-width:1000px;margin:36px auto;padding:0 20px}
+.brand{display:flex;align-items:center;gap:10px;font-family:Georgia,"Times New Roman",serif;letter-spacing:.3em;
+font-size:13px;color:var(--fg)}.brand svg{width:26px;height:22px}
+h1{font-family:Georgia,"Times New Roman",serif;font-weight:400;font-size:34px;line-height:1.1;margin:22px 0 6px}
+h2{font-family:Georgia,"Times New Roman",serif;font-weight:400;font-size:22px;margin:36px 0 10px;
+padding-bottom:6px;border-bottom:1px solid var(--line)}
+.muted{color:var(--muted)}p{margin:6px 0}a{color:var(--gold)}
+.verdict{display:flex;gap:16px;align-items:flex-start;border-radius:10px;padding:16px 18px;margin:22px 0}
+.verdict.ok{background:var(--ok-bg);border:1px solid #b9dcc6}
+.verdict.bad{background:var(--bad-bg);border:1px solid #ecc0b8}
+.verdict b{font-size:20px;letter-spacing:.02em}.verdict.ok b{color:var(--ok)}.verdict.bad b{color:var(--bad)}
+.verdict ul{margin:6px 0 0;padding-left:18px}.verdict p,.verdict ul{font-weight:400;color:var(--fg)}
+table{border-collapse:collapse;width:100%;margin:8px 0}
+th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-weight:600;font-size:13px;color:var(--muted)}td.n{text-align:right;font-variant-numeric:tabular-nums}
+code{font:12.5px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;word-break:break-all;background:var(--soft);
+padding:1px 4px;border-radius:3px}
+.ok{color:var(--ok);font-weight:600}.bad{color:var(--bad);font-weight:600}.warn{color:var(--warn)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-top:18px}
+.card{border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+.card b{display:block;font-family:Georgia,serif;font-weight:400;font-size:30px;line-height:1.1}
+.card.alert b{color:var(--bad)}
+td.id{white-space:nowrap;font-family:ui-monospace,Menlo,monospace;font-size:13px;color:var(--gold)}
+.s-covered{color:var(--ok);font-weight:600}.s-partial{color:var(--warn);font-weight:600}
 .s-missing{color:var(--bad);font-weight:600}.s-process{color:var(--muted)}td.refs{font-size:12px;color:var(--muted)}
-@media print{body{margin:0}h2{break-after:avoid}tr{break-inside:avoid}}
+.said{color:var(--muted)}.shows{color:var(--bad);font-weight:600}
+.foot{margin-top:40px;padding-top:12px;border-top:1px solid var(--line);font-size:13px;color:var(--muted)}
+@media print{body{margin:0;max-width:none}h2{break-after:avoid}tr,.verdict,.card{break-inside:avoid}
+*{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
 """
+
+_BRAND = ('<svg viewBox="0 0 34 30" aria-hidden="true"><g fill="none" stroke="#C9A45C" stroke-linecap="round">'
+          '<path d="M3 23 C 9 5, 16 30, 21 13 S 31 8, 31 8" stroke-width="3"/>'
+          '<path d="M3 27 C 9 11, 16 34, 21 18 S 31 13, 31 13" stroke-opacity=".5" stroke-width="1.8"/></g></svg>')
 
 
 def _table(headers: list[str], rows: list[list[Any]], numeric: set[int] | None = None) -> str:
@@ -124,82 +146,125 @@ def _table(headers: list[str], rows: list[list[Any]], numeric: set[int] | None =
     return f"<table><thead><tr>{h}</tr></thead><tbody>{body}</tbody></table>"
 
 
+def _flat(obj_json: str) -> str:
+    """Render a small JSON object as 'k: v, k: v' for people, not parsers."""
+    try:
+        obj = json.loads(obj_json)
+    except ValueError:
+        return obj_json
+    if isinstance(obj, dict) and set(obj) <= {"provider", "name", "version"}:
+        return " ".join(str(obj[k]) for k in ("provider", "name", "version") if k in obj)
+    if isinstance(obj, dict):
+        return ", ".join(f"{k}: {v}" for k, v in obj.items())
+    return obj_json
+
+
+def _shows(p: dict[str, Any]) -> str:
+    """What the system of record showed for the fields that differed."""
+    if p["response"]["status"] != "ok":
+        return p["response"].get("error") or p["response"]["status"]
+    out = p.get("outcome", {})
+    observed = out.get("observed") or {}
+    fields = out.get("fields") or list(observed)
+    shown = [f"{f} = {observed[f]}" for f in fields if f in observed]
+    return ", ".join(shown) or out.get("detail") or out.get("check", "")
+
+
 def render_html(s: dict[str, Any], *, verify: dict[str, Any], coverage: list[Any], period: str, key: str,
                 chain: str, head: str, command: str, refs: dict[str, str] | None = None) -> str:
     refs = refs or {}
     e = html.escape
     a = s["actions"]
     v_ok = verify["result"] == "VALID"
+    sm = verify.get("summary", {})
     parts = [f"<!doctype html><html lang=en><head><meta charset=utf-8>"
              f"<meta name=viewport content='width=device-width,initial-scale=1'>"
              f"<title>Security Review Pack</title><style>{_CSS}</style></head><body>"]
+    parts.append(f"<div class=brand>{_BRAND}GLEIPNIR</div>")
     parts.append("<h1>Security Review Pack</h1>")
     parts.append(f"<p class=muted>Agent action records covering {e(period)}. Generated {e(iso(utcnow()))} by "
                  f"gleipnir-sdk {e(__version__)}.</p>")
+
+    independent = sm.get("anchors_independent", 0)
+    if v_ok:
+        checks = [f"Every record is signed with key <code>{e(key)}</code> and the signatures match.",
+                  "Each record links to the one before it, so nothing was removed, reordered or inserted.",
+                  f"{sm.get('segments_anchored', 0)} of {sm.get('segments', 0)} segments are anchored"
+                  + (f", {independent} in an independent public log." if independent else
+                     " (local test anchor in this pack; production packs anchor in a public log).")]
+        parts.append("<div class='verdict ok'><div><b>VALID</b><p>These records have not been changed since they "
+                     "were written.</p><ul>" + "".join(f"<li>{c}</li>" for c in checks) + "</ul></div></div>")
+    else:
+        parts.append(f"<div class='verdict bad'><div><b>{e(verify['result'])}</b><p>Verification found problems; "
+                     "see the findings below. Do not rely on these records until they are explained.</p></div></div>")
+
     parts.append("<div class=grid>")
-    for label, value in [("Actions", len(a)), ("Failed", s["status"].get("error", 0)),
-                         ("Outcome mismatches", s["outcomes"].get("mismatch", 0)),
-                         ("Outcome checked", s["outcomes"].get("match", 0) + s["outcomes"].get("mismatch", 0)),
-                         ("Human reviews", len(s["reviews"]))]:
-        parts.append(f"<div class=card><b>{value}</b><span class=muted>{e(label)}</span></div>")
+    mism = s["outcomes"].get("mismatch", 0)
+    for label, value, alert in [("Actions", len(a), False), ("Failed", s["status"].get("error", 0), False),
+                                ("Outcome checked", s["outcomes"].get("match", 0) + mism, False),
+                                ("Outcome mismatches", mism, mism > 0),
+                                ("Human reviews", len(s["reviews"]), False)]:
+        parts.append(f"<div class='card{' alert' if alert and value else ''}'><b>{value}</b>"
+                     f"<span class=muted>{e(label)}</span></div>")
     parts.append("</div>")
 
-    parts.append("<h2>Verification</h2>")
-    parts.append(f"<p>Result: <span class={'ok' if v_ok else 'bad'}>{e(verify['result'])}</span>. "
-                 f"Signing key <code>{e(key)}</code>, chain <code>{e(chain)}</code>.</p>")
-    sm = verify.get("summary", {})
-    parts.append(f"<p>{sm.get('segments', 0)} segments, {sm.get('segments_anchored', 0)} anchored, "
-                 f"{sm.get('anchors_independent', 0)} in an independent public log. Max delay from segment close "
-                 f"to anchor: {s['anchor_delay_max_s'] if s['anchor_delay_max_s'] is not None else 'n/a'} s.</p>")
-    if sm.get("segments_timestamped"):
-        parts.append(f"<p>Trusted time: {sm['segments_timestamped']} segments carry an RFC 3161 timestamp from an "
-                     f"independent authority; the longest delay after a segment closed was "
-                     f"{sm.get('max_timestamp_delay_s')} s.</p>")
-    parts.append(f"<p>Chain head: <code>{e(head)}</code>. Keep this value: passing it to "
-                 "<code>--known-head</code> on the next pack detects truncated or rewritten history.</p>")
-    findings = [f for f in verify.get("findings", []) if f["level"] in ("error", "warn")]
-    if findings:
-        parts.append(_table(["Level", "Code", "Detail"], [[f["level"], f["code"], f["message"]] for f in findings]))
-    parts.append(f"<p>To check it yourself, offline: <code>{e(command)}</code></p>")
-
-    parts.append("<h2>Systems and tools used</h2>")
-    parts.append(_table(["System", "Tool", "Actions"],
-                        [[sy, t, n] for (sy, t), n in s["by_tool"].most_common()], {2}))
-    parts.append("<h2>Identities and scopes</h2>")
-    parts.append(_table(["Principal", "Scope", "Actions"],
-                        [[p, sc or "-", n] for (p, sc), n in s["identities"].most_common()], {2}))
-    parts.append("<h2>Agents, models and versions</h2>")
-    parts.append(_table(["Agent", "Actions"], [[k, n] for k, n in s["agents"].most_common()], {1}))
-    if s["models"]:
-        parts.append(_table(["Model", "Actions"], [[k, n] for k, n in s["models"].most_common()], {1}))
-    if s["versions"]:
-        parts.append(_table(["Prompt/config versions", "Actions"],
-                            [[k, n] for k, n in s["versions"].most_common()], {1}))
-    parts.append("<h2>Outcome checks</h2>")
-    parts.append("<p class=muted>Whether the external system, read back after the action, matched what the agent "
-                 "did.</p>")
-    parts.append(_table(["Result", "Actions"], [[k, n] for k, n in s["outcomes"].most_common()], {1}))
-    parts.append("<h2>Failures and mismatches</h2>")
+    parts.append("<h2>Where the agent's word and the system disagree</h2>")
+    parts.append("<p class=muted>Each action was read back from the system it touched. These are the actions that "
+                 "failed, or where the system of record shows something different from what the agent did.</p>")
     if s["problems"]:
         rows = []
         for p in s["problems"][:200]:
-            detail = p["response"].get("error") or ", ".join(p.get("outcome", {}).get("fields", [])) or ""
-            rows.append([p["t"]["start"], p["tool"]["system"], p["tool"]["name"], p["response"]["status"],
-                         p.get("outcome", {}).get("check", "-"), detail, p["id"]])
-        parts.append(_table(["Time", "System", "Tool", "Status", "Outcome", "Detail", "Action id"], rows))
+            said = p.get("claim", {}).get("text") or f"{p['tool']['name']} succeeded"
+            rows.append(f"<tr><td>{e(p['t']['start'])}</td><td>{e(p['tool']['system'])}<br>"
+                        f"<span class=muted>{e(p['tool']['name'])}</span></td>"
+                        f"<td class=said>{e(said)}</td><td class=shows>{e(_shows(p))}</td>"
+                        f"<td class=id>{e(p['id'])}</td></tr>")
+        parts.append("<table><thead><tr><th>Time</th><th>System and tool</th><th>Agent said</th>"
+                     "<th>System of record shows</th><th>Action id</th></tr></thead><tbody>"
+                     + "".join(rows) + "</tbody></table>")
         if len(s["problems"]) > 200:
             parts.append(f"<p class=muted>{len(s['problems']) - 200} more in actions.csv.</p>")
     else:
         parts.append("<p>None in this period.</p>")
+
+    parts.append("<h2>Systems, identities and versions</h2>")
+    parts.append(_table(["System", "Tool", "Actions"],
+                        [[sy, t, n] for (sy, t), n in s["by_tool"].most_common()], {2}))
+    parts.append(_table(["Acting identity", "Scope", "Actions"],
+                        [[p, sc or "-", n] for (p, sc), n in s["identities"].most_common()], {2}))
+    parts.append(_table(["Agent", "Actions"], [[k, n] for k, n in s["agents"].most_common()], {1}))
+    if s["models"]:
+        parts.append(_table(["Model", "Actions"], [[_flat(k), n] for k, n in s["models"].most_common()], {1}))
+    if s["versions"]:
+        parts.append(_table(["Prompt and config versions", "Actions"],
+                            [[_flat(k), n] for k, n in s["versions"].most_common()], {1}))
     if s["reviews"]:
         parts.append("<h2>Human reviews</h2>")
         parts.append(_table(["Time", "Action", "Reviewer", "Decision", "Rule", "Before execution"], [
             [r["time"], r["review"]["action"], r["review"]["reviewer"], r["review"]["decision"],
              r["review"].get("rule", "-"), r["review"].get("before_execution", "-")] for r in s["reviews"][:200]]))
+
+    parts.append("<h2>Check it yourself</h2>")
+    parts.append("<p>Anyone can verify the bundle in this pack offline, with no account and no access to the "
+                 f"vendor:</p><p><code>{e(command)}</code></p>")
+    delay = s["anchor_delay_max_s"] if s["anchor_delay_max_s"] is not None else "n/a"
+    parts.append(f"<p class=muted>Chain <code>{e(chain)}</code>. Chain head <code>{e(head)}</code>: keep it and pass "
+                 "it as <code>--known-head</code> next time to detect truncated or rewritten history. Longest delay "
+                 f"from segment close to anchor: {delay} s.</p>")
+    if sm.get("segments_timestamped"):
+        parts.append(f"<p class=muted>Trusted time: {sm['segments_timestamped']} segments carry an RFC 3161 timestamp "
+                     f"from an independent authority; the longest delay after a segment closed was "
+                     f"{sm.get('max_timestamp_delay_s')} s.</p>")
+    findings = [f for f in verify.get("findings", []) if f["level"] in ("error", "warn")]
+    if findings:
+        parts.append(_table(["Level", "Code", "Detail"], [[f["level"], f["code"], f["message"]] for f in findings]))
+
+    counts = Counter(c.status for c in coverage)
     parts.append("<h2>Security review checklist coverage</h2>")
-    parts.append("<p class=muted>Items from the open <a href='https://github.com/getgleipnir/agent-security-review'>"
-                 "agent-security-review</a> checklist that these records evidence. Process items need documents, "
-                 "not records.</p>")
+    parts.append(f"<p class=muted>Questions from the open <a href='https://github.com/getgleipnir/agent-security-review'>"
+                 f"Agent Security Review Kit</a>: {counts.get('covered', 0)} evidenced by these records, "
+                 f"{counts.get('partial', 0)} partly, {counts.get('missing', 0)} missing; {counts.get('process', 0)} "
+                 "need documents rather than records.</p>")
     cov_rows = "".join(
         f"<tr><td class=id>{e(c.id)}</td><td>{e(c.question)}</td><td class=s-{e(c.status)}>{e(c.status)}</td>"
         f"<td class=refs>{e(refs.get(c.id, ''))}</td></tr>"
@@ -211,6 +276,8 @@ def render_html(s: dict[str, Any], *, verify: dict[str, Any], coverage: list[Any
                  "after they were published to the log. It does not show that the agent's decisions were correct, "
                  "and it cannot show actions that were never recorded: reconcile <code>actions.csv</code> against "
                  "your own system logs using the external ids.</p>")
+    parts.append("<p class=foot>Made with Gleipnir, open source under Apache-2.0: "
+                 "<a href='https://github.com/getgleipnir/gleipnir'>github.com/getgleipnir/gleipnir</a></p>")
     parts.append("</body></html>")
     return "".join(parts)
 
