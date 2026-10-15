@@ -6,6 +6,7 @@ import { basename } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import type { AnchorOptions } from "./anchors.js";
+import { loadApprovers, type ApproverRegistry } from "./approvals.js";
 import { parseJsonBytes, pyDumps } from "./json.js";
 import { pyFloatRepr } from "./py.js";
 import { parseTime } from "./time.js";
@@ -20,7 +21,8 @@ const PROG = "gleipnir-verify";
 
 const USAGE = `usage: ${PROG} [-h] [--json] [--expect-key KEY_ID] [--expect-until TIME] [--known-head SEQ:HASH]
                        [--require-anchor {rekor,rfc3161}] [--max-anchor-delay SECONDS] [--require-full]
-                       [--trusted-root PATH] [--local-anchor-log PATH] [--strict] [--version]
+                       [--trusted-root PATH] [--local-anchor-log PATH] [--approvers FILE] [--require-signed-approvals]
+                       [--webauthn-origin ORIGIN] [--strict] [--version]
                        bundle`;
 
 const HELP = `${USAGE}
@@ -47,6 +49,12 @@ options:
   --trusted-root PATH   Sigstore trusted_root.json to use instead of the embedded one (for newer log shards)
   --local-anchor-log PATH
                         local anchor log to check local receipts against
+  --approvers FILE      JSON list of the people who may approve actions, with their keys or passkeys; approvals
+                        must be signed by one of them
+  --require-signed-approvals
+                        fail unless every approval is signed by an approver from --approvers
+  --webauthn-origin ORIGIN
+                        origin allowed in passkey approvals (default: https://<rp_id>); repeatable
   --strict              treat warnings as failures
   --version             show program's version number and exit
 
@@ -238,6 +246,9 @@ function run(argv: string[], io: Io): number {
         "require-full": { type: "boolean" },
         "trusted-root": { type: "string" },
         "local-anchor-log": { type: "string" },
+        approvers: { type: "string" },
+        "require-signed-approvals": { type: "boolean" },
+        "webauthn-origin": { type: "string", multiple: true },
         strict: { type: "boolean" },
       },
     });
@@ -280,6 +291,31 @@ function run(argv: string[], io: Io): number {
     if (knownHead === null) usageError(io, "--known-head must look like 12:sha256:<64 hex>");
   }
   const maxDelay = a["max-anchor-delay"] !== undefined ? parseFloatArg(io, a["max-anchor-delay"]) : null;
+  let approvers: ApproverRegistry | null = null;
+  if (a.approvers) {
+    let raw: Uint8Array;
+    try {
+      raw = readFileSync(a.approvers);
+    } catch (exc) {
+      usageError(io, `--approvers: ${osError(exc, a.approvers)}`);
+    }
+    let data: unknown;
+    try {
+      data = parseJsonBytes(raw);
+    } catch (exc) {
+      if (exc instanceof PyError) usageError(io, "--approvers: the file is not valid JSON");
+      throw exc;
+    }
+    try {
+      approvers = loadApprovers(data);
+    } catch (exc) {
+      if (exc instanceof PyError) usageError(io, `--approvers: ${exc.message}`);
+      throw exc;
+    }
+  }
+  if (a["require-signed-approvals"] && approvers === null) {
+    usageError(io, "--require-signed-approvals needs --approvers (who may approve is your decision)");
+  }
 
   let report: Report;
   let bytes: Uint8Array | null = null;
@@ -298,6 +334,9 @@ function run(argv: string[], io: Io): number {
       maxAnchorDelay: maxDelay,
       requireFull: a["require-full"] ?? false,
       anchorOptions: options,
+      approvers,
+      webauthnOrigins: a["webauthn-origin"] ?? null,
+      requireSignedApprovals: a["require-signed-approvals"] ?? false,
     });
   }
   report = report!;
