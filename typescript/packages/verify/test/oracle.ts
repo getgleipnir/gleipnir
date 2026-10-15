@@ -63,5 +63,8 @@ export function toTsOptions(o: Record<string, any> = {}): VerifyOptions {
   if (o["require_full"]) out.requireFull = true;
   if (o["manifest"] != null) out.manifest = o["manifest"];
   if (o["local_anchor_entries"] != null) out.anchorOptions = { localAnchorEntries: o["local_anchor_entries"] };
+  if (o["approvers"] != null) out.approvers = o["approvers"];
+  if (o["webauthn_origins"] != null) out.webauthnOrigins = o["webauthn_origins"];
+  if (o["require_signed_approvals"]) out.requireSignedApprovals = true;
   return out;
 }
