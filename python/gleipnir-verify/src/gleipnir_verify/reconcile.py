@@ -16,6 +16,7 @@ column name), and ``--tool`` limits it to the tools that create or change those 
 from __future__ import annotations
 
 import csv
+import io
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -81,7 +82,10 @@ def reconcile(bundle: str | Path, system_csv: str | Path, *, column: str, field_
             ids |= top_level_ids(resp.get("body"), field_name or column)
     try:
         with open(system_csv, newline="", encoding="utf-8-sig") as fh:
-            reader = csv.DictReader(fh)
+            text = fh.read()
+            if "\x00" in text:  # rejected on every Python version, so all implementations agree
+                raise csv.Error("line contains NUL")
+            reader = csv.DictReader(io.StringIO(text, newline=""))
             if reader.fieldnames is None or column not in reader.fieldnames:
                 raise ValueError(f"column {column!r} not found in {system_csv}")
             system = {(row.get(column) or "").strip() for row in reader} - {""}  # short rows are skipped
