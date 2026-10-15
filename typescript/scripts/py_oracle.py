@@ -5,7 +5,13 @@ Reads a JSON list of cases from stdin. Each case is {"kind": ..., ...}:
   - {"kind": "hash", "text": <JSON text of a record>}     -> {"hash": str} or {"error": name}
   - {"kind": "time", "text": str}                         -> {"micros": int} or {"error": name}
   - {"kind": "records", "text": <JSONL>, "options": {...}} -> report dict
-  - {"kind": "bundle", "path": str, "options": {...}}      -> report dict
+  - {"kind": "bundle", "path": str, "options": {...}}      -> report dict (bundles and proofs)
+  - {"kind": "pubkey", "text": str}                       -> {"key_id": str} or {"error": name}
+  - {"kind": "sig", "public": str, "message": str, "sig": str} -> {"ok": bool}
+  - {"kind": "digest", "text": <JSON [tool, system, args]>} -> {"digest": str} or {"error": name}
+  - {"kind": "ids", "text": <JSON>, "wanted": str|None}   -> {"ids": [...]}
+  - {"kind": "csv", "text": str}                          -> {"rows": [[...]]} or {"error": name}
+  - {"kind": "reconcile", "bundle": path, "csv": path, "column": str, "field": str|None} -> sets
 Writes a JSON list of results to stdout. Run with: uv run python typescript/scripts/py_oracle.py
 """
 
@@ -63,6 +69,40 @@ def one(case: dict) -> dict:
         return verify_records(records, **opts(case.get("options", {}))).as_dict()
     if k == "bundle":
         return verify_bundle(case["path"], **opts(case.get("options", {}))).as_dict()
+    if k == "pubkey":
+        from gleipnir_verify.crypto import decode_public_key, key_id
+        try:
+            return {"key_id": key_id(decode_public_key(case["text"]))}
+        except Exception as exc:  # noqa: BLE001
+            return {"error": type(exc).__name__}
+    if k == "sig":
+        from gleipnir_verify.crypto import decode_public_key, verify_signature
+        return {"ok": verify_signature(decode_public_key(case["public"]), case["message"].encode("utf-8"), case["sig"])}
+    if k == "digest":
+        from gleipnir_verify.verifier import action_digest
+        try:
+            return {"digest": action_digest(*json.loads(case["text"]))}
+        except Exception as exc:  # noqa: BLE001
+            return {"error": type(exc).__name__}
+    if k == "ids":
+        from gleipnir_verify.reconcile import external_ids
+        return {"ids": sorted(external_ids(json.loads(case["text"]), case.get("wanted")))}
+    if k == "csv":
+        import csv as _csv
+        import io
+        try:
+            return {"rows": list(_csv.reader(io.StringIO(case["text"], newline="")))}
+        except Exception as exc:  # noqa: BLE001
+            return {"error": type(exc).__name__}
+    if k == "reconcile":
+        from gleipnir_verify.reconcile import reconcile
+        try:
+            res = reconcile(case["bundle"], case["csv"], column=case["column"], field_name=case.get("field"),
+                            **opts(case.get("options", {})))
+        except Exception as exc:  # noqa: BLE001
+            return {"error": type(exc).__name__}
+        return {"valid": res.report.valid(), "matched": sorted(res.matched), "only_in_system": sorted(res.only_in_system),
+                "only_in_records": sorted(res.only_in_records), "ok": res.ok}
     if k == "version":
         return {"version": list(sys.version_info[:2])}
     raise ValueError(k)

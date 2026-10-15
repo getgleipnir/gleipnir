@@ -6,16 +6,24 @@
 
 import { randomBytes } from "node:crypto";
 import { zipSync, strToU8 } from "fflate";
+import { p256 } from "@noble/curves/nist.js";
 import {
+  actionDigest,
   bytesToHex,
+  decodePublicKey,
   ed25519PublicFromSeed,
   ed25519Sign,
+  encodeP256PublicKey,
+  encodeP256Signature,
   encodePublicKey,
   encodeSignature,
   hashToBytes,
+  inclusionProof,
   keyId,
   localLogEntryHash,
   merkleRoot,
+  p256Sign,
+  p256SpkiFromScalar,
   recordHash,
   recordMessage,
 } from "@getgleipnir/verify";
@@ -43,8 +51,27 @@ export class Key {
   }
 }
 
+/** An ECDSA P-256 record key (same interface as Key). */
+export class P256Key {
+  readonly scalar: Uint8Array;
+  readonly spki: Uint8Array;
+  readonly id: string;
+  readonly public: string;
+  constructor(scalar?: Uint8Array) {
+    this.scalar = scalar ?? p256.utils.randomSecretKey();
+    this.spki = p256SpkiFromScalar(this.scalar);
+    this.public = encodeP256PublicKey(this.spki);
+    this.id = keyId(decodePublicKey(this.public));
+  }
+  sign(h: string): string {
+    return encodeP256Signature(p256Sign(this.scalar, recordMessage(h)));
+  }
+}
+
+export type AnyKey = Key | P256Key;
+
 export class Builder {
-  key: Key;
+  key: AnyKey;
   readonly chain: string;
   records: Rec[] = [];
   now = T0;
@@ -54,7 +81,7 @@ export class Builder {
   anchorLog: Rec[] = [];
   readonly heartbeat: number;
 
-  constructor(opts: { key?: Key; heartbeat?: number; chain?: string } = {}) {
+  constructor(opts: { key?: AnyKey; heartbeat?: number; chain?: string } = {}) {
     this.key = opts.key ?? new Key();
     this.chain = opts.chain ?? "ch_test";
     this.heartbeat = opts.heartbeat ?? 600;
@@ -69,7 +96,7 @@ export class Builder {
     this.now += seconds * 1000;
   }
 
-  add(fields: Rec, key?: Key): Rec {
+  add(fields: Rec, key?: AnyKey): Rec {
     const k = key ?? this.key;
     const rec: Rec = {
       v: 1,
@@ -157,10 +184,60 @@ export class Builder {
   copy(): Rec[] {
     return structuredClone(this.records);
   }
+
+  /** An approval of one exact action (tool, system, args), recorded before it runs; returns its id. */
+  approve(args: Rec, o: { tool?: string; system?: string; decision?: string } = {}): string {
+    const tool = o.tool ?? "refund";
+    const system = o.system ?? "pay";
+    const rec = this.add({
+      kind: "review",
+      review: { action_digest: actionDigest(tool, system, args), tool, system, reviewer: "ops:anna", decision: o.decision ?? "approved", before_execution: true },
+    });
+    return rec["id"];
+  }
+
+  /** Rotate to a new key (of either type); later records are signed by it. */
+  rotate(next: AnyKey): Rec {
+    const rec = this.add({ kind: "key_rotation", new_key: { id: next.id, public: next.public } });
+    this.key = next;
+    return rec;
+  }
+}
+
+/** The files of a single-action proof (manifest type "proof"), as the Python SDK's export_proof writes them. */
+export function proofFiles(b: Builder, actionId: string, records: Rec[] = b.records): { manifest: Rec; records: Rec[] } {
+  const action = records.find((r) => r["id"] === actionId)!;
+  const seq = action["seq"];
+  const segment = records.find((r) => r["kind"] === "segment" && r["segment"]["from"] <= seq && seq < r["segment"]["from"] + r["segment"]["count"])!;
+  const s = segment["segment"];
+  const members = records.filter((r) => s["from"] <= r["seq"] && r["seq"] < s["from"] + s["count"]).map((r) => hashToBytes(recordHash(r)));
+  const index = seq - s["from"];
+  const anchors = records.filter((r) => r["kind"] === "anchor" && r["anchor"]["segment_seq"] === segment["seq"]);
+  const manifest: Rec = {
+    format: 1,
+    type: "proof",
+    chain: b.chain,
+    action: actionId,
+    action_seq: seq,
+    segment_seq: segment["seq"],
+    leaf_index: index,
+    tree_size: members.length,
+    proof: inclusionProof(index, members).map(bytesToHex),
+    key: records[0]!["public_key"]["id"],
+  };
+  return { manifest, records: [records[0]!, action, segment, ...anchors] };
+}
+
+export function proofZip(b: Builder, manifest: Rec, records: Rec[]): Uint8Array {
+  return zipBundle({
+    "manifest.json": JSON.stringify(manifest),
+    "records.jsonl": records.map((r) => JSON.stringify(r) + "\n").join(""),
+    "anchors/local-anchor-log.jsonl": b.anchorLog.map((e) => JSON.stringify(e) + "\n").join(""),
+  });
 }
 
 /** Recompute prev/sig from `start` on, as an attacker holding `key` would. */
-export function resign(records: Rec[], key: Key, start = 0): Rec[] {
+export function resign(records: Rec[], key: AnyKey, start = 0): Rec[] {
   for (let i = start; i < records.length; i++) {
     const rec = records[i]!;
     delete rec["sig"];

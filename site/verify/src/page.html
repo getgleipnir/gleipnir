@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Verify a Gleipnir bundle</title>
+<meta name="description" content="Check a Gleipnir record bundle or single-action proof in your browser. The file never leaves your computer.">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src '__SCRIPT_HASH__'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; form-action 'none'; base-uri 'none'">
+<meta name="referrer" content="no-referrer">
+<style>
+:root {
+  color-scheme: light dark;
+  --paper: #e8edf0;
+  --sheet: #f7f9fa;
+  --ink: #17222b;
+  --muted: #55626c;
+  --rule: #c3ccd2;
+  --steel: #2b5b86;
+  --ok: #1d6a4d;
+  --ok-soft: #d6eadf;
+  --bad: #a1271e;
+  --bad-soft: #f4dcd8;
+  --warn: #7f5500;
+  --warn-soft: #f3e6c8;
+  --focus: #2b5b86;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #12181d;
+    --sheet: #1a2229;
+    --ink: #dce4e9;
+    --muted: #93a1ab;
+    --rule: #33414b;
+    --steel: #8db7de;
+    --ok: #6fcf9f;
+    --ok-soft: #173327;
+    --bad: #f08a7f;
+    --bad-soft: #3a1e1b;
+    --warn: #e3b55a;
+    --warn-soft: #382c14;
+    --focus: #8db7de;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #12181d; --sheet: #1a2229; --ink: #dce4e9; --muted: #93a1ab; --rule: #33414b; --steel: #8db7de;
+  --ok: #6fcf9f; --ok-soft: #173327; --bad: #f08a7f; --bad-soft: #3a1e1b; --warn: #e3b55a; --warn-soft: #382c14; --focus: #8db7de;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: 17px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+main { max-width: 46rem; margin: 0 auto; padding: 3rem 16px 4rem; }
+h1 { font-size: 1.9rem; line-height: 1.2; margin: 0 0 .5rem; font-weight: 650; letter-spacing: -.01em; }
+h2 { font-size: 1.05rem; margin: 2.25rem 0 .75rem; font-weight: 650; }
+p { margin: 0 0 1rem; max-width: 38em; }
+a { color: var(--steel); }
+code { font: .86em/1.4 ui-monospace, "SF Mono", Menlo, Consolas, monospace; overflow-wrap: anywhere; }
+.lede { color: var(--muted); }
+.private { display: flex; gap: .6rem; align-items: baseline; margin: 1.25rem 0 2rem; padding: .75rem 1rem; border-left: 3px solid var(--ok); background: var(--sheet); border-radius: 0 6px 6px 0; }
+.private strong { white-space: nowrap; }
+@media (max-width: 560px) { .private { display: block; } .private strong { display: block; } }
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+
+/* drop zone */
+.drop {
+  position: relative; display: block; padding: 2.25rem 1.25rem; text-align: center;
+  border: 2px dashed var(--rule); border-radius: 12px; background: var(--sheet); cursor: pointer;
+}
+.drop.is-over { border-color: var(--steel); border-style: solid; }
+.drop input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.drop:focus-within { outline: 3px solid var(--focus); outline-offset: 2px; }
+.drop-main { font-size: 1.1rem; font-weight: 600; display: block; }
+.drop-sub { color: var(--muted); display: block; margin-top: .25rem; }
+#drop-name:not(:empty) { display: block; margin-top: .75rem; font-weight: 600; color: var(--steel); overflow-wrap: anywhere; }
+
+/* checks */
+details { margin-top: 1.25rem; border-top: 1px solid var(--rule); padding-top: .75rem; }
+summary { cursor: pointer; font-weight: 600; padding: .25rem 0; }
+.field { margin: 1rem 0; }
+.field label, .field legend { display: block; font-weight: 600; margin-bottom: .3rem; font-size: .95rem; }
+.field .help { display: block; color: var(--muted); font-size: .88rem; margin-top: .3rem; }
+input[type="text"] {
+  width: 100%; padding: .6rem .7rem; font: .95rem ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color: var(--ink); background: var(--sheet); border: 1px solid var(--rule); border-radius: 6px;
+}
+input[aria-invalid="true"] { border-color: var(--bad); }
+fieldset { border: 0; padding: 0; margin: 1rem 0; }
+.check { display: flex; gap: .55rem; align-items: flex-start; margin: .4rem 0; }
+.check input { width: 1.1rem; height: 1.1rem; margin-top: .2rem; accent-color: var(--steel); }
+.err { color: var(--bad); font-size: .9rem; margin-top: .3rem; }
+button {
+  font: inherit; font-weight: 600; padding: .5rem 1rem; border-radius: 6px; cursor: pointer;
+  border: 1px solid var(--steel); background: var(--steel); color: var(--sheet);
+}
+button.copy { padding: .1rem .55rem; font-size: .85rem; background: transparent; color: var(--steel); }
+
+/* result */
+#result { margin-top: 2.5rem; }
+#result[aria-busy="true"] { opacity: .5; }
+.verdict { border-radius: 12px; padding: 1.5rem 1.5rem 1.25rem; }
+.verdict.is-valid { background: var(--ok-soft); color: var(--ok); }
+.verdict.is-invalid { background: var(--bad-soft); color: var(--bad); }
+.verdict-word { font-size: clamp(3rem, 14vw, 5.5rem); line-height: .95; font-weight: 800; letter-spacing: -.035em; margin: 0 0 .75rem; }
+.verdict-line { color: var(--ink); margin: 0; }
+.verdict-sub { color: var(--warn); font-weight: 600; margin: .5rem 0 0; }
+
+/* the chain: one band per segment, linked */
+.ribbon { margin: 1.5rem 0 0; }
+.ribbon-track { display: flex; gap: 3px; list-style: none; padding: 0; margin: 0; height: 18px; }
+.band { flex-basis: 0; min-width: 4px; border-radius: 9px; background: var(--ok); }
+.band.is-warn { background: var(--warn); }
+.band.is-fail { background: var(--bad); }
+.band.is-tail { background: repeating-linear-gradient(135deg, var(--muted) 0 3px, transparent 3px 6px); border: 1px solid var(--muted); }
+.ribbon-track.proof { flex-wrap: wrap; height: auto; gap: 3px; }
+.cell { width: 14px; height: 14px; border-radius: 3px; background: var(--rule); }
+.cell.is-target { background: var(--ok); }
+.cell.is-target.is-fail { background: var(--bad); }
+.ribbon figcaption { color: var(--muted); font-size: .88rem; margin-top: .5rem; }
+
+.summary { display: grid; grid-template-columns: minmax(9rem, max-content) 1fr; gap: .45rem 1.25rem; margin: 0; }
+.summary dt { color: var(--muted); }
+.summary dd { margin: 0; min-width: 0; }
+@media (max-width: 560px) {
+  .summary { grid-template-columns: 1fr; gap: 0; }
+  .summary dd { margin-bottom: .7rem; }
+}
+
+.findings { list-style: none; padding: 0; margin: 0; }
+.finding { display: grid; grid-template-columns: 5.5rem 1fr; gap: .15rem 1rem; padding: .7rem 0; border-top: 1px solid var(--rule); }
+.finding .level { font-weight: 700; grid-row: span 2; }
+.finding.is-error .level { color: var(--bad); }
+.finding.is-warn .level { color: var(--warn); }
+.finding.is-info .level { color: var(--muted); }
+.fmsg { color: var(--ink); }
+@media (max-width: 560px) {
+  .finding { grid-template-columns: 1fr; }
+  .finding .level { grid-row: auto; }
+}
+.muted, .hint { color: var(--muted); }
+.hint { margin-top: 1.5rem; font-size: .92rem; }
+.error { color: var(--bad); font-weight: 600; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+footer { margin-top: 4rem; padding-top: 1rem; border-top: 1px solid var(--rule); color: var(--muted); font-size: .9rem; }
+footer p { max-width: none; }
+@media (prefers-reduced-motion: no-preference) {
+  .verdict { animation: settle .35s ease-out; }
+  @keyframes settle { from { transform: translateY(6px); opacity: 0; } to { transform: none; opacity: 1; } }
+}
+</style>
+</head>
+<body>
+<main>
+  <h1>Verify agent action records</h1>
+  <p class="lede">Check a Gleipnir bundle (<code>bundle.zip</code>) or a single-action proof (<code>proof.zip</code>) that a vendor sent you: were the records changed after they were written?</p>
+
+  <p class="private"><strong>Stays on your computer.</strong> <span>The file is checked in this browser tab. Nothing is uploaded, and the page makes no network requests. You can save this page and use it offline.</span></p>
+
+  <label class="drop" id="drop">
+    <input type="file" id="file" accept=".zip,application/zip" aria-describedby="drop-sub">
+    <span class="drop-main">Drop a bundle.zip or proof.zip here</span>
+    <span class="drop-sub" id="drop-sub">or click to choose a file</span>
+    <span id="drop-name" aria-live="polite"></span>
+  </label>
+
+  <form id="checks" novalidate>
+    <details id="checks-details">
+      <summary>Stricter checks</summary>
+      <div class="field">
+        <label for="expect-key">Expected signing key</label>
+        <input type="text" id="expect-key" name="expect-key" placeholder="k_ed25519_… or k_p256_…" autocomplete="off" spellcheck="false" aria-describedby="expect-key-help">
+        <span class="help" id="expect-key-help">The key id the vendor publishes, for example in its trust center. Fails if the records are signed with another key.</span>
+      </div>
+      <div class="field">
+        <label for="known-head">Known head</label>
+        <input type="text" id="known-head" name="known-head" placeholder="12:sha256:…" autocomplete="off" spellcheck="false" aria-describedby="known-head-help">
+        <span class="help" id="known-head-help">The head from an earlier bundle of the same chain. Fails if that record is missing or different (history cut short or rewritten).</span>
+        <span class="err" id="known-head-error" hidden>Use the form seq:sha256:hash, as shown under Head in an earlier result.</span>
+      </div>
+      <fieldset class="field">
+        <legend>Require independent anchors on every segment</legend>
+        <span class="check"><input type="checkbox" id="req-rekor"><label for="req-rekor">Sigstore Rekor (public transparency log)</label></span>
+        <span class="check"><input type="checkbox" id="req-rfc3161"><label for="req-rfc3161">RFC 3161 trusted timestamp</label></span>
+      </fieldset>
+      <button type="submit">Verify again</button>
+    </details>
+  </form>
+
+  <div id="result" aria-live="polite"></div>
+  <p class="sr-only" id="status" role="status"></p>
+
+  <footer>
+    <p>Valid means no record was edited, removed, reordered or inserted after it was written, and the anchors check out. It does not mean the agent's decisions were right, and it cannot show actions that were never recorded: compare the ids in the records with your own systems (<code>gleipnir-verify reconcile</code>).</p>
+    <p>Same checks as the <code>gleipnir-verify</code> command line tool (Python and Node), using <a href="https://www.npmjs.com/package/@getgleipnir/verify">@getgleipnir/verify</a>.</p>
+  </footer>
+</main>
+<script type="module">__SCRIPT__</script>
+</body>
+</html>
