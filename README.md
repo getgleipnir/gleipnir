@@ -49,7 +49,7 @@ See [docs/mcp-proxy.md](docs/mcp-proxy.md).
 |---|---|
 | `gleipnir-sdk` (`import gleipnir`) | `Recorder.tool` decorator (sync and async), outcome read-back checks, field redaction, context (identity, scope, model, prompt versions) |
 | Outcome checks | `gleipnir.outcomes`: ready-made read-backs from the system of record for Stripe, Zendesk, Salesforce, Intercom, HubSpot, Jira, ServiceNow, Shopify and any HTTP/JSON API; inject your own client, money in minor units, bounded retries. See [docs/outcome-checks.md](docs/outcome-checks.md) |
-| Adapters | MCP client middleware, OpenTelemetry span exporter (GenAI semantic conventions), OpenAI Agents SDK, Claude Agent SDK hooks, LangChain/LangGraph callback handler |
+| Adapters | MCP client middleware, OpenTelemetry span exporter (GenAI semantic conventions), OpenAI Agents SDK, Claude Agent SDK hooks, LangChain/LangGraph callback handler, Playwright (browser and computer-use agents: navigations, clicks, fills with values redacted, submits, downloads, screenshot hashes), Temporal activity interceptor (every attempt, retries visible, replay-safe). See [docs/adapters.md](docs/adapters.md) |
 | `gleipnir-mcp` | Zero-code stdio MCP proxy that records every `tools/call`, plus `gleipnir report` |
 | Approvals | `rec.approve(...)` binds a human approval to one exact action; the verifier checks it came first and matches |
 | Keys | Ed25519 by default; AWS KMS, Google Cloud KMS and Azure Key Vault signers (Ed25519 or ECDSA P-256), so the key never sits in the agent process |
@@ -69,7 +69,7 @@ See [docs/mcp-proxy.md](docs/mcp-proxy.md).
 
 Python and TypeScript (`@getgleipnir/verify`, `@getgleipnir/sdk`) produce and accept the same bytes; CI checks it on every commit. Format: [spec/format.md](spec/format.md).
 
-Docs: [design](docs/design.md), [threat model](docs/threat-model.md) (what a valid result proves, and what it doesn't).
+Docs: [design](docs/design.md), [adapters](docs/adapters.md), [threat model](docs/threat-model.md) (what a valid result proves, and what it doesn't).
 
 ## Status
 
