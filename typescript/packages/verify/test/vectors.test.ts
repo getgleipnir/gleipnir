@@ -2,12 +2,18 @@ import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
+  P256_PREFIX,
   canonicalizeString,
   decodePublicKey,
   ed25519PublicFromSeed,
   ed25519Sign,
+  encodeP256PublicKey,
+  encodeP256Signature,
   encodePublicKey,
   encodeSignature,
+  p256Sign,
+  p256SpkiFromScalar,
+  verifyRecords,
   hexToBytes,
   bytesToHex,
   inclusionProof,
@@ -51,19 +57,42 @@ describe("spec test vectors: records", () => {
         expect(recordHash(record)).toBe(v["hash"]);
       });
 
-      it("derives the public key and key id from the seed", () => {
-        const pub = ed25519PublicFromSeed(hexToBytes(v["private_key_seed_hex"] as string));
-        expect(encodePublicKey(pub)).toBe(v["public_key"]);
-        expect(keyId(pub)).toBe(v["key_id"]);
+      const p256 = typeof v["private_key_scalar_hex"] === "string";
+
+      it("derives the public key and key id from the private key", () => {
+        if (p256) {
+          const spki = p256SpkiFromScalar(hexToBytes(v["private_key_scalar_hex"] as string));
+          expect(encodeP256PublicKey(spki)).toBe(v["public_key"]);
+        } else {
+          const pub = ed25519PublicFromSeed(hexToBytes(v["private_key_seed_hex"] as string));
+          expect(encodePublicKey(pub)).toBe(v["public_key"]);
+          expect(keyId(pub)).toBe(v["key_id"]);
+        }
         expect(keyId(decodePublicKey(v["public_key"]))).toBe(v["key_id"]);
+        expect(record["key"]).toBe(v["key_id"]);
       });
 
-      it("reproduces the signature byte for byte (Ed25519 is deterministic) and verifies it", () => {
-        const seed = hexToBytes(v["private_key_seed_hex"] as string);
-        const sig = encodeSignature(ed25519Sign(seed, recordMessage(v["hash"] as string)));
+      it("reproduces the signature byte for byte (Ed25519 and RFC 6979 ECDSA are deterministic) and verifies it", () => {
+        const msg = recordMessage(v["hash"] as string);
+        const sig = p256
+          ? encodeP256Signature(p256Sign(hexToBytes(v["private_key_scalar_hex"] as string), msg))
+          : encodeSignature(ed25519Sign(hexToBytes(v["private_key_seed_hex"] as string), msg));
         expect(sig).toBe(record["sig"]);
         const pub = decodePublicKey(v["public_key"]);
-        expect(verifySignature(pub, recordMessage(v["hash"] as string), record["sig"])).toBe(true);
+        expect(verifySignature(pub, msg, record["sig"])).toBe(true);
+      });
+
+      it.runIf(record["kind"] === "genesis")("verifies as a one-record chain", () => {
+        const report = verifyRecords([record], { expectKey: v["key_id"] as string });
+        expect(report.errors).toEqual([]);
+        expect(report.summary["keys"]).toEqual([v["key_id"]]);
+      });
+
+      it("rejects a signature of the other key type", () => {
+        const pub = decodePublicKey(v["public_key"]);
+        const sig = record["sig"] as string;
+        const swapped = p256 ? sig.replace(P256_PREFIX, "ed25519:") : sig.replace("ed25519:", P256_PREFIX);
+        expect(verifySignature(pub, recordMessage(v["hash"] as string), swapped)).toBe(false);
       });
 
       it("rejects the signature over any other hash", () => {
