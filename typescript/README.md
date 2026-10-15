@@ -66,6 +66,7 @@ JSON.stringify(report);  // { result: "VALID" | "INVALID", summary, findings }
 |---|---|
 | JCS (RFC 8785) canonical bytes, SHA-256 record hashes, Ed25519 and ECDSA P-256 signatures, key ids, key rotation (also between key types) | verified |
 | Approvals bound to actions (`approval_missing`, `approval_after_action`, `approval_not_approved`, `approval_mismatch`) | verified |
+| Signed approvals: key (Ed25519 / P-256) and WebAuthn (ES256) signatures against the buyer's approver registry (`approvers`, `webauthnOrigins`, `requireSignedApprovals`; CLI `--approvers`, `--webauthn-origin`, `--require-signed-approvals`) | verified, differential against Python |
 | Single-action proofs (`proof.zip`, manifest `type: "proof"`): signatures, Merkle inclusion, position, anchors | verified |
 | Sequence, `prev` chaining, segment tiling, RFC 6962 Merkle roots, segment links, heartbeats, manifest range, expected key, coverage, known head | verified |
 | `local` anchors | verified against the bundle's (or a given) local anchor log; reported as not independent |
@@ -120,7 +121,7 @@ await rec.export("bundle.zip"); // closes the open segment, anchors it, writes t
 - `tool()` wraps sync and async functions; the wrapper returns what the function returns and re-throws its errors after recording them. A `verifyOutcome` returning `true`/`false`/`null` means match/mismatch/not checked; a throwing check is recorded as `error`.
 - `context(values, fn)` attaches `trace_id`, `span_id`, `session`, `run_id`, `on_behalf_of`, `parent_action`, `model`, `versions` and `identity` to every record made inside `fn`, across `await`s (AsyncLocalStorage).
 - `recordAction`, `claim`, `review` and `note` write records directly.
-- `approve(tool, args, { approver, rule })` records an approval of one exact action before it runs; run the action in `rec.context({ approval: id }, ...)` and the verifier checks the approval came first and the tool, system and (redacted) arguments match.
+- `approve(tool, args, { approver, rule })` records an approval of one exact action before it runs; run the action in `rec.context({ approval: id }, ...)` and the verifier checks the approval came first and the tool, system and (redacted) arguments match. With `{ signature }` (the approver's own signature over `rec.approvalDigest(tool, args)`, from `ApproverKey.sign`, `gleipnir approve sign` or the passkey page `site/approve/`), the approval is bound to the approver's key; the reviewer defaults to its `approver_id`.
 - `prove(actionId, "proof.zip")` writes a single-action proof for a dispute about one action.
 - The chain writer closes a segment every `segmentMaxRecords` records and after `heartbeatSeconds` (also when empty), with a background timer that never keeps the process alive. Anchoring may be asynchronous and is retried; it never breaks recording.
 - Anchors: `"local"` (default, a local append-only log for tests and demos, not independent) or any object implementing `Anchor` (`{ type, anchor({ segmentHash, chain, segmentSeq }) }`, sync or async). Public Rekor and RFC 3161 anchoring are implemented in the Python SDK; their receipts verify here.
