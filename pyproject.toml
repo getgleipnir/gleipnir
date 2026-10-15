@@ -23,3 +23,10 @@ asyncio_mode = "auto"
 
 [tool.ruff.lint.isort]
 known-first-party = ["gleipnir", "gleipnir_verify"]
+
+[tool.ruff.lint.flake8-bugbear]
+# Outcome-check specs are immutable callables, safe as argument defaults.
+extend-immutable-calls = [
+  "gleipnir.outcomes._core.arg", "gleipnir.outcomes._core.opt_arg", "gleipnir.outcomes._core.resp",
+  "gleipnir.outcomes._core.const", "gleipnir.outcomes._core.first_of",
+]
