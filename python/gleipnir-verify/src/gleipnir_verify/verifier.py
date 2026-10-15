@@ -25,7 +25,7 @@ from typing import Any
 
 from . import anchors as anchor_mod
 from . import merkle
-from .canon import hash_to_bytes, record_hash
+from .canon import canonicalize, hash_to_bytes, record_hash, sha256_tagged
 from .crypto import decode_public_key, key_id, record_message, verify_signature
 
 FORMAT_VERSION = 1
@@ -142,7 +142,7 @@ def _verify_records(
         report.add(ERROR, "format_version", f"unsupported format version {genesis.get('v')!r}")
         return report
     chain_id = genesis.get("chain")
-    keys: dict[str, bytes] = {}
+    keys: dict[str, Any] = {}
     try:
         pk = genesis["public_key"]
         raw = decode_public_key(pk["public"])
@@ -369,6 +369,9 @@ def _verify_records(
     if unchecked:
         report.add(WARN, "anchors_unchecked", f"{unchecked} segments have anchor receipts that could not be checked")
 
+    # ---- approvals bound to actions ------------------------------------------------------
+    check_approvals(records, by_seq, report, partial=first_body_seq not in (None, 1))
+
     # ---- bundle expectations ---------------------------------------------------------
     if require_full and body and body[0] != 1:
         report.add(ERROR, "partial_bundle", "a full bundle was required but records are missing at the start")
@@ -410,7 +413,40 @@ def _verify_records(
     return report
 
 
-def _summarize(report: Report, records: list[dict[str, Any]], genesis: dict[str, Any], keys: dict[str, bytes],
+def action_digest(tool: Any, system: Any, args: Any) -> str:
+    """Digest an approval commits to: the tool, system and (redacted) arguments of the action."""
+    return sha256_tagged(canonicalize({"tool": tool, "system": system, "args": args}))
+
+
+def check_approvals(records: list[dict[str, Any]], by_seq: dict[int, dict[str, Any]], report: Report,
+                    partial: bool) -> None:
+    """Every action that names an approval must point to an earlier, matching ``approved`` review."""
+    reviews = {r.get("id"): r for r in records if isinstance(r, dict) and r.get("kind") == "review"}
+    for rec in records:
+        if not isinstance(rec, dict) or rec.get("kind") != "action" or "approval" not in rec:
+            continue
+        seq = rec.get("seq")
+        review = reviews.get(rec["approval"])
+        if review is None:
+            report.add(WARN if partial else ERROR, "approval_missing",
+                       f"action names approval {rec['approval']!r}, which is not in this bundle", seq)
+            continue
+        body = review.get("review", {}) if isinstance(review.get("review"), dict) else {}
+        tool = rec.get("tool", {}) if isinstance(rec.get("tool"), dict) else {}
+        if not isinstance(review.get("seq"), int) or not isinstance(seq, int) or review["seq"] >= seq:
+            report.add(ERROR, "approval_after_action", "the approval was recorded after the action it approves", seq)
+        if body.get("decision") != "approved":
+            report.add(ERROR, "approval_not_approved", f"the referenced review decided {body.get('decision')!r}", seq)
+        try:
+            digest = action_digest(tool.get("name"), tool.get("system"), rec.get("args"))
+        except Exception:  # noqa: BLE001
+            digest = None
+        if body.get("action_digest") != digest:
+            report.add(ERROR, "approval_mismatch", "the action differs from what was approved (tool, system or "
+                       "arguments)", seq)
+
+
+def _summarize(report: Report, records: list[dict[str, Any]], genesis: dict[str, Any], keys: dict[str, Any],
                segments: list[dict[str, Any]], anchored: int, independent: int = 0,
                last_anchored_close: str | None = None) -> None:
     kinds: dict[str, int] = {}
@@ -475,7 +511,82 @@ def verify_bundle(path: str | Path, **kwargs: Any) -> Report:
         opts = dict(kwargs.get("anchor_options") or {})
         opts.setdefault("local_anchor_entries", local_log)
         kwargs["anchor_options"] = opts
+    if manifest.get("type") == "proof":
+        try:
+            return _verify_proof(manifest, records, **kwargs)
+        except Exception as exc:  # noqa: BLE001 - hostile input
+            report = Report()
+            report.add(ERROR, "malformed", f"proof could not be processed: {type(exc).__name__}: {exc}")
+            return report
     return verify_records(records, manifest=manifest, **kwargs)
+
+
+def _verify_proof(manifest: dict[str, Any], records: list[Any], *, expect_key: str | None = None,
+                  require_anchor: str | list[str] | None = None, anchor_options: dict[str, Any] | None = None,
+                  anchor_verifiers: dict[str, Any] | None = None, **_: Any) -> Report:
+    """Verify a single-action proof: genesis key, the action's signature, its inclusion in a signed
+    segment, and the segment's anchor receipts."""
+    report = Report()
+    anchor_verifiers = anchor_verifiers or anchor_mod.default_verifiers()
+    anchor_options = anchor_options or {}
+    if len(records) < 3 or not all(isinstance(r, dict) for r in records):
+        report.add(ERROR, "malformed", "a proof needs the genesis, the action and its segment")
+        return report
+    genesis, action, segment, *anchors = records
+    if genesis.get("kind") != "genesis" or genesis.get("seq") != 0:
+        report.add(ERROR, "no_genesis", "first record must be the genesis record")
+        return report
+    pk = genesis["public_key"]
+    pub = decode_public_key(pk["public"])
+    if key_id(pub) != pk["id"]:
+        report.add(ERROR, "key_id_mismatch", "genesis key id does not match its public key", 0)
+        return report
+    if expect_key and expect_key != pk["id"]:
+        report.add(ERROR, "unexpected_key", f"chain key {pk['id']} is not the expected key {expect_key}")
+    chain = genesis.get("chain")
+    hashes = {}
+    for rec in records:
+        h = record_hash(rec)
+        hashes[rec.get("seq")] = h
+        if rec.get("chain") != chain or rec.get("v") != FORMAT_VERSION:
+            report.add(ERROR, "wrong_chain", "record is not from this chain", rec.get("seq"))
+        if rec.get("key") != pk["id"] or not verify_signature(pub, record_message(h), rec.get("sig", "")):
+            report.add(ERROR, "bad_signature", "signature does not match record content (record altered?)",
+                       rec.get("seq"))
+    if action.get("id") != manifest.get("action") or segment.get("kind") != "segment":
+        report.add(ERROR, "malformed", "proof does not contain the named action and a segment")
+        return report
+    s = segment["segment"]
+    seq, frm, count = action["seq"], int(s["from"]), int(s["count"])
+    index, size = manifest.get("leaf_index"), manifest.get("tree_size")
+    if not (frm <= seq < frm + count) or index != seq - frm or size != count:
+        report.add(ERROR, "proof_position", "the action is not where the proof says it is in the segment", seq)
+    path = [bytes.fromhex(x) for x in manifest.get("proof", [])]
+    if not merkle.verify_inclusion(seq - frm, count, merkle.leaf_hash(hash_to_bytes(hashes[seq])), path,
+                                   hash_to_bytes(s["root"])):
+        report.add(ERROR, "proof_invalid", "the action is not included in the segment's Merkle root", seq)
+    required = [require_anchor] if isinstance(require_anchor, str) else list(require_anchor or [])
+    verified: set[str] = set()
+    for a in anchors:
+        body = a.get("anchor", {})
+        if a.get("kind") != "anchor" or body.get("segment_hash") != hashes[segment["seq"]]:
+            report.add(ERROR, "anchor_hash", "anchor receipt is for a different segment", a.get("seq"))
+            continue
+        fn = anchor_verifiers.get(body.get("type"))
+        if fn is None:
+            continue
+        res = fn(body, segment_hash=hashes[segment["seq"]], chain=chain, options=anchor_options)
+        if res.ok is False:
+            report.add(ERROR, "anchor_invalid", f"anchor receipt invalid: {res.detail}", a.get("seq"))
+        elif res.ok and res.independent:
+            verified.add(body.get("type"))
+    for req in required:
+        if req not in verified:
+            report.add(ERROR, "anchor_required", f"segment has no verified {req} anchor", segment["seq"])
+    report.summary = {"type": "proof", "chain": chain, "keys": [pk["id"]], "action": action.get("id"),
+                      "action_seq": seq, "segment_seq": segment["seq"], "anchors_independent": sorted(verified),
+                      "records": len(records), "by_kind": {}, "segments": 1}
+    return report
 
 
 def iter_jsonl(path: str | Path) -> Iterable[dict[str, Any]]:
