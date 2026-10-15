@@ -26,6 +26,7 @@ Source = "https://github.com/getgleipnir/gleipnir"
 
 [project.scripts]
 gleipnir = "gleipnir.cli:main"
+gleipnir-mcp = "gleipnir.mcp_proxy:main"
 
 [build-system]
 requires = ["hatchling>=1.24"]
