@@ -15,7 +15,7 @@ import {
   verifySignature,
   type Report,
 } from "@getgleipnir/verify";
-import { Builder, Key, P256Key, proofFiles, proofZip, resign, writeBundle, type Rec } from "./chainbuilder.js";
+import { Builder, Key, P256Key, proofFiles, proofZip, resign, writeBundle, zipBundle, type Rec } from "./chainbuilder.js";
 
 const codes = (r: Report) => new Set(r.errors.map((f) => f.code));
 const run = (b: Builder, recs: Rec[] = b.records) => verifyRecords(recs, { anchorOptions: { localAnchorEntries: b.anchorLog } });
@@ -87,6 +87,20 @@ describe("approvals bound to actions", () => {
     const id = b.approve({ order: "o1", amount: 1 });
     b.action(1, { approval: id, args: { order: "o1", amount: 5000 } });
     expect(codes(run(b))).toEqual(new Set(["approval_mismatch"]));
+  });
+
+  it("an approval covers exactly one action", () => {
+    const b = new Builder();
+    const id = b.approve({ order: "o1", amount: 1 });
+    const first = b.action(1, { approval: id, args: { order: "o1", amount: 1 } });
+    b.action(1, { approval: id, args: { order: "o1", amount: 1 } });
+    b.action(1, { approval: id, args: { order: "o1", amount: 1 } });
+    const r = run(b);
+    expect(r.errors.map((f) => [f.code, f.seq])).toEqual([
+      ["approval_reused", 3],
+      ["approval_reused", 4],
+    ]);
+    expect(r.errors[0]!.message).toBe(`approval already used by the action at seq ${first["seq"]}; an approval covers exactly one action`);
   });
 
   it("the approval must come first, decide 'approved', and exist", () => {
@@ -167,12 +181,44 @@ describe("single-action proofs", () => {
     expect(codes(verifyBundle(proofZip(b, manifest, records.slice(0, 2))))).toEqual(new Set(["malformed"]));
   });
 
-  it("never throws on hostile proofs", () => {
+  it("reports a bad proof path or leaf index as a finding, not as malformed input", () => {
     const b = build();
     const { manifest, records } = proofFiles(b, b.records[2]!["id"]);
-    const r = verifyBundle(proofZip(b, { ...manifest, proof: ["zz"] }, records));
-    expect(r.valid()).toBe(false);
-    expect(r.errors[0]!.message).toMatch(/^proof could not be processed: ValueError: /);
+    const bad = (m: Rec) => new Set(verifyBundle(proofZip(b, { ...manifest, ...m }, records)).errors.map((f) => f.code));
+    expect(bad({ proof: ["zz"] })).toEqual(new Set(["proof_invalid"]));
+    expect(bad({ proof: [1, 2] })).toEqual(new Set(["proof_invalid"]));
+    expect(bad({ leaf_index: "1" })).toEqual(new Set(["proof_position"]));
+    expect(bad({ leaf_index: true })).toEqual(new Set(["proof_position"]));
+    expect(bad({ tree_size: "7" })).toEqual(new Set(["proof_position"]));
+  });
+
+  it("warns when the segment has no verified anchor, and checks the manifest chain and key", () => {
+    const b = new Builder();
+    for (let i = 0; i < 3; i++) b.action(i);
+    b.segment();
+    const { manifest, records } = proofFiles(b, b.records[2]!["id"]);
+    const r = verifyBundle(proofZip(b, manifest, records));
+    expect(r.valid()).toBe(true);
+    expect(r.valid(true)).toBe(false);
+    expect(r.warnings.map((f) => f.code)).toEqual(["unanchored_segments"]);
+    const a = build();
+    const p = proofFiles(a, a.records[2]!["id"]);
+    const codesOf = (m: Rec, recs = p.records) => verifyBundle(proofZip(a, m, recs)).findings.map((f) => `${f.level}:${f.code}`);
+    expect(codesOf({ ...p.manifest, chain: "ch_other" })).toEqual(["error:manifest_chain"]);
+    expect(codesOf({ ...p.manifest, key: "k_ed25519_0000000000000000" })).toEqual(["error:manifest_key"]);
+    expect(codesOf({ ...p.manifest, key: null })).toEqual([]);
+    const unknown = structuredClone(p.records);
+    unknown[3]!["anchor"]["type"] = "carrier-pigeon";
+    delete unknown[3]!["sig"];
+    unknown[3]!["sig"] = a.key.sign(recordHash(unknown[3]!));
+    expect(codesOf(p.manifest, unknown)).toEqual(["warn:anchor_type", "warn:unanchored_segments"]);
+    // a local receipt with no log to check it against is "not checked"
+    const files = { manifest: p.manifest, records: p.records };
+    const noLog = verifyBundle(zipBundle({
+      "manifest.json": JSON.stringify(files.manifest),
+      "records.jsonl": files.records.map((x) => JSON.stringify(x)).join("\n"),
+    }));
+    expect(noLog.findings.map((f) => `${f.level}:${f.code}`)).toEqual(["info:anchor_unchecked", "warn:unanchored_segments"]);
   });
 });
 
@@ -207,5 +253,15 @@ describe("reconcile", () => {
     expect(read).toBe(false);
     expect(() => reconcile(bundle, "x\n1\n", { column: "refund_id", csvName: "s.csv" })).toThrow("column 'refund_id' not found in s.csv");
     expect(csvColumn("﻿a,b\n x ,1\n\n,2\n", "a")).toEqual(new Set(["x"]));
+  });
+
+  it("skips short CSV rows and actions whose response is not an object", () => {
+    expect(reconcile(bundle, "amount,refund_id\n10,R1\n5\n20,R2\n30,R3\n", { column: "refund_id" }).ok).toBe(true);
+    const odd = new Builder();
+    odd.action(1, { response: "ok" });
+    odd.action(2, { response: { status: "ok", body: { refund_id: "R1" } } });
+    odd.anchor(odd.segment());
+    const res = reconcile(writeBundle(odd), "refund_id\nR1\n", { column: "refund_id" });
+    expect(res.ok).toBe(true);
   });
 });
