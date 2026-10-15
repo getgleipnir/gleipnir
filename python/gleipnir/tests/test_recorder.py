@@ -403,7 +403,7 @@ def test_approval_bound_to_action(rec, tmp_path):
     with rec.context(approval=approval):
         refund("A1", 5000, "4111")
     codes = {f.code for f in verify_records(rec.chain.store.read_all()).errors}
-    assert codes == {"approval_mismatch"}
+    assert codes == {"approval_mismatch", "approval_reused"}
 
 
 def test_approval_must_precede_action(rec):
@@ -463,3 +463,35 @@ def test_single_action_proof(rec, tmp_path, clock):
             zf.writestr(n, d)
     codes = {f.code for f in verify_bundle(bad).errors}
     assert "bad_signature" in codes and "proof_invalid" in codes
+
+
+def test_proof_warns_without_anchor_and_checks_manifest(tmp_path, clock):
+    import json
+    import zipfile
+
+    r = gleipnir.Recorder("a", "1", home=tmp_path, background=False, clock=clock, quiet=True, fsync=False,
+                          anchor=None, segment_max_records=3)
+
+    @r.tool(system="s")
+    def f(i):
+        return i
+
+    for i in range(4):
+        f(i)
+    a = actions(r)[0]["id"]
+    path = r.prove(a, tmp_path / "p.zip")
+    rep = verify_bundle(path)
+    assert rep.valid() and not rep.valid(strict=True)
+    assert "unanchored_segments" in {x.code for x in rep.warnings}
+    with zipfile.ZipFile(path) as zf:
+        files = {n: zf.read(n) for n in zf.namelist()}
+    m = json.loads(files["manifest.json"])
+    m["key"] = "k_ed25519_0000000000000000"
+    m["leaf_index"] = "0"
+    files["manifest.json"] = json.dumps(m).encode()
+    bad = tmp_path / "bad.zip"
+    with zipfile.ZipFile(bad, "w") as zf:
+        for n, d in files.items():
+            zf.writestr(n, d)
+    codes = {x.code for x in verify_bundle(bad).errors}
+    assert {"manifest_key", "proof_position"} <= codes

@@ -40,3 +40,11 @@ def test_reconcile_finds_both_kinds_of_difference(tmp_path, capsys):
     csv_path.write_text("refund_id\nR1\nR2\nR3\n")
     assert cli.main(["reconcile", str(p), str(csv_path), "--column", "refund_id"]) == 0
     assert "RECONCILED" in capsys.readouterr().out
+
+
+def test_reconcile_tolerates_short_rows_and_odd_responses(tmp_path):
+    p = bundle_with_refunds(tmp_path, ["R1"])
+    csv_path = tmp_path / "s.csv"
+    csv_path.write_text("amount,refund_id\n10,R1\n5\n")
+    res = reconcile(p, csv_path, column="refund_id")
+    assert res.ok
