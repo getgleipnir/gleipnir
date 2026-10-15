@@ -9,6 +9,8 @@ import type { AnchorOptions } from "./anchors.js";
 import { parseJsonBytes, pyDumps } from "./json.js";
 import { pyFloatRepr } from "./py.js";
 import { parseTime } from "./time.js";
+import { PyError } from "./py.js";
+import { reconcile, type Reconciliation } from "./reconcile.js";
 import { ERROR, INFO, WARN, badBundleReport, parseKnownHead, verifyBundle, type Report } from "./verifier.js";
 
 const VERSION_STRING = "gleipnir-verify 0.1.0 (typescript)";
@@ -47,6 +49,8 @@ options:
                         local anchor log to check local receipts against
   --strict              treat warnings as failures
   --version             show program's version number and exit
+
+To compare a verified bundle with your own system: ${PROG} reconcile BUNDLE CSV --column ID_COLUMN
 `;
 
 class Exit extends Error {
@@ -84,7 +88,107 @@ export function main(argv: string[], io: Io = { out: (s) => process.stdout.write
   }
 }
 
+const RECONCILE_PROG = `${PROG} reconcile`;
+const RECONCILE_USAGE = `usage: ${RECONCILE_PROG} [-h] --column COLUMN [--field FIELD]
+                                 [--expect-key KEY_ID]
+                                 bundle system_csv`;
+const RECONCILE_HELP = `${RECONCILE_USAGE}
+
+Verify a bundle, then compare its object ids with your own system.
+
+positional arguments:
+  bundle
+  system_csv           CSV export from your system, filtered to what the agent
+                       touched
+
+options:
+  -h, --help           show this help message and exit
+  --column COLUMN      id column in the CSV, e.g. refund_id
+  --field FIELD        response field holding that id in the records (default:
+                       same as --column)
+  --expect-key KEY_ID
+`;
+
+function reconcileError(io: Io, message: string): never {
+  io.err(`${RECONCILE_USAGE}\n${RECONCILE_PROG}: error: ${message}\n`);
+  throw new Exit(2);
+}
+
+/** `gleipnir-verify reconcile BUNDLE CSV --column X [--field Y] [--expect-key K]` (mirrors the Python CLI). */
+function runReconcile(argv: string[], io: Io): number {
+  if (argv.includes("-h") || argv.includes("--help")) {
+    io.out(RECONCILE_HELP);
+    return 0;
+  }
+  let parsed;
+  try {
+    parsed = parseArgs({
+      args: argv,
+      allowPositionals: true,
+      strict: true,
+      options: { column: { type: "string" }, field: { type: "string" }, "expect-key": { type: "string" } },
+    });
+  } catch (exc) {
+    reconcileError(io, exc instanceof Error ? exc.message : String(exc));
+  }
+  const a = parsed.values;
+  const missing = [
+    ...(parsed.positionals.length < 1 ? ["bundle"] : []),
+    ...(parsed.positionals.length < 2 ? ["system_csv"] : []),
+    ...(a.column === undefined ? ["--column"] : []),
+  ];
+  if (missing.length) reconcileError(io, `the following arguments are required: ${missing.join(", ")}`);
+  if (parsed.positionals.length > 2) reconcileError(io, `unrecognized arguments: ${parsed.positionals.slice(2).join(" ")}`);
+  const [bundlePath, csvPath] = parsed.positionals as [string, string];
+  const notVerified = () => {
+    io.out("bundle does not verify; run gleipnir-verify on it first\n");
+    return 1;
+  };
+  let bundle: Uint8Array;
+  try {
+    bundle = readFileSync(bundlePath);
+  } catch {
+    // The reference verifies first, and an unreadable bundle is a bad_bundle report.
+    return notVerified();
+  }
+  let res: Reconciliation;
+  try {
+    const readCsv = (): Uint8Array => {
+      try {
+        return readFileSync(csvPath);
+      } catch (exc) {
+        reconcileError(io, osError(exc, csvPath));
+      }
+    };
+    res = reconcile(bundle, readCsv, { column: a.column!, field: a.field ?? null, expectKey: a["expect-key"] ?? null, csvName: csvPath });
+  } catch (exc) {
+    if (exc instanceof Exit) throw exc;
+    if (exc instanceof PyError) reconcileError(io, exc.message);
+    throw exc;
+  }
+  if (!res.report.valid()) return notVerified();
+  const sorted = (s: Set<string>) => [...s].sort(codePoint).slice(0, 50);
+  let out = "";
+  out += `matched:                  ${res.matched.size}\n`;
+  out += `in your system only:      ${res.onlyInSystem.size}  (agent may have acted without a record)\n`;
+  for (const x of sorted(res.onlyInSystem)) out += `  ${x}\n`;
+  out += `in the records only:      ${res.onlyInRecords.size}  (claimed, but not in your system)\n`;
+  for (const x of sorted(res.onlyInRecords)) out += `  ${x}\n`;
+  out += "result: " + (res.ok ? "RECONCILED" : "DIFFERENCES FOUND") + "\n";
+  io.out(out);
+  return res.ok ? 0 : 1;
+}
+
+/** Python's default str ordering (by code point). */
+function codePoint(x: string, y: string): number {
+  const a = Array.from(x, (c) => c.codePointAt(0)!);
+  const b = Array.from(y, (c) => c.codePointAt(0)!);
+  for (let i = 0; i < Math.min(a.length, b.length); i++) if (a[i] !== b[i]) return a[i]! - b[i]!;
+  return a.length - b.length;
+}
+
 function run(argv: string[], io: Io): number {
+  if (argv[0] === "reconcile") return runReconcile(argv.slice(1), io);
   if (argv.includes("-h") || argv.includes("--help")) {
     io.out(HELP);
     return 0;

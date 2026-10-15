@@ -81,6 +81,15 @@ export {
   type P256PublicKey,
   type RecordPublicKey,
 } from "./crypto.js";
+export {
+  csvColumn,
+  externalIds,
+  parseCsvRows,
+  reconcile,
+  recordIds,
+  type ReconcileOptions,
+  type Reconciliation,
+} from "./reconcile.js";
 export { inclusionProof, leafHash, merkleRoot, nodeHash, verifyInclusion } from "./merkle.js";
 export { parseJsonl, readBundle } from "./bundle.js";
 export { decodeUtf8, encodeUtf8, parseJson, parseJsonBytes, pyDumps, type DumpOptions } from "./json.js";
