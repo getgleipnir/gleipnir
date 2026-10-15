@@ -1,0 +1,149 @@
+name: action-test
+
+# Runs the verify action in action/ against fixture bundles (action/test/fixtures): a valid,
+# Rekor-anchored and RFC 3161-timestamped bundle must pass every check, and a tampered copy
+# must fail the step.
+
+on:
+  push:
+    branches: [main]
+    paths: ["action/**", "typescript/packages/verify/**", ".github/workflows/action-test.yml"]
+  pull_request:
+    paths: ["action/**", "typescript/packages/verify/**", ".github/workflows/action-test.yml"]
+
+permissions:
+  contents: read
+
+env:
+  FIXTURE_KEY: k_ed25519_93ae18e62223e3c5
+  FIXTURE_HEAD: "10:sha256:33046b8bb4f3ee4c9cc1d67aa3ecb87ff3de98174039e1c6d6a6aaa747950c50"
+
+jobs:
+  typescript:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify the valid bundle (every check on)
+        id: valid
+        uses: ./action
+        with:
+          bundle: action/test/fixtures/valid.zip
+          expect-key: ${{ env.FIXTURE_KEY }}
+          require-anchor: rekor, rfc3161
+          require-full: true
+          max-anchor-delay: 3600
+          known-head: ${{ env.FIXTURE_HEAD }}
+          strict: true
+
+      - name: Assert VALID
+        env:
+          RESULT: ${{ steps.valid.outputs.result }}
+          HEAD: ${{ steps.valid.outputs.head }}
+        run: |
+          test "$RESULT" = VALID
+          test "$HEAD" = "$FIXTURE_HEAD"
+
+      - name: Verify the tampered bundle (must fail)
+        id: tampered
+        continue-on-error: true
+        uses: ./action
+        with:
+          bundle: action/test/fixtures/tampered.zip
+          expect-key: ${{ env.FIXTURE_KEY }}
+
+      - name: Assert the tampered bundle failed the step as INVALID
+        env:
+          OUTCOME: ${{ steps.tampered.outcome }}
+          RESULT: ${{ steps.tampered.outputs.result }}
+          INVALID: ${{ steps.tampered.outputs.invalid }}
+          REPORT: ${{ steps.tampered.outputs.report }}
+        run: |
+          test "$OUTCOME" = failure
+          test "$RESULT" = INVALID
+          test "$INVALID" = action/test/fixtures/tampered.zip
+          echo "$REPORT" | jq -e '.[0].findings | map(.code) | index("bad_signature")'
+
+      - name: A glob over both fails, and names only the tampered one
+        id: both
+        continue-on-error: true
+        uses: ./action
+        with:
+          bundle: action/test/fixtures/*.zip
+
+      - name: Assert
+        env:
+          OUTCOME: ${{ steps.both.outcome }}
+          BUNDLES: ${{ steps.both.outputs.bundles }}
+          INVALID: ${{ steps.both.outputs.invalid }}
+        run: |
+          test "$OUTCOME" = failure
+          test "$BUNDLES" = 2
+          test "$INVALID" = action/test/fixtures/tampered.zip
+
+      - name: A wrong expected key fails
+        id: wrongkey
+        continue-on-error: true
+        uses: ./action
+        with:
+          bundle: action/test/fixtures/valid.zip
+          expect-key: k_ed25519_0000000000000000
+
+      - name: No matching bundle is an error
+        id: nomatch
+        continue-on-error: true
+        uses: ./action
+        with:
+          bundle: does/not/exist/*.zip
+
+      - name: Assert
+        env:
+          WRONGKEY: ${{ steps.wrongkey.outcome }}
+          NOMATCH: ${{ steps.nomatch.outcome }}
+          NOMATCH_RESULT: ${{ steps.nomatch.outputs.result }}
+        run: |
+          test "$WRONGKEY" = failure
+          test "$NOMATCH" = failure
+          test "$NOMATCH_RESULT" = ERROR
+
+  python:
+    # The same checks with the reference Python verifier from this repo.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync --all-packages
+
+      - name: Verify the valid bundle with the Python verifier
+        id: valid
+        uses: ./action
+        with:
+          verifier: python
+          python-command: uv run --quiet gleipnir-verify
+          bundle: action/test/fixtures/valid.zip
+          expect-key: ${{ env.FIXTURE_KEY }}
+          require-anchor: rekor rfc3161
+          require-full: true
+          max-anchor-delay: 3600
+          known-head: ${{ env.FIXTURE_HEAD }}
+
+      - name: Verify the tampered bundle with the Python verifier (must fail)
+        id: tampered
+        continue-on-error: true
+        uses: ./action
+        with:
+          verifier: python
+          python-command: uv run --quiet gleipnir-verify
+          bundle: action/test/fixtures/tampered.zip
+
+      - name: Assert
+        env:
+          VALID: ${{ steps.valid.outputs.result }}
+          OUTCOME: ${{ steps.tampered.outcome }}
+          RESULT: ${{ steps.tampered.outputs.result }}
+        run: |
+          test "$VALID" = VALID
+          test "$OUTCOME" = failure
+          test "$RESULT" = INVALID
