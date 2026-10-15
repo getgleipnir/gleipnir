@@ -6,8 +6,8 @@
 #
 # Item IDs are stable. Never renumber or reuse an ID; deprecate instead.
 
-version: 0.1.1
-updated: 2026-10-14
+version: 0.2.0
+updated: 2026-10-15
 
 groups:
   - id: ACC
@@ -136,6 +136,20 @@ frameworks:
     version: SIG 2026 (AI risk domain since SIG 2024; ISO 42001 mapping added in 2026)
     kind: industry
     access: licensed; question text not reviewed
+  aiuc1:
+    name: AIUC-1, the AI agent standard (Artificial Intelligence Underwriting Company)
+    short: AIUC-1
+    url: https://standard.aiuc-1.com/
+    version: October 15, 2026 release (quarterly; next due 2027-01-15)
+    kind: standard
+    access: public
+  aarm:
+    name: Autonomous Action Runtime Management (AARM) specification, Cloud Security Alliance AARM Working Group
+    short: CSA AARM
+    url: https://aarm.dev/spec
+    version: v1.0, February 2026 (arXiv:2602.09433); donated by Vanta to CSA 2026-04-30; v2.0 planned
+    kind: industry
+    access: public (CC BY 4.0)
 
 items:
 
@@ -167,6 +181,11 @@ items:
       - {fw: iso42001, ref: A.9.4, note: "Intended use of the AI system", confidence: secondary}
       - {fw: dora, ref: "Art. 9(4)", note: "Least-privilege access and strong authentication", confidence: verified, url: "https://www.digital-operational-resilience-act.com/Article_9.html"}
       - {fw: sig, ref: AI domain, note: "Domain-level only; question text not reviewed", confidence: title-only}
+      - {fw: aiuc1, ref: B006, note: "Technical limits on agent actions to authorized scope, with alerting on boundary breaches", confidence: verified, url: "https://standard.aiuc-1.com/security/enforce-contextual-access-controls"}
+      - {fw: aiuc1, ref: D003.1, note: "Tool call validation and authorization", confidence: verified, url: "https://standard.aiuc-1.com/reliability/restrict-unsafe-tool-calls"}
+      - {fw: aiuc1, ref: A003, note: "Limit agent data access by task, user role, agent role and context", confidence: verified, url: "https://standard.aiuc-1.com/data-and-privacy/implement-contextual-data-safeguards"}
+      - {fw: aarm, ref: R1, note: "Intercept actions before execution; denied actions must have no effect, no fail-open mode", confidence: verified, url: "https://arxiv.org/abs/2602.09433"}
+      - {fw: aarm, ref: R9, note: "Should scope credentials per action (just-in-time, operation-specific)", confidence: verified, url: "https://arxiv.org/abs/2602.09433"}
 
   - id: ACC-02
     group: ACC
@@ -191,6 +210,9 @@ items:
       - {fw: aicm, ref: LOG-12, note: "Access control logs", confidence: title-only}
       - {fw: nydfs500, ref: "500.7(a)", note: "Access privileges and management", confidence: verified, url: "https://www.law.cornell.edu/regulations/new-york/23-NYCRR-500.7"}
       - {fw: nydfs500, ref: "500.11(b)(1)", note: "Third-party access control guidelines", confidence: verified, url: "https://www.law.cornell.edu/regulations/new-york/23-NYCRR-500.11"}
+      - {fw: aiuc1, ref: A003.2, note: "Agent identity management (supplemental)", confidence: verified, url: "https://standard.aiuc-1.com/data-and-privacy/implement-contextual-data-safeguards"}
+      - {fw: aiuc1, ref: E015.2, note: "Agent provenance metadata per execution, e.g. agent type and deployment origin (supplemental)", confidence: verified, url: "https://standard.aiuc-1.com/accountability/log-model-activity"}
+      - {fw: aarm, ref: R6, note: "Bind each action to human principal, service identity, agent identity and privilege scope", confidence: verified, url: "https://arxiv.org/abs/2602.09433"}
 
   - id: ACC-03
     group: ACC
@@ -217,6 +239,9 @@ items:
       - {fw: nist_600_1, ref: MS-2.7-007, note: "Red-team for prompt injection and related attacks", confidence: verified}
       - {fw: nist_rmf, ref: MEASURE 2.7, note: "Security and resilience evaluated and documented", confidence: verified}
       - {fw: eu_ai_act, ref: "Art. 15(5)", note: "Resilience against manipulation of inputs and outputs (high-risk)", confidence: verified, url: "https://artificialintelligenceact.eu/article/15/"}
+      - {fw: aiuc1, ref: B002, note: "Detect and respond to adversarial inputs and prompt injection attempts", confidence: verified, url: "https://standard.aiuc-1.com/security/detect-adversarial-input"}
+      - {fw: aiuc1, ref: B005, note: "Filter inputs before they reach the model", confidence: verified, url: "https://standard.aiuc-1.com/security/implement-real-time-input-filtering"}
+      - {fw: aarm, ref: R3, note: "Evaluate each action against static policy and alignment with the user's stated intent", confidence: verified, url: "https://arxiv.org/abs/2602.09433"}
 
   # ---------------------------------------------------------------- ACT
   - id: ACT-01
@@ -242,6 +267,10 @@ items:
       - {fw: nydfs500, ref: "500.6(a)(1)", note: "Systems able to reconstruct material financial transactions", confidence: verified, url: "https://www.law.cornell.edu/regulations/new-york/23-NYCRR-500.6"}
       - {fw: naic, ref: "Sec. 3, 3.3(b)-(c)", note: "Model documentation, traceability and auditability", confidence: verified}
       - {fw: nydfs_cl7, ref: "¶19", note: "Be able to explain at all times how the AIS operates", confidence: verified}
+      - {fw: aiuc1, ref: E015, note: "Mandatory logging of AI system processes, actions and agent outputs for investigation and audit", confidence: verified, url: "https://standard.aiuc-1.com/accountability/log-model-activity"}
+      - {fw: aiuc1, ref: E015.2, note: "Tool call parameters and results, sub-agent delegations, approvals and reasoning traces (supplemental)", confidence: verified, url: "https://standard.aiuc-1.com/accountability/log-model-activity"}
+      - {fw: aiuc1, ref: D003.3, note: "Tool call log", confidence: verified, url: "https://standard.aiuc-1.com/reliability/restrict-unsafe-tool-calls"}
+      - {fw: aarm, ref: R5, note: "Signed receipt per action with tool, parameters, context, identity, decision and outcome", confidence: verified, url: "https://arxiv.org/abs/2602.09433"}
 
   - id: ACT-02
     group: ACT
@@ -284,6 +313,7 @@ items:
       - {fw: finos, ref: AIR-PREV-020, note: "Log all MCP traffic", confidence: verified, url: "https://air-governance-framework.finos.org/mitigations/mi-20_mcp-server-security-governance.html"}
       - {fw: nydfs_ai, ref: Monitoring, note: "Monitor AI tool use for unusual query behaviour", confidence: verified}
       - {fw: dora, ref: "Art. 30(2)(b)", note: "Contract specifies data processing locations and notice of changes", confidence: verified, url: "https://www.digital-operational-resilience-act.com/Article_30.html"}
+      - {fw: aiuc1, ref: E009, note: "Log third-party API connections, sessions and data access", confidence: verified, url: "https://standard.aiuc-1.com/accountability/monitor-3rd-party-access"}
 
   - id: ACT-04
     group: ACT
@@ -357,6 +387,7 @@ items:
     references:
       - {fw: eu_ai_act, ref: "Art. 50(1)", note: "Inform people they are interacting with an AI system", confidence: verified, url: "https://artificialintelligenceact.eu/article/50/"}
       - {fw: aicm, ref: LOG-11, note: "Transaction/activity logging", confidence: title-only}
+      - {fw: aiuc1, ref: E016, note: "Disclose AI interaction (text, voice) and when autonomous agents perform actions", confidence: verified, url: "https://standard.aiuc-1.com/accountability/implement-ai-disclosure-mechanisms"}
     note: The specific conduct rules (for example debt-collection contact limits) come from the sector law for your use case and are not mapped here.
 
   # ---------------------------------------------------------------- OUT
@@ -381,6 +412,8 @@ items:
       - {fw: eu_ai_act, ref: "Art. 12(2)", note: "Logs enable traceability and deployer monitoring", confidence: verified, url: "https://artificialintelligenceact.eu/article/12/"}
       - {fw: naic, ref: "Sec. 3, 3.4", note: "Validate and retest outputs after implementation", confidence: verified}
       - {fw: nist_rmf, ref: MEASURE 2.4, note: "Monitor behaviour in production", confidence: verified}
+      - {fw: aiuc1, ref: E015.2, note: "Tool call results logged alongside parameters (supplemental)", confidence: verified, url: "https://standard.aiuc-1.com/accountability/log-model-activity"}
+      - {fw: aarm, ref: R5, note: "Receipt includes execution result and error details, not only the decision", confidence: verified, url: "https://arxiv.org/abs/2602.09433"}
 
   - id: OUT-02
     group: OUT
@@ -430,6 +463,9 @@ items:
       - {fw: aicm, ref: LOG-06, note: "Clock synchronization", confidence: title-only}
       - {fw: nist_600_1, ref: MS-2.8-003, note: "Tamper-proof history of generated content (content provenance) with version control", confidence: verified}
       - {fw: nydfs500, ref: "500.6(a)", note: "Securely maintain audit trail systems (no cryptographic requirement)", confidence: verified, url: "https://www.law.cornell.edu/regulations/new-york/23-NYCRR-500.6"}
+      - {fw: aiuc1, ref: E015.4, note: "Tamper-evident logs; gaps, omissions and reordering detectable (supplemental)", confidence: verified, url: "https://standard.aiuc-1.com/accountability/log-model-activity"}
+      - {fw: aarm, ref: R5, note: "Cryptographically signed receipts for all actions, over a canonical serialization", confidence: verified, url: "https://arxiv.org/abs/2602.09433"}
+      - {fw: aarm, ref: R2, note: "Should keep session context as an append-only, hash-chained log", confidence: verified, url: "https://arxiv.org/abs/2602.09433"}
 
   - id: TMP-02
     group: TMP
@@ -450,7 +486,9 @@ items:
       - {fw: finos, ref: AIR-DET-021, note: "Records verifiable by deployer, auditor or authority without privileged access to the provider; anchoring to a transparency log", confidence: verified, url: "https://air-governance-framework.finos.org/mitigations/mi-21_agent-decision-audit-and-explainability.html"}
       - {fw: dora, ref: "Art. 30(3)(e)", note: "Unrestricted rights of access, inspection and audit (critical or important functions)", confidence: verified, url: "https://www.digital-operational-resilience-act.com/Article_30.html"}
       - {fw: eu_ai_act, ref: "Art. 13(3)(f)", note: "Mechanisms that let deployers collect, store and interpret logs (high-risk)", confidence: verified, url: "https://artificialintelligenceact.eu/article/13/"}
-    note: FINOS is the only framework found that states independent verifiability explicitly. Elsewhere it follows from audit and access rights.
+      - {fw: aiuc1, ref: E015.4, note: "Logs independently verifiable (supplemental); no verification method specified", confidence: verified, url: "https://standard.aiuc-1.com/accountability/log-model-activity"}
+      - {fw: aarm, ref: R5, note: "Receipt signatures verifiable offline with published public keys", confidence: verified, url: "https://arxiv.org/abs/2602.09433"}
+    note: FINOS, AIUC-1 (E015.4, supplemental) and CSA AARM (R5, offline-verifiable signatures) state independent verifiability explicitly. Elsewhere it follows from audit and access rights.
 
   - id: TMP-03
     group: TMP
@@ -470,6 +508,7 @@ items:
       - {fw: aicm, ref: IAM-12, note: "Logging infrastructure read-only to those with other write access", confidence: secondary}
       - {fw: aicm, ref: IAM-04, note: "Separation of duties", confidence: title-only}
       - {fw: nydfs500, ref: "500.7(c)", note: "Privileged access monitoring (Class A companies)", confidence: verified, url: "https://www.law.cornell.edu/regulations/new-york/23-NYCRR-500.7"}
+      - {fw: aiuc1, ref: E015.3, note: "Log storage with access controls, retention and sanitation", confidence: verified, url: "https://standard.aiuc-1.com/accountability/log-model-activity"}
 
   # ---------------------------------------------------------------- INC
   - id: INC-01
@@ -495,6 +534,9 @@ items:
       - {fw: aicm, ref: SEF-09, note: "Incident response", confidence: title-only}
       - {fw: aicm, ref: LOG-05 / LOG-06, note: "Audit log monitoring and clock synchronization", confidence: title-only}
       - {fw: nist_rmf, ref: MANAGE 4.3, note: "Track and recover from incidents and errors", confidence: verified}
+      - {fw: aiuc1, ref: E015, note: "Logs must support incident investigation and explanation of behaviour", confidence: verified, url: "https://standard.aiuc-1.com/accountability/log-model-activity"}
+      - {fw: aiuc1, ref: E001, note: "Breach plan covers evidence collection and preservation for legal review", confidence: verified, url: "https://standard.aiuc-1.com/accountability/ai-failure-plan-for-security-breaches"}
+      - {fw: aarm, ref: "R5 / R6", note: "Receipts with identity binding support forensic reconstruction of actions", confidence: verified, url: "https://arxiv.org/abs/2602.09433"}
 
   - id: INC-02
     group: INC
@@ -521,6 +563,8 @@ items:
       - {fw: nist_600_1, ref: MG-4.3-002, note: "Track errors and negative impacts", confidence: verified}
       - {fw: finos, ref: AIR-DET-001, note: "AI data leakage prevention and detection", confidence: verified, url: "https://air-governance-framework.finos.org/mitigations/mi-1_ai-data-leakage-prevention-and-detection.html"}
       - {fw: fsisac, ref: Levels 2-3, note: "Vulnerability management, DLP and log management in deeper due diligence", confidence: verified}
+      - {fw: aiuc1, ref: E001, note: "Failure plan for AI privacy and security breaches with notification procedures", confidence: verified, url: "https://standard.aiuc-1.com/accountability/ai-failure-plan-for-security-breaches"}
+      - {fw: aiuc1, ref: E002, note: "Failure plan for harmful outputs with customer communication protocols", confidence: verified, url: "https://standard.aiuc-1.com/accountability/ai-failure-plan-for-harmful-outputs"}
 
   - id: INC-03
     group: INC
@@ -567,6 +611,8 @@ items:
       - {fw: finos, ref: AIR-DET-004, note: "Centralize AI logs, for example in a SIEM", confidence: verified, url: "https://air-governance-framework.finos.org/mitigations/mi-4_ai-system-observability.html"}
       - {fw: nydfs_ai, ref: Monitoring, note: "Monitor user activity and AI tool use", confidence: verified}
       - {fw: sig, ref: AI domain, note: "Domain-level only; question text not reviewed", confidence: title-only}
+      - {fw: aiuc1, ref: E015.3, note: "Log storage with defined retention periods, access controls and PII masking", confidence: verified, url: "https://standard.aiuc-1.com/accountability/log-model-activity"}
+      - {fw: aarm, ref: R8, note: "Should stream telemetry to SIEM in a standard schema (OCSF, CEF) plus batch export", confidence: verified, url: "https://arxiv.org/abs/2602.09433"}
 
   - id: RET-02
     group: RET
@@ -585,6 +631,7 @@ items:
       - {fw: eu_ai_act, ref: "Art. 19(1)-(2)", note: "Provider keeps logs it controls at least six months", confidence: verified, url: "https://artificialintelligenceact.eu/article/19/"}
       - {fw: eu_ai_act, ref: "Art. 12(1)", note: "Automatic logging over the lifetime", confidence: verified, url: "https://artificialintelligenceact.eu/article/12/"}
       - {fw: nydfs500, ref: "500.6(b)", note: "Covered entity keeps audit-trail records five years", confidence: verified, url: "https://www.law.cornell.edu/regulations/new-york/23-NYCRR-500.6"}
+      - {fw: aarm, ref: "Sec. VI.D", note: "Vendor-side integrations must let customers export or receive receipts for their audit trail", confidence: verified, url: "https://arxiv.org/abs/2602.09433"}
     note: EU AI Act Annex III high-risk obligations (including credit scoring and life/health insurance pricing) apply from 2 Dec 2027 after the Digital Omnibus, Regulation (EU) 2026/1744.
 
   - id: RET-03
@@ -672,6 +719,8 @@ items:
       - {fw: finos, ref: AIR-PREV-005, note: "System acceptance testing", confidence: verified, url: "https://air-governance-framework.finos.org/mitigations/mi-5_system-acceptance-testing.html"}
       - {fw: finos, ref: AIR-PREV-025, note: "Skill and plugin integrity", confidence: verified, url: "https://air-governance-framework.finos.org/mitigations/mi-25_skill-plugin-integrity-and-governance.html"}
       - {fw: nist_600_1, ref: MS-2.8-003, note: "Version control across the lifecycle (content provenance)", confidence: verified}
+      - {fw: aiuc1, ref: E004, note: "Define changes needing approval (model, system prompt, guardrails); named approver and records", confidence: verified, url: "https://standard.aiuc-1.com/accountability/assign-accountability"}
+      - {fw: aiuc1, ref: C002, note: "Pre-deployment testing of changes with risk assessment and approval sign-off", confidence: verified, url: "https://standard.aiuc-1.com/safety/conduct-pre-deployment-testing"}
 
   - id: CHG-03
     group: CHG
@@ -715,6 +764,7 @@ items:
       - {fw: dora, ref: "Art. 30(3)(a)", note: "Precise service levels and reporting", confidence: verified, url: "https://www.digital-operational-resilience-act.com/Article_30.html"}
       - {fw: nydfs_cl7, ref: "¶29-¶30", note: "Monitoring, drift testing and complaints", confidence: verified}
       - {fw: finos, ref: AIR-DET-011, note: "Human feedback loop", confidence: verified, url: "https://air-governance-framework.finos.org/mitigations/mi-11_human-feedback-loop-for-ai-systems.html"}
+      - {fw: aiuc1, ref: C008, note: "Ongoing monitoring of AI outputs across risk categories", confidence: verified, url: "https://standard.aiuc-1.com/safety/monitor-ai-risk-categories"}
 
   # ---------------------------------------------------------------- DAT
   - id: DAT-01
@@ -738,6 +788,8 @@ items:
       - {fw: dora, ref: "Art. 30(2)(c)", note: "Contract provisions on data integrity and confidentiality", confidence: verified, url: "https://www.digital-operational-resilience-act.com/Article_30.html"}
       - {fw: finos, ref: AIR-RC-001, note: "Risk: information leaked to hosted model", confidence: verified, url: "https://air-governance-framework.finos.org/risks/ri-1_information-leaked-to-hosted-model.html"}
       - {fw: nist_600_1, ref: MG-4.1-006, note: "Track dataset deletions and rectifications", confidence: verified}
+      - {fw: aiuc1, ref: A001, note: "Input data policy on training use, retention and customer rights; enforced retention and deletion", confidence: verified, url: "https://standard.aiuc-1.com/data-and-privacy/establish-data-use-policy"}
+      - {fw: aiuc1, ref: A002, note: "Output ownership, opt-out and deletion policy", confidence: verified, url: "https://standard.aiuc-1.com/data-and-privacy/define-output-rights"}
 
   - id: DAT-02
     group: DAT
@@ -759,6 +811,8 @@ items:
       - {fw: finos, ref: AIR-DET-001, note: "Data leakage prevention and detection", confidence: verified, url: "https://air-governance-framework.finos.org/mitigations/mi-1_ai-data-leakage-prevention-and-detection.html"}
       - {fw: aicm, ref: DSP-12, note: "Limitation of purpose", confidence: title-only}
       - {fw: dora, ref: "Art. 30(2)(c)", note: "Data confidentiality provisions", confidence: verified, url: "https://www.digital-operational-resilience-act.com/Article_30.html"}
+      - {fw: aiuc1, ref: A006, note: "Prevent personal data leakage through outputs and logs", confidence: verified, url: "https://standard.aiuc-1.com/data-and-privacy/prevent-pii-leakage"}
+      - {fw: aiuc1, ref: E015.3, note: "Data sanitation in log storage", confidence: verified, url: "https://standard.aiuc-1.com/accountability/log-model-activity"}
 
   # ---------------------------------------------------------------- HUM
   - id: HUM-01
@@ -783,6 +837,11 @@ items:
       - {fw: finos, ref: AIR-PREV-024, note: "Where a gate is used, a tamper-evident approval record bound to the action", confidence: verified, url: "https://air-governance-framework.finos.org/mitigations/mi-24_human-in-the-loop-action-approval-gate.html"}
       - {fw: aicm, ref: GRC-15; IAM-04, note: "Human supervision; separation of duties", confidence: title-only}
       - {fw: iso42001, ref: A.9.2, note: "Processes for responsible use", confidence: secondary}
+      - {fw: aiuc1, ref: D003.4, note: "Human approval for sensitive tool operations (core control since Oct 2026)", confidence: verified, url: "https://standard.aiuc-1.com/reliability/restrict-unsafe-tool-calls"}
+      - {fw: aiuc1, ref: E015.2, note: "Approval records linked to execution: approver, timestamp, decision (supplemental)", confidence: verified, url: "https://standard.aiuc-1.com/accountability/log-model-activity"}
+      - {fw: aiuc1, ref: C007, note: "Flag high-risk outputs for human review", confidence: verified, url: "https://standard.aiuc-1.com/safety/flag-high-risk-recommendations"}
+      - {fw: aarm, ref: R4, note: "STEP_UP blocks the action until an approver decides; deny on timeout recommended", confidence: verified, url: "https://arxiv.org/abs/2602.09433"}
+      - {fw: aarm, ref: R5, note: "Receipt records approver identity, decision and timestamp", confidence: verified, url: "https://arxiv.org/abs/2602.09433"}
 
   - id: HUM-02
     group: HUM
@@ -801,6 +860,7 @@ items:
       - {fw: eu_ai_act, ref: "Art. 14(4)(d)", note: "Overseers can disregard, override or reverse output (high-risk)", confidence: verified, url: "https://artificialintelligenceact.eu/article/14/"}
       - {fw: aicm, ref: IAM-18, note: "Output modification and special authorization", confidence: title-only}
       - {fw: finos, ref: AIR-DET-011, note: "Human feedback loop", confidence: verified, url: "https://air-governance-framework.finos.org/mitigations/mi-11_human-feedback-loop-for-ai-systems.html"}
+      - {fw: aiuc1, ref: C009, note: "Real-time user intervention; intervention logs reviewed (supplemental)", confidence: verified, url: "https://standard.aiuc-1.com/safety/collect-real-time-feedback"}
 
   # ---------------------------------------------------------------- SUB
   - id: SUB-01
@@ -825,6 +885,8 @@ items:
       - {fw: nist_rmf, ref: GOVERN 6.1; MAP 4.1, note: "Third-party AI risk policies and component mapping", confidence: verified}
       - {fw: dora, ref: "Art. 28(3); Art. 30(2)(b); RTS 2025/532", note: "Register, locations, subcontracting conditions", confidence: secondary, url: "https://www.digital-operational-resilience-act.com/Article_28.html"}
       - {fw: finos, ref: AIR-SEC-026, note: "Risk: MCP server supply chain compromise", confidence: verified, url: "https://air-governance-framework.finos.org/risks/ri-26_mcp-server-supply-chain-compromise.html"}
+      - {fw: aiuc1, ref: E006, note: "Due diligence on foundation and upstream model providers: data handling, PII, security", confidence: verified, url: "https://standard.aiuc-1.com/accountability/conduct-vendor-due-diligence"}
+      - {fw: aiuc1, ref: E011, note: "Document AI data processing locations", confidence: verified, url: "https://standard.aiuc-1.com/accountability/record-processing-locations"}
 
   - id: SUB-02
     group: SUB
