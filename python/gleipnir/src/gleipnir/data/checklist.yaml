@@ -6,7 +6,7 @@
 #
 # Item IDs are stable. Never renumber or reuse an ID; deprecate instead.
 
-version: 0.2.0
+version: 0.3.0
 updated: 2026-10-15
 
 groups:
@@ -23,7 +23,7 @@ groups:
     title: Tamper evidence
     summary: Whether records can be changed after the fact without anyone noticing, and who can check.
   - id: INC
-    title: Incident reconstruction
+    title: Incidents & kill switch
     summary: Detecting, reporting, stopping and reconstructing what went wrong.
   - id: RET
     title: Retention
@@ -41,7 +41,7 @@ groups:
     title: Sub-processors
     summary: Model, voice and tool providers behind the agent, and the buyer's audit and regulator rights.
 
-# Frameworks referenced by items. "kind": binding = law/regulation;
+# Frameworks referenced by items. "kind": binding = law/regulation; attestation = audit criteria (report, not a certification);
 # supervisory = regulator guidance or model bulletin; industry = industry body;
 # voluntary = government voluntary framework; standard = certifiable standard.
 frameworks:
@@ -151,6 +151,14 @@ frameworks:
     kind: industry
     access: public (CC BY 4.0)
 
+  soc2:
+    name: AICPA Trust Services Criteria (SOC 2)
+    short: SOC 2 TSC
+    url: https://www.aicpa-cima.com/resources/download/2017-trust-services-criteria-with-revised-points-of-focus-2022
+    version: 2017 criteria with revised points of focus (2022); criteria text checked against the AICPA 2020 edition, criteria unchanged in 2022
+    kind: attestation
+    access: free AICPA account required
+
 items:
 
   # ---------------------------------------------------------------- ACC
@@ -167,6 +175,22 @@ items:
     not_enough:
       - "The model is instructed not to do X."
       - A workflow diagram with no enforcement point.
+    strong_answer: >-
+      Names every tool the agent can call and the scope of each, shows that limits are enforced in code where the
+      tool is invoked (not in the prompt), and offers test results plus a sample action record that shows the scope
+      applied.
+    template_answer: >-
+      The agent can call [N] tools: [list tool, target system and allowed operations, e.g. "issue_refund on the
+      payment provider, up to EUR 200 per refund"]. Each call passes through [enforcement layer, e.g. a tool
+      gateway] that checks [allowlist, parameter limits, scoped credential] before execution; calls outside scope
+      are [blocked and logged / describe what happens]. We test this in [CI suite / quarterly test], last run
+      [date], results attached. Each action record stores [the scope that applied] (sample attached).
+    scanner:
+      check: >-
+        Are your agent's tool permissions enforced in code at the moment of each call, not only in the prompt?
+      gap: >-
+        Without a hard limit at the tool layer, a confused or manipulated agent can take actions you never intended,
+        and a reviewer has nothing to test.
     often_unevidenced: false
     capabilities: [scope_record, action_record]
     references:
@@ -186,6 +210,8 @@ items:
       - {fw: aiuc1, ref: A003, note: "Limit agent data access by task, user role, agent role and context", confidence: verified, url: "https://standard.aiuc-1.com/data-and-privacy/implement-contextual-data-safeguards"}
       - {fw: aarm, ref: R1, note: "Intercept actions before execution; denied actions must have no effect, no fail-open mode", confidence: verified, url: "https://arxiv.org/abs/2602.09433"}
       - {fw: aarm, ref: R9, note: "Should scope credentials per action (just-in-time, operation-specific)", confidence: verified, url: "https://arxiv.org/abs/2602.09433"}
+      - {fw: soc2, ref: CC6.1, note: "Logical access controls protect information assets", confidence: verified}
+      - {fw: soc2, ref: CC6.3, note: "Access granted by role, with least privilege and segregation of duties", confidence: verified}
 
   - id: ACC-02
     group: ACC
@@ -199,6 +225,23 @@ items:
     not_enough:
       - A shared integration user for all agent traffic.
       - Identity known only inside the vendor's database.
+    strong_answer: >-
+      Each agent deployment has its own non-human identity in the buyer's systems, credentials are kept away from
+      the model, and every action record carries agent ID and version, credential ID, scope and the user, case or
+      ticket it acted for, so the buyer's logs and the vendor's records can be joined.
+    template_answer: >-
+      Agent actions in your [system] run under [a dedicated identity per deployment, name / a shared account:
+      describe], which appears in your audit logs as [identity]. Every action record contains [agent ID, agent
+      version, credential ID (never the secret), scope, initiating user / case / ticket ID]. Credentials are held in
+      [vault / KMS] and [injected per call so the model never sees them / describe how exposure is limited]. A
+      sample record joined to your system log is attached.
+    scanner:
+      check: >-
+        Does each agent deployment act under its own identity, recorded on every action with agent version,
+        credential and scope?
+      gap: >-
+        If the agent shares an account with staff, nobody can tell from the buyer's logs whether a person or the
+        agent made a change.
     often_unevidenced: true
     capabilities: [identity_binding, action_record]
     references:
@@ -213,6 +256,8 @@ items:
       - {fw: aiuc1, ref: A003.2, note: "Agent identity management (supplemental)", confidence: verified, url: "https://standard.aiuc-1.com/data-and-privacy/implement-contextual-data-safeguards"}
       - {fw: aiuc1, ref: E015.2, note: "Agent provenance metadata per execution, e.g. agent type and deployment origin (supplemental)", confidence: verified, url: "https://standard.aiuc-1.com/accountability/log-model-activity"}
       - {fw: aarm, ref: R6, note: "Bind each action to human principal, service identity, agent identity and privilege scope", confidence: verified, url: "https://arxiv.org/abs/2602.09433"}
+      - {fw: soc2, ref: CC6.2, note: "Users registered and authorized before credentials are issued", confidence: verified}
+      - {fw: soc2, ref: CC6.3, note: "Access granted by role, with least privilege and segregation of duties", confidence: verified}
 
   - id: ACC-03
     group: ACC
@@ -226,6 +271,16 @@ items:
       - Detection of out-of-pattern actions in the action records.
     not_enough:
       - "We use a safe model."
+    strong_answer: >-
+      Treats retrieved content as untrusted, filters inputs and outputs, validates tool choice and parameters before
+      execution independently of the model, has red-team results that include indirect injection, and can detect
+      unusual actions after the fact.
+    template_answer: >-
+      Untrusted content ([emails, documents, web pages, tool outputs]) is kept separate from instructions by
+      [method], and inputs and outputs are filtered by [method]. Before any tool call, [validator] checks tool
+      choice and parameters against [policy]; [how you prevent the model from bypassing it, and how that is tested].
+      Our last red-team exercise on [date], by [internal team / third party], covered [direct and indirect
+      injection]; a summary is attached. Unusual actions are flagged by [rule / monitor].
     often_unevidenced: false
     capabilities: []
     references:
@@ -255,6 +310,21 @@ items:
     not_enough:
       - A chat transcript without the tool calls.
       - Infrastructure logs only.
+    strong_answer: >-
+      Can pick any action and produce, in minutes, one record with trigger, inputs and sources, exact tool call and
+      arguments, the system's response, timestamps and trace ID, with sensitive fields redacted.
+    template_answer: >-
+      Every action produces one record containing: trigger ([event / user request]), inputs and retrieved sources,
+      tool name and arguments (with [fields] redacted), the target system's response, timestamps and trace ID. We
+      can export the full record for any action or case within [time]. A redacted example for one real case is
+      attached.
+    scanner:
+      check: >-
+        For any single action, can you produce the full record (trigger, inputs, tool call, arguments, system
+        response) within minutes?
+      gap: >-
+        Reviewers pick one case and ask you to walk through it. If that takes days of digging, they assume the
+        record doesn't exist.
     often_unevidenced: true
     capabilities: [action_record]
     references:
@@ -271,6 +341,7 @@ items:
       - {fw: aiuc1, ref: E015.2, note: "Tool call parameters and results, sub-agent delegations, approvals and reasoning traces (supplemental)", confidence: verified, url: "https://standard.aiuc-1.com/accountability/log-model-activity"}
       - {fw: aiuc1, ref: D003.3, note: "Tool call log", confidence: verified, url: "https://standard.aiuc-1.com/reliability/restrict-unsafe-tool-calls"}
       - {fw: aarm, ref: R5, note: "Signed receipt per action with tool, parameters, context, identity, decision and outcome", confidence: verified, url: "https://arxiv.org/abs/2602.09433"}
+      - {fw: soc2, ref: PI1.3, note: "Controls over processing (processing integrity, if in scope)", confidence: verified}
 
   - id: ACT-02
     group: ACT
@@ -282,6 +353,18 @@ items:
       - A model inventory that keeps retired versions with their active dates.
     not_enough:
       - A current list of providers with no per-action version.
+    strong_answer: >-
+      Stores the provider, model name and pinned version on every action record, and keeps an inventory of retired
+      versions with the dates they were in use.
+    template_answer: >-
+      Each action record stores model provider, model name and pinned version, e.g. [example]. We keep a model
+      inventory including retired versions and their active dates ([link / attachment]), so any past action can be
+      matched to the model that handled it.
+    scanner:
+      check: >-
+        Is the exact model and version stored on every action, including versions you have since retired?
+      gap: >-
+        When a past decision is challenged, you can't say which model made it, so you can't explain or defend it.
     often_unevidenced: true
     capabilities: [model_version, action_record]
     references:
@@ -304,6 +387,13 @@ items:
       - A periodic summary per buyer comparing actual destinations with the declared sub-processor list.
     not_enough:
       - A static sub-processor page.
+    strong_answer: >-
+      Records each outbound call per action (provider, endpoint, region) and periodically compares actual
+      destinations with the declared sub-processor list for that buyer.
+    template_answer: >-
+      Each action record lists the outbound calls made: [provider, endpoint, region]. Every [month / quarter] we
+      compare actual destinations for your traffic with the declared sub-processor list and share the result. The
+      latest comparison is attached.
     often_unevidenced: true
     capabilities: [endpoint_record]
     references:
@@ -325,6 +415,13 @@ items:
       - Entitlement checks that carry the source system's access controls into retrieval.
     not_enough:
       - Citations shown in the UI but not retained.
+    strong_answer: >-
+      Stores the ID and version of each document or record the agent used, and retrieval respects the access
+      controls of the source system.
+    template_answer: >-
+      For each answer or action we store the IDs and versions of the sources used ([document IDs, record IDs]).
+      Retrieval runs under [the requesting user's permissions / a scoped identity], so the agent only sees what
+      [that user / that scope] is entitled to. An example record with sources is attached.
     often_unevidenced: false
     capabilities: [source_record]
     references:
@@ -343,6 +440,12 @@ items:
       - Input source and retrieval timestamp stored with the decision.
     not_enough:
       - A generic architecture diagram.
+    strong_answer: >-
+      Documents data flows per use case and stores, with each decision, where every input came from and when it was
+      retrieved.
+    template_answer: >-
+      For [use case], inputs come from [sources]. A data-flow diagram is attached. With each decision we store the
+      source and retrieval time of every input, so you can see how current the data was at the time.
     often_unevidenced: false
     capabilities: []
     references:
@@ -362,6 +465,13 @@ items:
       - A sample adverse-decision explanation produced from the stored record.
     not_enough:
       - Global feature importance for the model.
+    strong_answer: >-
+      Stores reason codes and the specific inputs relied on for each decision, and can produce an explanation for a
+      specific adverse outcome from that record.
+    template_answer: >-
+      For each decision we store reason codes ([list or link]) and the specific inputs relied on. An explanation for
+      an individual adverse outcome is generated from that stored record, not reconstructed later. A redacted sample
+      is attached.
     often_unevidenced: false
     capabilities: []
     references:
@@ -382,6 +492,13 @@ items:
       - Rule configuration and version applied to each interaction.
     not_enough:
       - "QA reviews a sample of calls."
+    strong_answer: >-
+      Records, per interaction, the disclosure given, the local time of contact, the contact count at that moment
+      and the rule version applied, so compliance can be shown for any single contact.
+    template_answer: >-
+      For each interaction we record the AI disclosure given ([wording]), the time in the customer's time zone, the
+      contact-frequency count at that moment, and the version of the rule set applied ([rule set]). An export for a
+      sample of [N] interactions is attached.
     often_unevidenced: true
     capabilities: []
     references:
@@ -404,6 +521,19 @@ items:
     not_enough:
       - The agent's final message.
       - HTTP 200 without checking the returned object.
+    strong_answer: >-
+      Stores the agent's claim next to the target system's actual response, optionally reads the object back from
+      the system of record to confirm, and reports the mismatch rate to the buyer.
+    template_answer: >-
+      Each action record stores both what the agent reported and the response from [target system] (status, object
+      ID, returned values). For [high-impact actions, e.g. refunds] we also read the object back from [system] and
+      record match or mismatch. The mismatch rate for [period] was [x] ([report attached]).
+    scanner:
+      check: >-
+        Do you record what actually happened in the target system next to what the agent said it did?
+      gap: >-
+        The agent's own "done" is not proof. Without the system's response, a failed or wrong action looks the same
+        as a successful one.
     often_unevidenced: true
     capabilities: [outcome_check, action_record]
     references:
@@ -414,6 +544,7 @@ items:
       - {fw: nist_rmf, ref: MEASURE 2.4, note: "Monitor behaviour in production", confidence: verified}
       - {fw: aiuc1, ref: E015.2, note: "Tool call results logged alongside parameters (supplemental)", confidence: verified, url: "https://standard.aiuc-1.com/accountability/log-model-activity"}
       - {fw: aarm, ref: R5, note: "Receipt includes execution result and error details, not only the decision", confidence: verified, url: "https://arxiv.org/abs/2602.09433"}
+      - {fw: soc2, ref: PI1.4, note: "Output delivered completely and accurately (processing integrity, if in scope)", confidence: verified}
 
   - id: OUT-02
     group: OUT
@@ -427,6 +558,13 @@ items:
       - Reconciliation against the system of record for high-impact actions.
     not_enough:
       - Error rate from APM only.
+    strong_answer: >-
+      Counts failed, partial and mismatched actions per period with examples, has alert thresholds and owners, and
+      reconciles high-impact actions against the system of record.
+    template_answer: >-
+      Failed, partial and mismatched actions are counted and included in your [monthly] report with examples. Alerts
+      fire at [threshold] and go to [owner]. For [action types] we reconcile against [system] every [period]. The
+      last report is attached.
     often_unevidenced: true
     capabilities: [outcome_check, report]
     references:
@@ -436,6 +574,8 @@ items:
       - {fw: nist_600_1, ref: MG-4.3-002, note: "Track errors, near-misses and negative impacts", confidence: verified}
       - {fw: iso42001, ref: A.6.2.6, note: "AI system operation and monitoring", confidence: secondary}
       - {fw: dora, ref: "Art. 17(1)-(3)", note: "Detect, log, classify and track ICT incidents", confidence: verified, url: "https://www.digital-operational-resilience-act.com/Article_17.html"}
+      - {fw: soc2, ref: PI1.3, note: "Controls over processing (processing integrity, if in scope)", confidence: verified}
+      - {fw: soc2, ref: CC7.2, note: "Monitor components for anomalies and evaluate them", confidence: verified}
 
   # ---------------------------------------------------------------- TMP
   - id: TMP-01
@@ -451,6 +591,23 @@ items:
     not_enough:
       - '"Logs are immutable" with no mechanism.'
       - Write-protected storage alone, where the vendor still controls the storage.
+    strong_answer: >-
+      Names the mechanism: hash-chained, signed records with keys separated from operators, periodic commitments
+      (for example Merkle roots) so edits, deletions, reordering and truncation are all detectable, and synchronized
+      clocks.
+    template_answer: >-
+      Action records are [append-only and hash-chained, each record including the hash of the previous one /
+      describe]. Records are signed with [algorithm] keys held in [KMS / HSM], [separate from the people who run the
+      agent / describe]. Every [period] we commit a digest of the latest records [to an external log / to you], so
+      [truncation is also detectable / describe]. Clocks are synchronized via [time source]. Key management is
+      documented in [document].
+    scanner:
+      check: >-
+        Would an edit, deletion or truncation of your agent records be detectable, through a mechanism like hash
+        chains and signatures?
+      gap: >-
+        Saying "our logs are immutable" is a claim. Without a mechanism, a reviewer has no reason to believe records
+        weren't changed after the fact.
     often_unevidenced: true
     capabilities: [signed_records, hash_chain]
     references:
@@ -466,6 +623,7 @@ items:
       - {fw: aiuc1, ref: E015.4, note: "Tamper-evident logs; gaps, omissions and reordering detectable (supplemental)", confidence: verified, url: "https://standard.aiuc-1.com/accountability/log-model-activity"}
       - {fw: aarm, ref: R5, note: "Cryptographically signed receipts for all actions, over a canonical serialization", confidence: verified, url: "https://arxiv.org/abs/2602.09433"}
       - {fw: aarm, ref: R2, note: "Should keep session context as an append-only, hash-chained log", confidence: verified, url: "https://arxiv.org/abs/2602.09433"}
+      - {fw: soc2, ref: PI1.5, note: "Stored inputs and outputs kept complete and accurate; names no tamper-evidence mechanism", confidence: verified}
 
   - id: TMP-02
     group: TMP
@@ -480,6 +638,20 @@ items:
     not_enough:
       - A screenshot or PDF export from the vendor's UI.
       - A SOC 2 report, which covers controls, not individual records.
+    strong_answer: >-
+      Gives the buyer an exported bundle and a verification tool they run themselves, offline, with documented
+      public keys and digests anchored outside the vendor, plus a demo of a tampered bundle failing.
+    template_answer: >-
+      To verify records yourself, you [run verifier, e.g. an open-source CLI, offline against an exported bundle /
+      describe current process] using our published public key [key ID]. Segment digests are anchored in [external
+      log / your storage], so [what a rewrite of history would show, and to whom]. A sample bundle, the verification
+      steps and a tampered example that fails are attached.
+    scanner:
+      check: >-
+        Can the buyer, their auditor or a regulator verify your records themselves, without access to your systems?
+      gap: >-
+        Records only you can check are self-reported. The buyer has to take your word for them, which is exactly
+        what reviews try to avoid.
     often_unevidenced: true
     capabilities: [external_anchor, offline_verifier]
     references:
@@ -501,6 +673,13 @@ items:
       - Separation between people who run the agent and people who can touch records or keys.
     not_enough:
       - '"Only engineers have access."'
+    strong_answer: >-
+      Lists the named roles with access to record storage and signing keys, logs each access against an individual
+      identity, and separates people who run the agent from people who can touch records or keys.
+    template_answer: >-
+      Access to record storage is limited to [roles, number of people]; access to signing keys to [roles]. Every
+      access is [logged against an individual identity and reviewed every period / describe]. People who operate the
+      agent [cannot change records or keys / describe the separation]. The latest access review is attached.
     often_unevidenced: false
     capabilities: []
     references:
@@ -509,6 +688,7 @@ items:
       - {fw: aicm, ref: IAM-04, note: "Separation of duties", confidence: title-only}
       - {fw: nydfs500, ref: "500.7(c)", note: "Privileged access monitoring (Class A companies)", confidence: verified, url: "https://www.law.cornell.edu/regulations/new-york/23-NYCRR-500.7"}
       - {fw: aiuc1, ref: E015.3, note: "Log storage with access controls, retention and sanitation", confidence: verified, url: "https://standard.aiuc-1.com/accountability/log-model-activity"}
+      - {fw: soc2, ref: CC6.3, note: "Access granted by role, with least privilege and segregation of duties", confidence: verified}
 
   # ---------------------------------------------------------------- INC
   - id: INC-01
@@ -522,6 +702,21 @@ items:
       - A tabletop exercise or test showing how long reconstruction takes.
     not_enough:
       - "Our engineers can query the database."
+    strong_answer: >-
+      Can export, for any time window or case, an ordered account of every action across the buyer's systems, with
+      evidence that the sequence is complete and unaltered, and knows from a test how long that takes.
+    template_answer: >-
+      For any time window or case we can export [every agent action across systems], in order, with [identity,
+      scope, inputs and system responses]. [Mechanism, e.g. a hash chain plus externally committed digests] shows
+      the exported sequence has not been altered or cut short. In our last tabletop on [date], a full reconstruction
+      took [time].
+    scanner:
+      check: >-
+        Can you reconstruct, in order and without gaps, everything the agent did across the buyer's systems during
+        an incident window?
+      gap: >-
+        Incident reports and regulator notifications depend on a complete timeline. Gaps turn an incident into an
+        audit finding.
     often_unevidenced: true
     capabilities: [action_record, hash_chain, pack]
     references:
@@ -537,6 +732,7 @@ items:
       - {fw: aiuc1, ref: E015, note: "Logs must support incident investigation and explanation of behaviour", confidence: verified, url: "https://standard.aiuc-1.com/accountability/log-model-activity"}
       - {fw: aiuc1, ref: E001, note: "Breach plan covers evidence collection and preservation for legal review", confidence: verified, url: "https://standard.aiuc-1.com/accountability/ai-failure-plan-for-security-breaches"}
       - {fw: aarm, ref: "R5 / R6", note: "Receipts with identity binding support forensic reconstruction of actions", confidence: verified, url: "https://arxiv.org/abs/2602.09433"}
+      - {fw: soc2, ref: CC7.4, note: "Respond to incidents: understand, contain, remediate, communicate", confidence: verified}
 
   - id: INC-02
     group: INC
@@ -549,6 +745,13 @@ items:
       - A recent incident report or tabletop record (redacted).
     not_enough:
       - A generic incident-response policy with no AI-specific triggers.
+    strong_answer: >-
+      Commits in the contract to a notification timeline that fits inside the buyer's own regulatory clocks, names
+      the detection sources and owners, and can show a recent incident or tabletop record.
+    template_answer: >-
+      We detect [model failures, data leakage, harmful outputs] through [monitoring, alerts, user reports], owned by
+      [team]. We notify you within [hours] of detection, as set out in [contract clause], which fits within [your
+      NYDFS / DORA timelines]. A redacted incident or tabletop report from [date] is attached.
     often_unevidenced: false
     capabilities: []
     references:
@@ -565,6 +768,8 @@ items:
       - {fw: fsisac, ref: Levels 2-3, note: "Vulnerability management, DLP and log management in deeper due diligence", confidence: verified}
       - {fw: aiuc1, ref: E001, note: "Failure plan for AI privacy and security breaches with notification procedures", confidence: verified, url: "https://standard.aiuc-1.com/accountability/ai-failure-plan-for-security-breaches"}
       - {fw: aiuc1, ref: E002, note: "Failure plan for harmful outputs with customer communication protocols", confidence: verified, url: "https://standard.aiuc-1.com/accountability/ai-failure-plan-for-harmful-outputs"}
+      - {fw: soc2, ref: CC7.3, note: "Evaluate security events to decide whether they are incidents", confidence: verified}
+      - {fw: soc2, ref: CC2.3, note: "Communicate with external parties on matters affecting internal control", confidence: verified}
 
   - id: INC-03
     group: INC
@@ -577,6 +782,20 @@ items:
       - Results of the last rollback test.
     not_enough:
       - "Contact support."
+    strong_answer: >-
+      Gives the buyer a kill switch it can trigger itself with a tested time to effect, and a documented rollback
+      path to a pinned earlier model, prompt and configuration.
+    template_answer: >-
+      You can stop the agent yourself via [console button / API / revoking credential], taking effect within [time]
+      (tested [date]). Model, prompt and configuration versions are pinned, and we can roll back to [previous
+      version] within [time]. Results of the last stop and rollback test are attached.
+    scanner:
+      check: >-
+        Can the buyer stop the agent themselves (a kill switch), with a tested time to take effect, and can you roll
+        back to a previous version?
+      gap: >-
+        When something goes wrong, the first question is how fast it can be stopped. "Contact support" is not an
+        answer a bank accepts.
     often_unevidenced: false
     capabilities: []
     references:
@@ -588,6 +807,7 @@ items:
       - {fw: iso42001, ref: A.6.2.5, note: "AI system deployment plan", confidence: secondary}
       - {fw: dora, ref: "Art. 28(7)-(8); Art. 30(3)(f)", note: "Termination rights, exit plans and transition", confidence: verified, url: "https://www.digital-operational-resilience-act.com/Article_28.html"}
       - {fw: nydfs500, ref: "500.16(a)", note: "Incident response and continuity plans", confidence: verified, url: "https://www.law.cornell.edu/regulations/new-york/23-NYCRR-500.16"}
+      - {fw: soc2, ref: CC7.5, note: "Recover from identified security incidents", confidence: verified}
 
   # ---------------------------------------------------------------- RET
   - id: RET-01
@@ -601,6 +821,20 @@ items:
       - Export mechanism (API or scheduled delivery) and a sample export.
     not_enough:
       - '"Logs retained for 30 days" with no agent-action logs.'
+    strong_answer: >-
+      Lists the agent-level events logged (not just infrastructure), the retention per log type, who can access
+      them, and offers an export into the buyer's SIEM or GRC tool with a sample.
+    template_answer: >-
+      We log [event types: actions, tool calls, outcomes, reviews, config changes]. Retention: [period per type].
+      Access: [roles]. You can receive records via [API / scheduled delivery / your SIEM or object storage] in
+      [format]. A sample export is attached.
+    scanner:
+      check: >-
+        Do you log agent-level events (not just infrastructure), with a retention period per log type and an export
+        to the buyer's SIEM?
+      gap: >-
+        Short default retention and infrastructure-only logs are common findings, and they leave the buyer unable to
+        monitor the agent.
     often_unevidenced: false
     capabilities: [retention_policy, export]
     references:
@@ -613,17 +847,31 @@ items:
       - {fw: sig, ref: AI domain, note: "Domain-level only; question text not reviewed", confidence: title-only}
       - {fw: aiuc1, ref: E015.3, note: "Log storage with defined retention periods, access controls and PII masking", confidence: verified, url: "https://standard.aiuc-1.com/accountability/log-model-activity"}
       - {fw: aarm, ref: R8, note: "Should stream telemetry to SIEM in a standard schema (OCSF, CEF) plus batch export", confidence: verified, url: "https://arxiv.org/abs/2602.09433"}
+      - {fw: soc2, ref: CC7.2, note: "Monitor components for anomalies and evaluate them", confidence: verified}
 
   - id: RET-02
     group: RET
     origin: buyer-question
     question: Can we hold our own copy of the agent's event logs for the period our rules require?
-    why: Under the EU AI Act, deployers of high-risk systems must keep the logs under their control for at least six months, and financial institutions keep them under their financial-services record rules. A vendor-only copy does not meet that.
+    why: Under the EU AI Act, deployers of high-risk systems must keep the logs that are under their control for at least six months, and financial institutions keep them under their financial-services record rules. A buyer-held copy is how a deployer shows it meets that, rather than depending on the vendor.
     evidence:
       - Continuous or scheduled delivery of records into storage the buyer controls.
       - Format documented so the buyer's copy remains verifiable on its own.
     not_enough:
       - "We can send logs on request."
+    strong_answer: >-
+      Delivers records continuously or on a schedule into storage the buyer controls, in a documented format that
+      stays verifiable without the vendor.
+    template_answer: >-
+      Records are delivered [continuously / every period] to [your bucket / SIEM / storage], which you control. The
+      format is documented ([link]) and each copy can be verified on its own, without access to our systems. You set
+      retention there to match your rules.
+    scanner:
+      check: >-
+        Can the buyer hold their own copy of the agent's records for as long as their rules require?
+      gap: >-
+        Many buyers must keep logs for months or years under their own control. A copy that only lives with you
+        doesn't cover that.
     often_unevidenced: true
     capabilities: [buyer_copy, retention_policy]
     references:
@@ -644,6 +892,12 @@ items:
       - Self-service export of the buyer's data and records.
     not_enough:
       - A dashboard with no export.
+    strong_answer: >-
+      Names the report types and cadence in the contract and lets the buyer export its own data and records without
+      a support ticket.
+    template_answer: >-
+      You receive [activity, failure, incident and change] reports every [period], as defined in [contract section].
+      You can export your data and agent records at any time via [self-service export / API].
     often_unevidenced: false
     capabilities: [pack, export]
     references:
@@ -664,6 +918,13 @@ items:
       - Exit clause covering return of records in a verifiable format before deletion.
     not_enough:
       - A fixed vendor-wide retention period.
+    strong_answer: >-
+      Lets each buyer set retention to its own obligations and commits, on exit, to return records in a verifiable
+      format before deleting them.
+    template_answer: >-
+      Retention is configurable per customer; for you it is set to [period] to match [your obligation]. On
+      termination we return all records in [format], verifiable without us, within [days], and delete our copies
+      after your confirmation, per [contract clause].
     often_unevidenced: false
     capabilities: [retention_policy, buyer_copy]
     references:
@@ -671,6 +932,7 @@ items:
       - {fw: eu_ai_act, ref: "Art. 19(2); Art. 26(6)", note: "Financial institutions keep logs under financial-services documentation rules", confidence: verified, url: "https://artificialintelligenceact.eu/article/26/"}
       - {fw: dora, ref: "Art. 28(8); Art. 30(2)(d)", note: "Exit plans and return of data", confidence: verified, url: "https://www.digital-operational-resilience-act.com/Article_28.html"}
       - {fw: naic, ref: "Sec. 3, 3.6", note: "Data and record retention in the AIS program", confidence: verified}
+      - {fw: soc2, ref: C1.2, note: "Dispose of confidential information per objectives (confidentiality, if in scope)", confidence: verified}
 
   # ---------------------------------------------------------------- CHG
   - id: CHG-01
@@ -684,6 +946,12 @@ items:
       - Change log available to the buyer.
     not_enough:
       - "We use leading LLMs."
+    strong_answer: >-
+      Lists models and providers per feature with versions, commits contractually to advance notice of changes, and
+      keeps a change log the buyer can see.
+    template_answer: >-
+      [Feature]: [provider, model, version]. [Feature]: [provider, model, version]. We give [N days] advance notice
+      of any model or provider change, per [contract clause]. The change log is at [link].
     often_unevidenced: false
     capabilities: [model_version]
     references:
@@ -695,6 +963,7 @@ items:
       - {fw: nydfs_ai, ref: Data management, note: "Inventory of all systems that use or rely on AI", confidence: verified}
       - {fw: dora, ref: "Art. 28(3)", note: "Register of ICT third-party arrangements", confidence: verified, url: "https://www.digital-operational-resilience-act.com/Article_28.html"}
       - {fw: iso42001, ref: A.4.4; A.10.3, note: "Tooling resources; suppliers", confidence: secondary}
+      - {fw: soc2, ref: CC3.4, note: "Vendor assesses changes that could affect its controls; says nothing about notifying customers", confidence: verified}
 
   - id: CHG-02
     group: CHG
@@ -707,6 +976,19 @@ items:
       - Change history the buyer can review.
     not_enough:
       - Prompts edited in a vendor console with no history.
+    strong_answer: >-
+      Versions prompts, tools and configs like code, runs evaluations before release with a named approver, stores
+      the version on every action record, and gives the buyer a change history it can review.
+    template_answer: >-
+      Prompts, tool definitions and configs are versioned in [repository]. Every change runs [evaluation suite] and
+      needs approval from [role] before release. The active version is stored on each action record. Change history
+      for your deployment is available at [link].
+    scanner:
+      check: >-
+        Are prompts, tools and model changes versioned, tested and approved before they reach the buyer's traffic?
+      gap: >-
+        For agents, a prompt edit is a code change. Without change control, behaviour can shift under the buyer
+        without anyone noticing.
     often_unevidenced: false
     capabilities: [config_version]
     references:
@@ -721,6 +1003,7 @@ items:
       - {fw: nist_600_1, ref: MS-2.8-003, note: "Version control across the lifecycle (content provenance)", confidence: verified}
       - {fw: aiuc1, ref: E004, note: "Define changes needing approval (model, system prompt, guardrails); named approver and records", confidence: verified, url: "https://standard.aiuc-1.com/accountability/assign-accountability"}
       - {fw: aiuc1, ref: C002, note: "Pre-deployment testing of changes with risk assessment and approval sign-off", confidence: verified, url: "https://standard.aiuc-1.com/safety/conduct-pre-deployment-testing"}
+      - {fw: soc2, ref: CC8.1, note: "Changes authorized, designed, tested, approved and documented", confidence: verified}
 
   - id: CHG-03
     group: CHG
@@ -733,6 +1016,13 @@ items:
       - Any independent validation report.
     not_enough:
       - Marketing benchmark numbers.
+    strong_answer: >-
+      Shares the validation method and latest results (including bias testing where consumers are affected), drift
+      monitoring with re-validation triggers, and any independent validation report.
+    template_answer: >-
+      We validate [agent / model] using [method]; latest results from [date] are attached, including bias testing on
+      [dimensions] where decisions affect consumers. Drift is monitored by [metric]; re-validation is triggered by
+      [condition]. [Independent validation by X on date / none yet].
     often_unevidenced: false
     capabilities: []
     references:
@@ -754,6 +1044,12 @@ items:
       - Escalation when thresholds are breached.
     not_enough:
       - Ad-hoc updates on request.
+    strong_answer: >-
+      Sends a recurring report with defined metrics and thresholds (performance, errors, complaints, drift) and
+      escalates when a threshold is breached.
+    template_answer: >-
+      Every [period] you receive a report covering [performance, error rate, mismatch rate, complaints, drift]
+      against agreed thresholds. Breaches are escalated to [contact] within [time]. A sample report is attached.
     often_unevidenced: false
     capabilities: [report]
     references:
@@ -778,6 +1074,20 @@ items:
       - Deletion procedure and a deletion confirmation on request.
     not_enough:
       - A privacy policy page.
+    strong_answer: >-
+      States in the contract that buyer data is not used for training, by the vendor or its model providers, gives
+      the retention per data type, and confirms deletion on request.
+    template_answer: >-
+      Your data [is not used / is used, under these conditions:] to train or improve any model, by us or by
+      [providers], per [contract clause / provider terms]. Retention: prompts [period], uploads [period], outputs
+      [period]; [zero-retention terms with providers where available]. Deletion follows [procedure], and we [confirm
+      it in writing on request].
+    scanner:
+      check: >-
+        Is it in writing that buyer data is not used for training, by you or your model providers, with retention
+        and deletion terms?
+      gap: >-
+        This is the first AI question in almost every questionnaire. A privacy-policy link usually isn't enough.
     often_unevidenced: false
     capabilities: []
     references:
@@ -790,6 +1100,7 @@ items:
       - {fw: nist_600_1, ref: MG-4.1-006, note: "Track dataset deletions and rectifications", confidence: verified}
       - {fw: aiuc1, ref: A001, note: "Input data policy on training use, retention and customer rights; enforced retention and deletion", confidence: verified, url: "https://standard.aiuc-1.com/data-and-privacy/establish-data-use-policy"}
       - {fw: aiuc1, ref: A002, note: "Output ownership, opt-out and deletion policy", confidence: verified, url: "https://standard.aiuc-1.com/data-and-privacy/define-output-rights"}
+      - {fw: soc2, ref: C1.2, note: "Dispose of confidential information per objectives (confidentiality, if in scope)", confidence: verified}
 
   - id: DAT-02
     group: DAT
@@ -803,6 +1114,13 @@ items:
       - Access and retention rules for records match the data policy.
     not_enough:
       - Full request and response bodies logged by default.
+    strong_answer: >-
+      Redacts or hashes sensitive fields before records are stored, documents the data classes per record field, and
+      applies the same access and retention rules to records as to the product.
+    template_answer: >-
+      Before a record is stored, [fields, e.g. card numbers, account numbers] are [redacted / hashed]. The data
+      classes per record field are documented in [document]. Records follow the same access and retention rules as
+      your other data with us.
     often_unevidenced: false
     capabilities: [redaction]
     references:
@@ -813,6 +1131,7 @@ items:
       - {fw: dora, ref: "Art. 30(2)(c)", note: "Data confidentiality provisions", confidence: verified, url: "https://www.digital-operational-resilience-act.com/Article_30.html"}
       - {fw: aiuc1, ref: A006, note: "Prevent personal data leakage through outputs and logs", confidence: verified, url: "https://standard.aiuc-1.com/data-and-privacy/prevent-pii-leakage"}
       - {fw: aiuc1, ref: E015.3, note: "Data sanitation in log storage", confidence: verified, url: "https://standard.aiuc-1.com/accountability/log-model-activity"}
+      - {fw: soc2, ref: C1.1, note: "Identify and maintain confidential information (confidentiality, if in scope)", confidence: verified}
 
   # ---------------------------------------------------------------- HUM
   - id: HUM-01
@@ -827,6 +1146,21 @@ items:
     not_enough:
       - A workflow screenshot.
       - A statement that "humans are in the loop".
+    strong_answer: >-
+      Expresses the buyer's oversight rules as readable configuration, records per action whether review applied,
+      who reviewed, the decision and its timing relative to execution, and reports exceptions.
+    template_answer: >-
+      Your oversight rules are configured as [rules, e.g. review for refunds above EUR X], visible and editable by
+      you in [place]. For each action the record shows whether review applied, who reviewed, the decision, and the
+      time of review relative to execution. Actions that should have been reviewed but were not appear in
+      [exceptions report].
+    scanner:
+      check: >-
+        Where the buyer requires human review, can you show per action who reviewed it, the decision, and that it
+        came before execution?
+      gap: >-
+        The buyer chooses its oversight rules. Without per-action proof, you can't show those rules were actually
+        followed.
     often_unevidenced: true
     capabilities: [review_record, action_record]
     references:
@@ -853,6 +1187,12 @@ items:
       - Override rates reported over time.
     not_enough:
       - Overrides visible only as a later edit in the target system.
+    strong_answer: >-
+      Links each override to the original action with who, when, what changed and why, and reports override rates
+      over time.
+    template_answer: >-
+      When someone overrides, corrects or reverses an agent action, we record who, when, what changed and why,
+      linked to the original action record. Override rates are included in your [period] report.
     often_unevidenced: false
     capabilities: [review_record]
     references:
@@ -874,6 +1214,19 @@ items:
       - Notice process for sub-processor changes.
     not_enough:
       - '"No subprocessors available."'
+    strong_answer: >-
+      Publishes a complete sub-processor list that includes AI, voice and tool providers with region and purpose,
+      with each provider's retention and training terms, and a change notice process.
+    template_answer: >-
+      Sub-processors involved in the agent: [provider, purpose, region, retention, training terms] for each of
+      model, speech-to-text, text-to-speech and tools. The full list is at [link]. We notify you [N days] before
+      adding or changing one.
+    scanner:
+      check: >-
+        Do you publish a complete list of model, voice and tool providers, with their retention and training terms?
+      gap: >-
+        Every provider is another place customer data goes. Missing or incomplete lists stall third-party risk
+        review.
     often_unevidenced: false
     capabilities: []
     references:
@@ -887,6 +1240,7 @@ items:
       - {fw: finos, ref: AIR-SEC-026, note: "Risk: MCP server supply chain compromise", confidence: verified, url: "https://air-governance-framework.finos.org/risks/ri-26_mcp-server-supply-chain-compromise.html"}
       - {fw: aiuc1, ref: E006, note: "Due diligence on foundation and upstream model providers: data handling, PII, security", confidence: verified, url: "https://standard.aiuc-1.com/accountability/conduct-vendor-due-diligence"}
       - {fw: aiuc1, ref: E011, note: "Document AI data processing locations", confidence: verified, url: "https://standard.aiuc-1.com/accountability/record-processing-locations"}
+      - {fw: soc2, ref: CC9.2, note: "Assess and manage risks from vendors and business partners", confidence: verified}
 
   - id: SUB-02
     group: SUB
@@ -898,6 +1252,13 @@ items:
       - Reports whose scope includes agent behaviour, plus record samples the buyer can verify.
     not_enough:
       - A SOC 2 report alone.
+    strong_answer: >-
+      Grants audit rights that cover the AI system itself and provides reports whose scope includes agent behaviour,
+      together with record samples the buyer can verify.
+    template_answer: >-
+      [Contract clause] gives you audit rights over the AI system, including [model use, agent actions, records].
+      Our [SOC 2 Type II / other report] covers [scope]. For agent behaviour we provide verifiable record samples
+      for any period you choose.
     often_unevidenced: true
     capabilities: [pack]
     references:
@@ -918,6 +1279,13 @@ items:
       - 'A ready evidence package: model documentation, validation, change history and verifiable action records.'
     not_enough:
       - Best-effort cooperation with no artifacts.
+    strong_answer: >-
+      Commits in writing to cooperate with regulators and keeps an evidence package ready: model documentation,
+      validation, change history and verifiable action records.
+    template_answer: >-
+      [Contract clause] commits us to cooperate with your regulators and to give examiners access to documentation
+      and records. We keep an evidence package ready: model documentation, validation results, change history and
+      verifiable action records, deliverable within [time].
     often_unevidenced: false
     capabilities: [pack]
     references:
