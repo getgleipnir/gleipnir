@@ -1,0 +1,32 @@
+{
+  "name": "@getgleipnir/sdk",
+  "version": "0.1.0",
+  "description": "Record AI agent tool calls as signed, hash-chained, anchored Gleipnir records (Node).",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20.19"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@getgleipnir/verify": "0.1.0",
+    "@noble/curves": "2.4.0",
+    "@noble/hashes": "2.4.0",
+    "fflate": "0.8.3"
+  }
+}
