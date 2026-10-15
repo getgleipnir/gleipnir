@@ -2,10 +2,21 @@
 
 export { LocalFileAnchor, type Anchor, type AnchorRequest } from "./anchor.js";
 export { ChainWriter, type ChainWriterOptions } from "./chain.js";
-export { buildBundle, exportBundle, selectRecords, verifyCommand, type ExportOptions } from "./export.js";
-export { Ed25519Signer, loadOrCreateSecret, loadOrCreateSigner, type Signer } from "./keys.js";
+export { buildBundle, buildProof, exportBundle, exportProof, selectRecords, verifyCommand, type ExportOptions } from "./export.js";
+export {
+  EcdsaP256Signer,
+  Ed25519Signer,
+  SpkiSigner,
+  checkSigner,
+  loadOrCreateSecret,
+  loadOrCreateSigner,
+  type Signer,
+  type SpkiSignerOptions,
+} from "./keys.js";
 export {
   Outcome,
+  type ApproveOptions,
+  type WrappedTool,
   Recorder,
   Redactor,
   type Call,

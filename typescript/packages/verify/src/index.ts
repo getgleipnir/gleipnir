@@ -10,6 +10,7 @@ export {
   WARN,
   INFO,
   Report,
+  actionDigest,
   badBundleReport,
   defaultVerifiers,
   parseKnownHead,
@@ -58,6 +59,7 @@ export {
   sha256Tagged,
 } from "./canon.js";
 export {
+  P256_PREFIX,
   PUBKEY_PREFIX,
   RECORD_DOMAIN,
   SIG_PREFIX,
@@ -65,12 +67,29 @@ export {
   ed25519PublicFromSeed,
   ed25519Sign,
   ed25519Verify,
+  encodeP256PublicKey,
+  encodeP256Signature,
   encodePublicKey,
   encodeSignature,
   keyId,
+  p256Sign,
+  p256Spki,
+  p256SpkiFromScalar,
+  p256Verify,
   recordMessage,
   verifySignature,
+  type P256PublicKey,
+  type RecordPublicKey,
 } from "./crypto.js";
+export {
+  csvColumn,
+  externalIds,
+  parseCsvRows,
+  reconcile,
+  recordIds,
+  type ReconcileOptions,
+  type Reconciliation,
+} from "./reconcile.js";
 export { inclusionProof, leafHash, merkleRoot, nodeHash, verifyInclusion } from "./merkle.js";
 export { parseJsonl, readBundle } from "./bundle.js";
 export { decodeUtf8, encodeUtf8, parseJson, parseJsonBytes, pyDumps, type DumpOptions } from "./json.js";

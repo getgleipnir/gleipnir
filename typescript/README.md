@@ -64,13 +64,29 @@ JSON.stringify(report);  // { result: "VALID" | "INVALID", summary, findings }
 
 | Check | Status |
 |---|---|
-| JCS (RFC 8785) canonical bytes, SHA-256 record hashes, Ed25519 signatures, key ids, key rotation | verified |
+| JCS (RFC 8785) canonical bytes, SHA-256 record hashes, Ed25519 and ECDSA P-256 signatures, key ids, key rotation (also between key types) | verified |
+| Approvals bound to actions (`approval_missing`, `approval_after_action`, `approval_not_approved`, `approval_mismatch`) | verified |
+| Single-action proofs (`proof.zip`, manifest `type: "proof"`): signatures, Merkle inclusion, position, anchors | verified |
 | Sequence, `prev` chaining, segment tiling, RFC 6962 Merkle roots, segment links, heartbeats, manifest range, expected key, coverage, known head | verified |
 | `local` anchors | verified against the bundle's (or a given) local anchor log; reported as not independent |
 | `rekor` anchors (Sigstore Rekor v2) | verified offline: hashedrekord digest and ECDSA P-256 signature over the anchor message, RFC 6962 inclusion proof, checkpoint signed note with the log's Ed25519 key pinned in the embedded Sigstore trusted root |
 | `rfc3161` anchors | verified offline in pure JS: TimeStampResp status, CMS SignedData signature (ECDSA/Ed25519/RSA) over the signed attributes, message digest and content type, TSA certificate pinned in the Sigstore trusted root, chain to its root valid at `genTime`, critical `id-kp-timeStamping` EKU, message imprint (SHA-256/384/512) over `"gleipnir/timestamp/v1\n" || segment_hash` |
 
 The verifier follows the Python reference's parsing rules exactly, including Python 3.10's `datetime.fromisoformat` grammar for timestamps (3 or 6 fractional digits, `+HH:MM` offsets) and its base64 rules; see `test/differential.test.ts`, which compares canonical bytes, hashes, timestamps and full reports with the Python verifier.
+
+### Single-action proofs and reconcile
+
+`verifyBundle` also checks a `proof.zip` (one action, its segment, a Merkle inclusion proof and the segment's anchors), with the same findings and options. To close the gap that signed records cannot show unrecorded actions, compare the ids in a verified bundle with an export from your own system:
+
+```bash
+npx -p @getgleipnir/verify gleipnir-verify reconcile bundle.zip refunds_by_agent.csv --column refund_id [--field refund_id] [--expect-key KEY]
+```
+
+`reconcile(bundleBytes, csvText, { column, field })` does the same from code.
+
+### In the browser
+
+[`site/verify/index.html`](../site/verify/index.html) is a single static page that verifies a dropped `bundle.zip` or `proof.zip` entirely in the browser (nothing is uploaded; its Content-Security-Policy forbids network requests), with fields for the expected key, a known head and required anchors. Build it with `npm run build:site` from `site/verify/src/`.
 
 ## Record agent actions
 
@@ -104,9 +120,11 @@ await rec.export("bundle.zip"); // closes the open segment, anchors it, writes t
 - `tool()` wraps sync and async functions; the wrapper returns what the function returns and re-throws its errors after recording them. A `verifyOutcome` returning `true`/`false`/`null` means match/mismatch/not checked; a throwing check is recorded as `error`.
 - `context(values, fn)` attaches `trace_id`, `span_id`, `session`, `run_id`, `on_behalf_of`, `parent_action`, `model`, `versions` and `identity` to every record made inside `fn`, across `await`s (AsyncLocalStorage).
 - `recordAction`, `claim`, `review` and `note` write records directly.
+- `approve(tool, args, { approver, rule })` records an approval of one exact action before it runs; run the action in `rec.context({ approval: id }, ...)` and the verifier checks the approval came first and the tool, system and (redacted) arguments match.
+- `prove(actionId, "proof.zip")` writes a single-action proof for a dispute about one action.
 - The chain writer closes a segment every `segmentMaxRecords` records and after `heartbeatSeconds` (also when empty), with a background timer that never keeps the process alive. Anchoring may be asynchronous and is retried; it never breaks recording.
 - Anchors: `"local"` (default, a local append-only log for tests and demos, not independent) or any object implementing `Anchor` (`{ type, anchor({ segmentHash, chain, segmentSeq }) }`, sync or async). Public Rekor and RFC 3161 anchoring are implemented in the Python SDK; their receipts verify here.
-- Signing keys are PKCS#8 PEM files (`.gleipnir/keys/signing-ed25519.pem`), the same format the Python SDK uses. For production, pass a `Signer` backed by a KMS or HSM.
+- Signing keys are PKCS#8 PEM files (`.gleipnir/keys/signing-ed25519.pem`), the same format the Python SDK uses. For production, pass a `Signer` backed by a KMS or HSM: `new SpkiSigner({ spki, signMessage })` wraps an external Ed25519 or ECDSA P-256 key (DER or raw r||s signatures); `EcdsaP256Signer` is a local P-256 key. Ed25519 stays the default.
 - Storage: `JsonlStore` (default, append-only, fsync) or `MemoryStore`, or your own `Store`.
 
 ## Develop
@@ -117,4 +135,5 @@ npm ci
 npm run build
 npm test            # spec vectors, Rekor/RFC 3161 fixtures, tamper tests; differential tests run if `uv` is available
 npm run interop     # Python SDK bundle -> TS verifier and TS SDK bundle -> Python verifier (needs `uv sync --all-packages`)
+npm run build:site  # site/verify/index.html (a test fails if it is stale)
 ```

@@ -16,15 +16,16 @@
  */
 
 import { verifyLocal, type AnchorOptions, type AnchorResult, type AnchorVerifier } from "./anchors.js";
-import { hashToBytes, recordHash } from "./canon.js";
-import { decodePublicKey, keyId, recordMessage, verifySignature } from "./crypto.js";
-import { merkleRoot } from "./merkle.js";
+import { canonicalize, hashToBytes, recordHash, sha256Tagged } from "./canon.js";
+import { decodePublicKey, keyId, recordMessage, verifySignature, type RecordPublicKey } from "./crypto.js";
+import { leafHash, merkleRoot, verifyInclusion } from "./merkle.js";
 import { readBundle } from "./bundle.js";
-import { bytesEqual } from "./bytes.js";
+import { bytesEqual, hexToBytes } from "./bytes.js";
 import {
   BigIntLiteral,
   OverflowErr,
   PyError,
+  PyFloat,
   TypeErr,
   ValueErr,
   caught,
@@ -39,10 +40,12 @@ import {
   num,
   pyEq,
   pyIntBig,
+  pyIter,
   pyKey,
   pyRepr,
   pyRound,
   pyStr,
+  pyTypeName,
   requireHashable,
   sub,
   truthy,
@@ -275,7 +278,7 @@ function verifyRecordsInner(records: unknown[], o: ResolvedOptions): Report {
     return report;
   }
   const chainId = dget(genesis, "chain");
-  const keys = new Map<string, Uint8Array>();
+  const keys = new Map<string, RecordPublicKey>();
   try {
     const pk = sub(genesis, "public_key");
     const raw = decodePublicKey(sub(pk, "public"));
@@ -616,6 +619,9 @@ function verifyRecordsInner(records: unknown[], o: ResolvedOptions): Report {
     report.add(WARN, "anchors_unchecked", `${unchecked} segments have anchor receipts that could not be checked`);
   }
 
+  // ---- approvals bound to actions ------------------------------------------------------
+  checkApprovals(recs, report, !(isNone(firstBodySeq) || pyEq(firstBodySeq, 1)));
+
   // ---- bundle expectations ---------------------------------------------------------
   if (o.requireFull && body.length > 0 && !pyEq(body[0], 1)) {
     report.add(ERROR, "partial_bundle", "a full bundle was required but records are missing at the start");
@@ -682,11 +688,58 @@ function verifyRecordsInner(records: unknown[], o: ResolvedOptions): Report {
   return report;
 }
 
+/** Digest an approval commits to: the tool, system and (redacted) arguments of the action. */
+export function actionDigest(tool: unknown, system: unknown, args: unknown): string {
+  const value: JsonDict = {};
+  value["tool"] = isNone(tool) ? null : tool;
+  value["system"] = isNone(system) ? null : system;
+  value["args"] = isNone(args) ? null : args;
+  return sha256Tagged(canonicalize(value));
+}
+
+/** Every action that names an approval must point to an earlier, matching `approved` review. */
+function checkApprovals(records: JsonDict[], report: Report, partial: boolean): void {
+  const reviews = new PyMap<JsonDict>();
+  for (const r of records) {
+    if (pyEq(dget(r, "kind"), "review")) reviews.set(dget(r, "id"), r);
+  }
+  for (const rec of records) {
+    if (!pyEq(dget(rec, "kind"), "action") || !hasKey(rec, "approval")) continue;
+    const seq = dget(rec, "seq");
+    const approval = rec["approval"];
+    const review = reviews.get(approval);
+    if (review === undefined) {
+      report.add(partial ? WARN : ERROR, "approval_missing", `action names approval ${pyRepr(approval)}, which is not in this bundle`, seq);
+      continue;
+    }
+    const rv = dget(review, "review");
+    const body: JsonDict = isDict(rv) ? rv : {};
+    const tv = dget(rec, "tool");
+    const tool: JsonDict = isDict(tv) ? tv : {};
+    const rseq = dget(review, "seq");
+    if (!isPyInt(rseq) || !isPyInt(seq) || big(rseq) >= big(seq)) {
+      report.add(ERROR, "approval_after_action", "the approval was recorded after the action it approves", seq);
+    }
+    if (!pyEq(dget(body, "decision"), "approved")) {
+      report.add(ERROR, "approval_not_approved", `the referenced review decided ${pyRepr(dget(body, "decision"))}`, seq);
+    }
+    let digest: string | null;
+    try {
+      digest = actionDigest(dget(tool, "name"), dget(tool, "system"), dget(rec, "args"));
+    } catch {
+      digest = null;
+    }
+    if (!pyEq(dget(body, "action_digest"), digest)) {
+      report.add(ERROR, "approval_mismatch", "the action differs from what was approved (tool, system or arguments)", seq);
+    }
+  }
+}
+
 function summarize(
   report: Report,
   records: JsonDict[],
   genesis: JsonDict,
-  keys: Map<string, Uint8Array>,
+  keys: Map<string, RecordPublicKey>,
   segments: JsonDict[],
   anchored: number,
   independent = 0,
@@ -758,7 +811,151 @@ export function verifyBundle(zipBytes: Uint8Array, options: VerifyOptions = {}):
     if (ao.localAnchorEntries === undefined) ao.localAnchorEntries = localLog;
     opts.anchorOptions = ao;
   }
+  if (pyEq(dget(manifest, "type"), "proof")) {
+    const resolved = resolve(opts);
+    try {
+      return verifyProofInner(manifest, records, resolved);
+    } catch (exc) {
+      const report = new Report();
+      report.add(ERROR, "malformed", `proof could not be processed: ${errorText(exc)}`);
+      return report;
+    }
+  }
   return verifyRecords(records, { ...opts, manifest });
+}
+
+/** A Python int (bigint) or float (number), for the arithmetic a proof's positions go through. */
+type PyNum = { int: bigint } | { float: number };
+
+function pyNum(x: unknown, op: string, other = "int"): PyNum {
+  if (isPyInt(x)) return { int: big(x) };
+  if (typeof x === "number" || x instanceof PyFloat) return { float: num(x) };
+  throw TypeErr(`'${op}' not supported between instances of '${other}' and '${pyTypeName(x)}'`);
+}
+
+const asFloat = (n: PyNum): number => ("int" in n ? Number(n.int) : n.float);
+
+/** Python `a < b` on ints and floats. */
+function pyLt(a: PyNum, b: PyNum): boolean {
+  return "int" in a && "int" in b ? a.int < b.int : asFloat(a) < asFloat(b);
+}
+
+/** The JSON-ish value of a PyNum, for `pyEq` against manifest values. */
+function pyNumValue(n: PyNum): unknown {
+  if ("float" in n) return new PyFloat(n.float);
+  return n.int >= -BigInt(Number.MAX_SAFE_INTEGER) && n.int <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(n.int) : new BigIntLiteral(n.int.toString());
+}
+
+/** merkle.verify_inclusion as the reference runs it when the index may be a float. */
+function proofIncludes(index: PyNum, size: bigint, leaf: Uint8Array, path: Uint8Array[], root: Uint8Array): boolean {
+  if ("int" in index) return verifyInclusion(index.int, size, leaf, path, root);
+  const s = Number(size);
+  if (index.float >= s || index.float < 0) return false;
+  if (path.length > 0) {
+    if (size - 1n === 0n) return false;
+    throw TypeErr("unsupported operand type(s) for &: 'float' and 'int'");
+  }
+  return size - 1n === 0n && bytesEqual(leaf, root);
+}
+
+/**
+ * Verify a single-action proof: genesis key, the action's signature, its inclusion in a signed
+ * segment, and the segment's anchor receipts (port of `_verify_proof`). Throws on hostile input
+ * where the reference raises; the caller turns that into a `malformed` finding.
+ */
+function verifyProofInner(manifest: JsonDict, records: unknown[], o: ResolvedOptions): Report {
+  const report = new Report();
+  if (records.length < 3 || !records.every((r) => isDict(r))) {
+    report.add(ERROR, "malformed", "a proof needs the genesis, the action and its segment");
+    return report;
+  }
+  const [genesis, action, segment, ...anchors] = records as JsonDict[];
+  if (!pyEq(dget(genesis, "kind"), "genesis") || !pyEq(dget(genesis, "seq"), 0)) {
+    report.add(ERROR, "no_genesis", "first record must be the genesis record");
+    return report;
+  }
+  const pk = sub(genesis, "public_key");
+  const pub = decodePublicKey(sub(pk, "public"));
+  if (!pyEq(keyId(pub), sub(pk, "id"))) {
+    report.add(ERROR, "key_id_mismatch", "genesis key id does not match its public key", 0);
+    return report;
+  }
+  const pkId = sub(pk, "id") as string;
+  if (o.expectKey && o.expectKey !== pkId) {
+    report.add(ERROR, "unexpected_key", `chain key ${pkId} is not the expected key ${o.expectKey}`);
+  }
+  const chain = dget(genesis!, "chain");
+  const hashes = new PyMap<string>();
+  for (const rec of records as JsonDict[]) {
+    const h = recordHash(rec);
+    hashes.set(dget(rec, "seq"), h);
+    if (!pyEq(dget(rec, "chain"), chain) || !pyEq(dget(rec, "v"), FORMAT_VERSION)) {
+      report.add(ERROR, "wrong_chain", "record is not from this chain", dget(rec, "seq"));
+    }
+    if (!pyEq(dget(rec, "key"), pkId) || !verifySignature(pub, recordMessage(h), dget(rec, "sig", ""))) {
+      report.add(ERROR, "bad_signature", "signature does not match record content (record altered?)", dget(rec, "seq"));
+    }
+  }
+  if (!pyEq(dget(action, "id"), dget(manifest, "action")) || !pyEq(dget(segment, "kind"), "segment")) {
+    report.add(ERROR, "malformed", "proof does not contain the named action and a segment");
+    return report;
+  }
+  const s = sub(segment, "segment");
+  const seqRaw = sub(action, "seq");
+  const frm = pyIntBig(sub(s, "from"));
+  const count = pyIntBig(sub(s, "count"));
+  const index = dget(manifest, "leaf_index");
+  const size = dget(manifest, "tree_size");
+  const seq = pyNum(seqRaw, "<=");
+  const diff: PyNum = "int" in seq ? { int: seq.int - frm } : { float: seq.float - Number(frm) };
+  const inRange = !pyLt(seq, { int: frm }) && pyLt(seq, { int: frm + count });
+  if (!inRange || !pyEq(index, pyNumValue(diff)) || !pyEq(size, pyNumValue({ int: count }))) {
+    report.add(ERROR, "proof_position", "the action is not where the proof says it is in the segment", seqRaw);
+  }
+  const path = pyIter(dget(manifest, "proof", [])).map((x) => {
+    if (typeof x !== "string") throw TypeErr(`fromhex() argument must be str, not ${pyTypeName(x)}`);
+    return hexToBytes(x);
+  });
+  const leaf = leafHash(hashToBytes(hashes.get(seqRaw)));
+  if (!proofIncludes(diff, count, leaf, path, hashToBytes(sub(s, "root")))) {
+    report.add(ERROR, "proof_invalid", "the action is not included in the segment's Merkle root", seqRaw);
+  }
+  const verified = new Set<string>();
+  // segment["seq"] is looked up where the reference looks it up (a missing one raises there).
+  const segSeq = (): unknown => sub(segment, "seq");
+  for (const a of anchors) {
+    const body = dget(a, "anchor", {});
+    if (!pyEq(dget(a, "kind"), "anchor") || !pyEq(dget(body, "segment_hash"), hashes.get(segSeq()))) {
+      report.add(ERROR, "anchor_hash", "anchor receipt is for a different segment", dget(a, "seq"));
+      continue;
+    }
+    const type = dget(body, "type");
+    requireHashable(type);
+    const fn = typeof type === "string" && hasKey(o.anchorVerifiers, type) ? o.anchorVerifiers[type] : undefined;
+    if (fn === undefined) continue;
+    const res = fn(body as JsonDict, { segmentHash: hashes.get(segSeq())!, chain, options: o.anchorOptions });
+    if (res.ok === false) {
+      report.add(ERROR, "anchor_invalid", `anchor receipt invalid: ${res.detail}`, dget(a, "seq"));
+    } else if (res.ok && res.independent) {
+      verified.add(type as string);
+    }
+  }
+  for (const req of o.required) {
+    if (!verified.has(req)) report.add(ERROR, "anchor_required", `segment has no verified ${req} anchor`, segSeq());
+  }
+  report.summary = {
+    type: "proof",
+    chain,
+    keys: [pkId],
+    action: dget(action, "id"),
+    action_seq: seqRaw,
+    segment_seq: segSeq(),
+    anchors_independent: [...verified].sort(codePointCompare),
+    records: records.length,
+    by_kind: {},
+    segments: 1,
+  };
+  return report;
 }
 
 function errorName(exc: unknown): string {

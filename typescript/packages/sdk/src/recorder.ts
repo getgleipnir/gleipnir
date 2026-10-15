@@ -4,16 +4,16 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { join } from "node:path";
 import { hmac } from "@noble/hashes/hmac.js";
 import { sha256 } from "@noble/hashes/sha2.js";
-import { bytesToHex, canonicalize } from "@getgleipnir/verify";
+import { actionDigest, bytesToHex, canonicalize } from "@getgleipnir/verify";
 import { LocalFileAnchor, type Anchor } from "./anchor.js";
 import { ChainWriter } from "./chain.js";
-import { exportBundle, type ExportOptions } from "./export.js";
+import { exportBundle, exportProof, type ExportOptions } from "./export.js";
 import { loadOrCreateSecret, loadOrCreateSigner, type Signer } from "./keys.js";
 import { JsonlStore, type Rec, type Store } from "./store.js";
 import { iso, newId, setKey, toJsonable, utcnow, type Clock } from "./util.js";
 
-const CONTEXT_KEYS = new Set(["trace_id", "span_id", "session", "on_behalf_of", "run_id", "parent_action"]);
-const TOP_LEVEL_KEYS = ["model", "versions", "identity"] as const;
+const CONTEXT_KEYS = new Set(["trace_id", "span_id", "session", "on_behalf_of", "run_id", "parent_action", "tool_call_id"]);
+const TOP_LEVEL_KEYS = ["model", "versions", "identity", "approval"] as const;
 
 // ---- outcomes ------------------------------------------------------------------------------
 export type OutcomeCheck = "match" | "mismatch" | "error" | "not_checked";
@@ -169,6 +169,10 @@ export interface ContextValues {
   run_id?: string;
   on_behalf_of?: string;
   parent_action?: string;
+  /** The framework's or model's id for this tool call. */
+  tool_call_id?: string;
+  /** An approval id from {@link Recorder.approve}: the action must be exactly what was approved. */
+  approval?: string;
   model?: Record<string, unknown>;
   versions?: Record<string, unknown>;
   identity?: Record<string, unknown>;
@@ -211,6 +215,25 @@ export interface RecordActionOptions {
   sources?: Array<Record<string, unknown>>;
   /** Outbound services called for this action, e.g. [{service: "provider-a", endpoint: "chat"}]. */
   calls?: Array<Record<string, unknown>>;
+}
+
+/** A tool wrapped with {@link Recorder.tool}: carries its name, system and redaction for {@link Recorder.approve}. */
+export interface WrappedTool {
+  readonly gleipnirTool: string;
+  readonly gleipnirSystem: string;
+  readonly gleipnirRedact: RedactSpec;
+}
+
+export interface ApproveOptions {
+  /** Who approved, e.g. "ops:anna". */
+  approver: string;
+  /** The oversight rule that required the approval, e.g. "amount>100". */
+  rule?: string;
+  /** The tool's system; required when `tool` is a name rather than a wrapped tool. */
+  system?: string;
+  /** Redaction of the arguments (default: the wrapped tool's); must match how the action records them. */
+  redact?: RedactSpec;
+  reason?: string;
 }
 
 export interface ToolOptions<A extends unknown[], R> {
@@ -348,6 +371,27 @@ export class Recorder {
     return this.chain.append("review", { review: body });
   }
 
+  /**
+   * Record an approval of one specific action *before* it runs; returns the approval id.
+   *
+   * Run the action inside `rec.context({ approval: id }, () => ...)`. The verifier then checks
+   * that the approval came first and that the action's tool, system and arguments are exactly
+   * what was approved. `tool` is a function wrapped with `rec.tool(...)` or a tool name (then
+   * pass `system`). `args` are the arguments as the action will record them (before redaction).
+   */
+  approve(tool: WrappedTool | ((...a: never[]) => unknown) | string, args: Record<string, unknown>, o: ApproveOptions): string {
+    const meta = (typeof tool === "function" ? tool : null) as Partial<WrappedTool> | null;
+    const name = typeof tool === "string" ? tool : meta?.gleipnirTool;
+    const system = o.system || meta?.gleipnirSystem;
+    if (typeof name !== "string" || !system) throw new Error("pass a rec.tool() function, or a tool name together with system");
+    const rules = this.redactor.rules(o.redact !== undefined && o.redact !== null ? o.redact : meta?.gleipnirRedact);
+    const digest = actionDigest(name, system, this.redactor.apply(toJsonable({ ...args }), rules));
+    const body: Rec = { action_digest: digest, tool: name, system, reviewer: o.approver, decision: "approved", before_execution: true };
+    if (o.rule) body["rule"] = o.rule;
+    if (o.reason) body["reason"] = o.reason;
+    return this.chain.append("review", { review: body })["id"] as string;
+  }
+
   note(text: string, data: Record<string, unknown> = {}): Rec {
     return this.chain.append("note", { note: { text, ...(toJsonable(data) as Rec) } });
   }
@@ -456,6 +500,8 @@ export class Recorder {
     };
     Object.defineProperty(wrapper, "name", { value: toolName });
     Object.defineProperty(wrapper, "gleipnirTool", { value: toolName });
+    Object.defineProperty(wrapper, "gleipnirSystem", { value: system });
+    Object.defineProperty(wrapper, "gleipnirRedact", { value: opts.redact ?? null });
     return wrapper;
   }
 
@@ -465,6 +511,13 @@ export class Recorder {
     await this.flush();
     const local = this.chain.anchors.find((a): a is LocalFileAnchor => a instanceof LocalFileAnchor);
     return exportBundle(this.chain.store.readAll(), out, { ...opts, ...(local ? { localAnchorLog: local.path } : {}) });
+  }
+
+  /** Flush and write a single-action proof (record, segment, Merkle proof, anchors) to `out`. */
+  async prove(actionId: string, out: string): Promise<string> {
+    await this.flush();
+    const local = this.chain.anchors.find((a): a is LocalFileAnchor => a instanceof LocalFileAnchor);
+    return exportProof(this.chain.store.readAll(), actionId, out, local ? { localAnchorLog: local.path } : {});
   }
 
   flush(): Promise<void> {

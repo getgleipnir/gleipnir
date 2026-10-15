@@ -6,45 +6,21 @@
  * Python workspace is not available (set GLEIPNIR_REQUIRE_PYTHON=1 to make that an error).
  */
 
-import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   canonicalizeString,
   parseJson,
   parseJsonl,
   parseTime,
-  pyDumps,
   recordHash,
   verifyBundle,
   verifyRecords,
-  type VerifyOptions,
 } from "@getgleipnir/verify";
 import { Builder, Key, resign, rng, writeBundle, zipBundle, type Rec } from "./chainbuilder.js";
-
-const REPO = fileURLToPath(new URL("../../../../", import.meta.url));
-const ORACLE = join(REPO, "typescript/scripts/py_oracle.py");
-
-const available = (() => {
-  if (!existsSync(join(REPO, "pyproject.toml"))) return false;
-  const r = spawnSync("uv", ["--version"], { encoding: "utf8" });
-  return r.status === 0;
-})();
-if (!available && process.env["GLEIPNIR_REQUIRE_PYTHON"]) throw new Error("uv / Python workspace not available");
-
-function oracle(cases: unknown[]): any[] {
-  const out = execFileSync("uv", ["run", "--quiet", "python", "-I", ORACLE], {
-    cwd: REPO,
-    input: JSON.stringify(cases),
-    encoding: "utf8",
-    maxBuffer: 256 * 1024 * 1024,
-    stdio: ["pipe", "pipe", "pipe"],
-  });
-  return JSON.parse(out);
-}
+import { normalizeReport, oracle, pythonAvailable, stripExceptionText, toTsOptions } from "./oracle.js";
 
 function errorName(fn: () => unknown): { ok: unknown } | { error: string } {
   try {
@@ -54,28 +30,7 @@ function errorName(fn: () => unknown): { ok: unknown } | { error: string } {
   }
 }
 
-/** JSON as the Python side would produce it from the report (sorted keys). */
-function normalizeReport(r: unknown): unknown {
-  return JSON.parse(pyDumps(r));
-}
-
-const d = available ? describe : describe.skip;
-
-/**
- * Findings whose message embeds a host-language exception text ("malformed: records could not
- * be processed: TypeError: ...", "unencodable", "bad_genesis_key", "bad_segment", ...) are
- * compared up to the exception type; everything else is compared exactly.
- */
-const EXCEPTION_TEXT_CODES = new Set(["malformed", "bad_bundle", "unencodable", "bad_genesis_key", "bad_rotation", "bad_segment"]);
-function stripExceptionText(report: any): any {
-  if (!report || !Array.isArray(report.findings)) return report;
-  return {
-    ...report,
-    findings: report.findings.map((f: any) =>
-      EXCEPTION_TEXT_CODES.has(f.code) ? { ...f, message: String(f.message).split(":").slice(0, f.code === "malformed" ? 2 : 1).join(":") } : f,
-    ),
-  };
-}
+const d = pythonAvailable ? describe : describe.skip;
 
 d("differential: canonical bytes and hashes match the Python reference", () => {
   const texts = [
@@ -163,19 +118,6 @@ interface Case {
   name: string;
   records: Rec[] | string;
   options?: Record<string, unknown>;
-}
-
-function toTsOptions(o: Record<string, any> = {}): VerifyOptions {
-  const out: VerifyOptions = {};
-  if (o["expect_key"] != null) out.expectKey = o["expect_key"];
-  if (o["expect_until"] != null) out.expectUntil = o["expect_until"];
-  if (o["known_head"] != null) out.knownHead = { seq: o["known_head"][0], hash: o["known_head"][1] };
-  if (o["require_anchor"] != null) out.requireAnchor = o["require_anchor"];
-  if (o["max_anchor_delay"] != null) out.maxAnchorDelay = o["max_anchor_delay"];
-  if (o["require_full"]) out.requireFull = true;
-  if (o["manifest"] != null) out.manifest = o["manifest"];
-  if (o["local_anchor_entries"] != null) out.anchorOptions = { localAnchorEntries: o["local_anchor_entries"] };
-  return out;
 }
 
 d("differential: verification reports are identical", () => {
