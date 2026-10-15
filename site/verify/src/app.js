@@ -2,7 +2,7 @@
 // Everything happens in this tab; the file is read with FileReader and never sent anywhere.
 // Built into verify.js by `npm run build:site` in typescript/.
 
-import { parseKnownHead, readBundle, verifyBundle } from "@getgleipnir/verify";
+import { parseKnownHead, parseTime, readBundle, verifyBundle } from "@getgleipnir/verify";
 
 const $ = (id) => document.getElementById(id);
 const els = {
@@ -14,6 +14,11 @@ const els = {
   knownHeadError: $("known-head-error"),
   rekor: $("req-rekor"),
   rfc3161: $("req-rfc3161"),
+  maxDelay: $("max-delay"),
+  maxDelayError: $("max-delay-error"),
+  expectUntil: $("expect-until"),
+  expectUntilError: $("expect-until-error"),
+  requireFull: $("require-full"),
   result: $("result"),
   status: $("status"),
 };
@@ -32,20 +37,43 @@ function el(tag, attrs = {}, ...children) {
   return n;
 }
 
-function options() {
-  const opts = { expectKey: els.expectKey.value.trim() || null };
-  const head = els.knownHead.value.trim();
-  els.knownHeadError.hidden = true;
-  els.knownHead.removeAttribute("aria-invalid");
-  if (head) {
-    const parsed = parseKnownHead(head);
-    if (parsed === null) {
-      els.knownHeadError.hidden = false;
-      els.knownHead.setAttribute("aria-invalid", "true");
-      return null;
-    }
-    opts.knownHead = parsed;
+/** Show or clear a field's error; returns `ok`. */
+function fieldState(input, error, ok) {
+  error.hidden = ok;
+  if (ok) input.removeAttribute("aria-invalid");
+  else input.setAttribute("aria-invalid", "true");
+  return ok;
+}
+
+const validHead = (t) => !t || parseKnownHead(t) !== null;
+const validDelay = (t) => !t || /^\d+(\.\d+)?$/.test(t);
+const validUntil = (t) => {
+  if (!t) return true;
+  try {
+    parseTime(t);
+    return true;
+  } catch {
+    return false;
   }
+};
+/** Inputs with a format, their error line and validator. */
+const VALIDATED = [
+  [els.knownHead, els.knownHeadError, validHead],
+  [els.maxDelay, els.maxDelayError, validDelay],
+  [els.expectUntil, els.expectUntilError, validUntil],
+];
+
+function options() {
+  let ok = true;
+  for (const [input, error, valid] of VALIDATED) ok = fieldState(input, error, valid(input.value.trim())) && ok;
+  if (!ok) return null;
+  const opts = { expectKey: els.expectKey.value.trim() || null, requireFull: els.requireFull.checked };
+  const head = els.knownHead.value.trim();
+  if (head) opts.knownHead = parseKnownHead(head);
+  const delay = els.maxDelay.value.trim();
+  if (delay) opts.maxAnchorDelay = Number(delay);
+  const until = els.expectUntil.value.trim();
+  if (until) opts.expectUntil = until;
   const req = [];
   if (els.rekor.checked) req.push("rekor");
   if (els.rfc3161.checked) req.push("rfc3161");
@@ -108,6 +136,9 @@ function render(report, records) {
   const valid = report.valid();
   const s = report.summary || {};
   const isProof = s.type === "proof";
+  // A proof should prove an action; when the proven record is something else, say "record".
+  const proven = isProof && records && records[1] && typeof records[1] === "object" ? records[1] : null;
+  const noun = isProof && proven && proven.kind !== "action" ? "record" : "action";
   const errors = report.errors.length;
   const warnings = report.warnings.length;
 
@@ -119,9 +150,11 @@ function render(report, records) {
       class: "verdict-line",
       text: valid
         ? isProof
-          ? "This action was signed by the chain's key and is included in a signed segment. Nothing in the proof was changed."
+          ? `This ${noun} was signed by the chain's key and is included in a signed segment. Nothing in the proof was changed.`
           : "No record was edited, removed, reordered or inserted after it was written, and every segment checks out."
-        : `${errors} problem${errors === 1 ? "" : "s"} found. The records cannot be trusted as they are.`,
+        : noun === "record"
+          ? `${errors} problem${errors === 1 ? "" : "s"} found. The proven record is a ${fmt(proven.kind)} record, not an action, so this proof does not show an action.`
+          : `${errors} problem${errors === 1 ? "" : "s"} found. The records cannot be trusted as they are.`,
     }),
     warnings ? el("p", { class: "verdict-sub", text: `${warnings} warning${warnings === 1 ? "" : "s"}: valid, but read them below.` }) : null,
   );
@@ -129,7 +162,7 @@ function render(report, records) {
   const parts = [verdict];
   const ribbon = records && Array.isArray(records) ? buildRibbon(report, records, isProof) : null;
   if (ribbon) parts.push(ribbon);
-  if (Object.keys(s).length) parts.push(buildSummary(s, isProof));
+  if (Object.keys(s).length) parts.push(buildSummary(s, isProof, noun));
   parts.push(buildFindings(report));
   if (!isProof && s.head && s.head.hash && valid) {
     parts.push(
@@ -204,13 +237,13 @@ function row(term, ...value) {
   return [el("dt", { text: term }), el("dd", {}, ...value)];
 }
 
-function buildSummary(s, isProof) {
+function buildSummary(s, isProof, noun = "action") {
   const dl = el("dl", { class: "summary" });
   const keys = Array.isArray(s.keys) ? s.keys : [];
   dl.append(...row(keys.length > 1 ? "Signing keys" : "Signing key", ...keys.flatMap((k, i) => (i ? [el("br"), code(k)] : [code(k)]))));
   dl.append(...row("Chain", code(s.chain)));
   if (isProof) {
-    dl.append(...row("Action", code(s.action), ` at seq ${fmt(s.action_seq)}`));
+    dl.append(...row(noun === "action" ? "Action" : "Proven record", code(s.action), ` at seq ${fmt(s.action_seq)}`));
     dl.append(...row("Segment", `seq ${fmt(s.segment_seq)}`));
     const ind = Array.isArray(s.anchors_independent) ? s.anchors_independent : [];
     dl.append(...row("Independent anchors", ind.length ? ind.join(", ") : "none"));
@@ -297,8 +330,15 @@ window.addEventListener("drop", (e) => {
   const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
   if (f) load(f);
 });
-for (const input of [els.expectKey, els.knownHead]) input.addEventListener("change", run);
-for (const input of [els.rekor, els.rfc3161]) input.addEventListener("change", run);
+for (const input of [els.expectKey, els.knownHead, els.maxDelay, els.expectUntil]) input.addEventListener("change", run);
+for (const input of [els.rekor, els.rfc3161, els.requireFull]) input.addEventListener("change", run);
+// Clear a field's error as soon as its text is valid again, while typing: hiding it only on
+// "change" would move the controls below it at the moment the person clicks one of them.
+for (const [input, error, valid] of VALIDATED) {
+  input.addEventListener("input", () => {
+    if (!error.hidden && valid(input.value.trim())) fieldState(input, error, true);
+  });
+}
 document.getElementById("checks").addEventListener("submit", (e) => {
   e.preventDefault();
   run();
@@ -309,6 +349,9 @@ try {
   const params = new URLSearchParams(location.hash.slice(1));
   if (params.get("expect-key")) els.expectKey.value = params.get("expect-key");
   if (params.get("known-head")) els.knownHead.value = params.get("known-head");
+  if (params.get("max-anchor-delay")) els.maxDelay.value = params.get("max-anchor-delay");
+  if (params.get("expect-until")) els.expectUntil.value = params.get("expect-until");
+  if (params.has("require-full")) els.requireFull.checked = true;
   for (const a of params.getAll("require-anchor")) {
     if (a === "rekor") els.rekor.checked = true;
     if (a === "rfc3161") els.rfc3161.checked = true;

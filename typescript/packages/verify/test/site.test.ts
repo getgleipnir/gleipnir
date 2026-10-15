@@ -24,7 +24,9 @@ describe("site/verify/index.html", () => {
 
   it("says that nothing is uploaded, and offers the checks", () => {
     expect(html).toContain("Nothing is uploaded");
-    for (const id of ["expect-key", "known-head", "req-rekor", "req-rfc3161"]) expect(html).toContain(`id="${id}"`);
+    for (const id of ["expect-key", "known-head", "req-rekor", "req-rfc3161", "require-full", "max-delay", "expect-until"]) {
+      expect(html).toContain(`id="${id}"`);
+    }
   });
 
   it("is up to date with site/verify/src and the verifier source (run `npm run build:site`)", async () => {

@@ -185,6 +185,19 @@ footer p { max-width: none; }
         <span class="check"><input type="checkbox" id="req-rekor"><label for="req-rekor">Sigstore Rekor (public transparency log)</label></span>
         <span class="check"><input type="checkbox" id="req-rfc3161"><label for="req-rfc3161">RFC 3161 trusted timestamp</label></span>
       </fieldset>
+      <div class="field">
+        <label for="max-delay">Latest timestamp after a segment closes, in seconds</label>
+        <input type="text" id="max-delay" name="max-anchor-delay" inputmode="numeric" placeholder="86400" autocomplete="off" spellcheck="false" aria-describedby="max-delay-help">
+        <span class="help" id="max-delay-help">Fails segments without a trusted timestamp, or timestamped later than this: catches history rebuilt after the fact. One day is 86400.</span>
+        <span class="err" id="max-delay-error" hidden>Enter a number of seconds, for example 86400.</span>
+      </div>
+      <div class="field">
+        <label for="expect-until">Records must reach at least</label>
+        <input type="text" id="expect-until" name="expect-until" placeholder="2026-10-14T18:00:00Z" autocomplete="off" spellcheck="false" aria-describedby="expect-until-help">
+        <span class="help" id="expect-until-help">A time with a timezone. Fails if the records stop earlier (cut short).</span>
+        <span class="err" id="expect-until-error" hidden>Use a time with a timezone, for example 2026-10-14T18:00:00Z.</span>
+      </div>
+      <span class="check field"><input type="checkbox" id="require-full"><label for="require-full">Require the whole chain, from its first record</label></span>
       <button type="submit">Verify again</button>
     </details>
   </form>
