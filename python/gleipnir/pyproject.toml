@@ -19,6 +19,7 @@ openai-agents = ["openai-agents>=0.23"]
 claude-agent-sdk = ["claude-agent-sdk>=0.2.167"]
 langchain = ["langchain-core>=1.6"]
 langgraph = ["langchain-core>=1.6", "langgraph>=1.2"]
+playwright = ["playwright>=1.49"]
 
 [project.urls]
 Homepage = "https://getgleipnir.com"
