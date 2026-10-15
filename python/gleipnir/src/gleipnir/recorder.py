@@ -323,15 +323,9 @@ class Recorder:
             body["changes"] = to_jsonable(dict(changes))
         return self.chain.append("review", {"review": body})
 
-    def approve(self, tool: Any, args: Mapping[str, Any], *, approver: str, rule: str | None = None,
-                system: str | None = None, redact: RedactSpec = None, reason: str | None = None) -> str:
-        """Record an approval of one specific action *before* it runs; returns the approval id.
-
-        Run the action inside ``with rec.context(approval=approval_id):``. The verifier then checks
-        that the approval came first and that the action's tool, system and arguments are exactly
-        what was approved. ``tool`` is a function wrapped with ``@rec.tool`` or a tool name.
-        """
-        from gleipnir_verify.verifier import action_digest
+    def _approval_target(self, tool: Any, args: Mapping[str, Any], system: str | None,
+                         redact: RedactSpec) -> tuple[str, str, str]:
+        from gleipnir_verify.verifier import _has_dropped, action_digest
 
         name = getattr(tool, "gleipnir_tool", tool)
         system = system or getattr(tool, "gleipnir_system", None)
@@ -339,18 +333,56 @@ class Recorder:
             raise ValueError("pass a @rec.tool function, or a tool name together with system=")
         rules = self.redactor.rules(redact if redact is not None else getattr(tool, "gleipnir_redact", None))
         bound = self.redactor.apply(to_jsonable(dict(args)), rules)
-        from gleipnir_verify.verifier import _has_dropped
-
         if _has_dropped(bound):
             raise ValueError("an approved argument would be dropped by redaction, so the approval could not show "
                              "what was approved; use 'hmac' redaction for approved tools (needs a redaction key)")
-        digest = action_digest(name, system, bound)
+        return name, system, action_digest(name, system, bound)
+
+    def approval_digest(self, tool: Any, args: Mapping[str, Any], *, system: str | None = None,
+                        redact: RedactSpec = None) -> str:
+        """The action digest an approver signs for ``tool(args)``, with this recorder's redaction applied.
+
+        Show it to the approver (``gleipnir approve``, or the passkey page site/approve/), who signs it
+        on their own device; pass the result to :meth:`approve` as ``signature``.
+        """
+        return self._approval_target(tool, args, system, redact)[2]
+
+    def approve(self, tool: Any, args: Mapping[str, Any], *, approver: str | None = None, rule: str | None = None,
+                system: str | None = None, redact: RedactSpec = None, reason: str | None = None,
+                signature: Mapping[str, Any] | str | None = None,
+                webauthn_origins: list[str] | None = None) -> str:
+        """Record an approval of one specific action *before* it runs; returns the approval id.
+
+        Run the action inside ``with rec.context(approval=approval_id):``. The verifier then checks
+        that the approval came first and that the action's tool, system and arguments are exactly
+        what was approved. ``tool`` is a function wrapped with ``@rec.tool`` or a tool name.
+
+        ``signature`` is the approver's own signature over the approval (from ``ApproverKey.sign``,
+        ``gleipnir approve sign`` or the passkey page; a dict or its JSON text). It is checked here
+        before it is recorded, and ``approver`` defaults to its ``approver_id``. Without a signature,
+        ``reviewer`` is only the vendor's word, and verifiers report ``approval_unsigned``.
+        """
+        name, system, digest = self._approval_target(tool, args, system, redact)
+        sig = None
+        if signature is not None:
+            from .approvals import check_approval_signature, parse_signature
+
+            sig = to_jsonable(parse_signature(signature))
+            check_approval_signature(digest, sig, webauthn_origins)
+            if approver is not None and approver != sig.get("approver_id"):
+                raise ValueError(f"approver {approver!r} differs from the signature's approver_id "
+                                 f"{sig.get('approver_id')!r}")
+            approver = sig["approver_id"]
+        if not approver:
+            raise ValueError("pass approver= (who approved) or signature= (the approver's signature)")
         body: dict[str, Any] = {"action_digest": digest, "tool": name, "system": system, "reviewer": approver,
                                 "decision": "approved", "before_execution": True}
         if rule:
             body["rule"] = rule
         if reason:
             body["reason"] = reason
+        if sig is not None:
+            body["signature"] = sig
         rec = self.chain.append("review", {"review": body})
         return rec["id"]
 
