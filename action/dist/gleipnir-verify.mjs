@@ -7,1235 +7,6 @@ import { basename } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
-// packages/verify/src/py.ts
-var PyError = class extends Error {
-  constructor(name, message) {
-    super(message);
-    this.name = name;
-  }
-};
-var mk = (name) => (message) => new PyError(name, message);
-var KeyError = (key) => new PyError("KeyError", pyRepr(key));
-var TypeErr = mk("TypeError");
-var ValueErr = mk("ValueError");
-var AttributeErr = mk("AttributeError");
-var OverflowErr = mk("OverflowError");
-var SUBCLASSES = {
-  ValueError: [
-    "ValueError",
-    "JSONDecodeError",
-    "UnicodeDecodeError",
-    "UnicodeEncodeError",
-    "Error"
-    /* binascii */
-  ],
-  KeyError: ["KeyError"],
-  TypeError: ["TypeError"],
-  AttributeError: ["AttributeError"]
-};
-function caught(err2, ...names) {
-  if (!(err2 instanceof PyError)) return false;
-  return names.some((n) => (SUBCLASSES[n] ?? [n]).includes(err2.name));
-}
-var BigIntLiteral = class {
-  constructor(text) {
-    this.text = text;
-    this.value = BigInt(text);
-  }
-  text;
-  value;
-  /** `JSON.stringify` writes the nearest double (exactness needs `pyDumps`). */
-  toJSON() {
-    return Number(this.value);
-  }
-};
-var PyFloat = class {
-  constructor(value) {
-    this.value = value;
-  }
-  value;
-  toJSON() {
-    return this.value;
-  }
-};
-function isDict(x2) {
-  if (x2 === null || typeof x2 !== "object" || Array.isArray(x2)) return false;
-  const proto = Object.getPrototypeOf(x2);
-  return proto === Object.prototype || proto === null;
-}
-function hasKey(d, key) {
-  return Object.prototype.hasOwnProperty.call(d, key);
-}
-function isNone(x2) {
-  return x2 === null || x2 === void 0;
-}
-function dget(d, key, dflt = null) {
-  if (!isDict(d)) throw AttributeErr(`'${pyTypeName(d)}' object has no attribute 'get'`);
-  return hasKey(d, key) ? d[key] : dflt;
-}
-function sub(d, key) {
-  if (isDict(d)) {
-    if (!hasKey(d, key)) throw KeyError(key);
-    return d[key];
-  }
-  if (typeof d === "string" || Array.isArray(d)) {
-    throw TypeErr(`${pyTypeName(d) === "str" ? "string" : "list"} indices must be integers or slices, not str`);
-  }
-  throw TypeErr(`'${pyTypeName(d)}' object is not subscriptable`);
-}
-function requireHashable(x2) {
-  if (Array.isArray(x2) || isDict(x2)) throw TypeErr(`unhashable type: '${pyTypeName(x2)}'`);
-}
-function isNumeric(x2) {
-  return typeof x2 === "number" || typeof x2 === "boolean" || x2 instanceof PyFloat || x2 instanceof BigIntLiteral;
-}
-function isPyInt(x2) {
-  return typeof x2 === "number" && Number.isInteger(x2) || typeof x2 === "boolean" || x2 instanceof BigIntLiteral;
-}
-function num(x2) {
-  if (typeof x2 === "number") return x2;
-  if (typeof x2 === "boolean") return x2 ? 1 : 0;
-  if (x2 instanceof PyFloat) return x2.value;
-  if (x2 instanceof BigIntLiteral) return Number(x2.value);
-  throw TypeErr(`unsupported operand type(s): '${pyTypeName(x2)}'`);
-}
-function truthy(x2) {
-  if (isNone(x2) || x2 === false || x2 === "") return false;
-  if (isNumeric(x2)) return x2 instanceof BigIntLiteral ? x2.value !== 0n : num(x2) !== 0;
-  if (Array.isArray(x2)) return x2.length > 0;
-  if (isDict(x2)) return Object.keys(x2).length > 0;
-  return true;
-}
-var INT_DIGITS_LIMIT = 4300;
-function pyIntFromString(x2) {
-  const t = x2.replace(/^[\s\u001c-\u001f\u0085]+|[\s\u001c-\u001f\u0085]+$/gu, "");
-  if (!/^[+-]?[0-9](_?[0-9])*$/.test(t)) throw ValueErr(`invalid literal for int() with base 10: ${pyRepr(x2)}`);
-  const digits2 = t.replace(/[+_-]/g, "");
-  if (digits2.length > INT_DIGITS_LIMIT) {
-    throw ValueErr(`Exceeds the limit (${INT_DIGITS_LIMIT}) for integer string conversion`);
-  }
-  return BigInt(t.replace(/_/g, ""));
-}
-function pyIntBig(x2) {
-  if (typeof x2 === "boolean") return x2 ? 1n : 0n;
-  if (x2 instanceof BigIntLiteral) return x2.value;
-  if (typeof x2 === "number" || x2 instanceof PyFloat) {
-    const v = num(x2);
-    if (Number.isNaN(v)) throw ValueErr("cannot convert float NaN to integer");
-    if (!Number.isFinite(v)) throw OverflowErr("cannot convert float infinity to integer");
-    return BigInt(Math.trunc(v));
-  }
-  if (typeof x2 === "string") return pyIntFromString(x2);
-  throw TypeErr(`int() argument must be a string, a bytes-like object or a real number, not '${pyTypeName(x2)}'`);
-}
-function pyInt(x2) {
-  return Number(pyIntBig(x2));
-}
-function pyIter(x2) {
-  if (Array.isArray(x2)) return x2;
-  if (typeof x2 === "string") return Array.from(x2);
-  if (isDict(x2)) return Object.keys(x2);
-  throw TypeErr(`'${pyTypeName(x2)}' object is not iterable`);
-}
-function numEq(a, b) {
-  if (a instanceof BigIntLiteral || b instanceof BigIntLiteral) {
-    const ex = (v) => {
-      if (v instanceof BigIntLiteral) return v.value;
-      const n = num(v);
-      return Number.isInteger(n) ? BigInt(n) : null;
-    };
-    const ea = ex(a);
-    const eb = ex(b);
-    return ea !== null && eb !== null && ea === eb;
-  }
-  return num(a) === num(b);
-}
-function pyEq(a, b) {
-  if (isNone(a) || isNone(b)) return isNone(a) && isNone(b);
-  if (isNumeric(a) || isNumeric(b)) return isNumeric(a) && isNumeric(b) && numEq(a, b);
-  if (typeof a === "string" || typeof b === "string") return a === b;
-  if (Array.isArray(a) || Array.isArray(b)) {
-    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
-    return a.every((v, i2) => pyEq(v, b[i2]));
-  }
-  if (isDict(a) && isDict(b)) {
-    const ka = Object.keys(a);
-    if (ka.length !== Object.keys(b).length) return false;
-    return ka.every((k) => hasKey(b, k) && pyEq(a[k], b[k]));
-  }
-  return a === b;
-}
-var nanCounter = 0;
-function pyKey(x2) {
-  requireHashable(x2);
-  if (isNone(x2)) return "none";
-  if (typeof x2 === "string") return "s:" + x2;
-  if (x2 instanceof BigIntLiteral) return "n:" + x2.value.toString();
-  if (isNumeric(x2)) {
-    const v = num(x2);
-    if (Number.isNaN(v)) return `nan:${nanCounter++}`;
-    return Number.isInteger(v) ? "n:" + BigInt(v).toString() : "f:" + String(v);
-  }
-  return "o:" + String(x2);
-}
-function isWellFormed(s) {
-  for (let i2 = 0; i2 < s.length; i2++) {
-    const c = s.charCodeAt(i2);
-    if (c >= 55296 && c <= 56319) {
-      const d = s.charCodeAt(i2 + 1);
-      if (d >= 56320 && d <= 57343) {
-        i2++;
-        continue;
-      }
-      return false;
-    }
-    if (c >= 56320 && c <= 57343) return false;
-  }
-  return true;
-}
-function splitlines(text) {
-  const parts = text.split(/\r\n|[\n\r\u000b\u000c\u001c\u001d\u001e\u0085\u2028\u2029]/u);
-  if (parts.length > 0 && parts[parts.length - 1] === "") parts.pop();
-  return parts;
-}
-function codePointCompare(a, b) {
-  const ia = a[Symbol.iterator]();
-  const ib = b[Symbol.iterator]();
-  for (; ; ) {
-    const x2 = ia.next();
-    const y = ib.next();
-    if (x2.done || y.done) return x2.done && y.done ? 0 : x2.done ? -1 : 1;
-    const cx = x2.value.codePointAt(0);
-    const cy = y.value.codePointAt(0);
-    if (cx !== cy) return cx < cy ? -1 : 1;
-  }
-}
-function pyTypeName(x2) {
-  if (isNone(x2)) return "NoneType";
-  if (typeof x2 === "boolean") return "bool";
-  if (typeof x2 === "number") return Number.isInteger(x2) ? "int" : "float";
-  if (x2 instanceof PyFloat) return "float";
-  if (x2 instanceof BigIntLiteral) return "int";
-  if (typeof x2 === "string") return "str";
-  if (Array.isArray(x2)) return "list";
-  if (isDict(x2)) return "dict";
-  if (x2 instanceof Uint8Array) return "bytes";
-  return typeof x2;
-}
-function pyRepr(x2, depth = 0) {
-  if (depth > 20) return "...";
-  if (isNone(x2)) return "None";
-  if (x2 === true) return "True";
-  if (x2 === false) return "False";
-  if (x2 instanceof PyFloat) return pyFloatRepr(x2.value);
-  if (x2 instanceof BigIntLiteral) return x2.value.toString();
-  if (typeof x2 === "number") return Number.isInteger(x2) && Math.abs(x2) <= Number.MAX_SAFE_INTEGER ? String(x2) : pyFloatRepr(x2);
-  if (typeof x2 === "string") return pyStrRepr(x2);
-  if (Array.isArray(x2)) return "[" + x2.map((v) => pyRepr(v, depth + 1)).join(", ") + "]";
-  if (isDict(x2)) {
-    return "{" + Object.keys(x2).map((k) => `${pyStrRepr(k)}: ${pyRepr(x2[k], depth + 1)}`).join(", ") + "}";
-  }
-  return String(x2);
-}
-function pyStr(x2) {
-  return typeof x2 === "string" ? x2 : pyRepr(x2);
-}
-function pyFloatRepr(x2) {
-  if (Number.isNaN(x2)) return "nan";
-  if (x2 === Infinity) return "inf";
-  if (x2 === -Infinity) return "-inf";
-  if (x2 === 0) return Object.is(x2, -0) ? "-0.0" : "0.0";
-  const sign = x2 < 0 ? "-" : "";
-  const [mant, expText] = Math.abs(x2).toExponential().split("e");
-  const digits2 = mant.replace(".", "");
-  const exp = Number(expText);
-  if (exp < -4 || exp >= 16) {
-    const m = digits2.length > 1 ? `${digits2[0]}.${digits2.slice(1)}` : digits2;
-    const e = Math.abs(exp) < 10 ? `0${Math.abs(exp)}` : String(Math.abs(exp));
-    return `${sign}${m}e${exp < 0 ? "-" : "+"}${e}`;
-  }
-  if (exp < 0) return `${sign}0.${"0".repeat(-exp - 1)}${digits2}`;
-  if (digits2.length <= exp + 1) return `${sign}${digits2}${"0".repeat(exp + 1 - digits2.length)}.0`;
-  return `${sign}${digits2.slice(0, exp + 1)}.${digits2.slice(exp + 1)}`;
-}
-function pyStrRepr(s) {
-  const quote = s.includes("'") && !s.includes('"') ? '"' : "'";
-  let out = quote;
-  for (const ch of s) {
-    const cp = ch.codePointAt(0);
-    if (ch === quote || ch === "\\") out += "\\" + ch;
-    else if (ch === "\n") out += "\\n";
-    else if (ch === "\r") out += "\\r";
-    else if (ch === "	") out += "\\t";
-    else if (cp < 32 || cp === 127) out += "\\x" + cp.toString(16).padStart(2, "0");
-    else if (cp >= 55296 && cp <= 57343) out += "\\u" + cp.toString(16).padStart(4, "0");
-    else out += ch;
-  }
-  return out + quote;
-}
-function formatFixed(x2, digits2) {
-  if (!Number.isFinite(x2)) return Number.isNaN(x2) ? "nan" : x2 > 0 ? "inf" : "-inf";
-  const neg = x2 < 0 || Object.is(x2, -0);
-  const exact = Math.abs(x2).toFixed(100);
-  if (Math.abs(x2) >= 1e21) return (neg ? "-" : "") + BigInt(Math.abs(x2)).toString() + (digits2 ? "." + "0".repeat(digits2) : "");
-  const [ip, fp] = exact.split(".");
-  let keep = BigInt(ip + fp.slice(0, digits2));
-  const rest = fp.slice(digits2);
-  const first = rest.charCodeAt(0) - 48;
-  const tail = rest.slice(1).replace(/0+$/, "");
-  if (first > 5 || first === 5 && (tail.length > 0 || keep % 2n === 1n)) keep += 1n;
-  let s = keep.toString().padStart(digits2 + 1, "0");
-  if (digits2) s = s.slice(0, -digits2) + "." + s.slice(-digits2);
-  return (neg ? "-" : "") + s;
-}
-function pyRound(x2, digits2) {
-  return Number(formatFixed(x2, digits2));
-}
-function errorText(err2) {
-  if (err2 instanceof Error) return `${err2.name}: ${err2.message}`;
-  return `Error: ${String(err2)}`;
-}
-
-// packages/verify/src/json.ts
-var MAX_DEPTH = 900;
-var INT_DIGITS_LIMIT2 = 4300;
-function jsonError(message, pos) {
-  return new PyError("JSONDecodeError", `${message}: char ${pos}`);
-}
-function parseJson(text) {
-  let i2 = 0;
-  const n = text.length;
-  const ws = () => {
-    while (i2 < n) {
-      const c = text.charCodeAt(i2);
-      if (c === 32 || c === 9 || c === 10 || c === 13) i2++;
-      else break;
-    }
-  };
-  const parseString = () => {
-    i2++;
-    let out = "";
-    let start = i2;
-    for (; ; ) {
-      if (i2 >= n) throw jsonError("Unterminated string starting at", start - 1);
-      const c = text.charCodeAt(i2);
-      if (c === 34) {
-        out += text.slice(start, i2);
-        i2++;
-        return out;
-      }
-      if (c < 32) throw jsonError("Invalid control character at", i2);
-      if (c === 92) {
-        out += text.slice(start, i2);
-        const e = text[i2 + 1];
-        switch (e) {
-          case '"':
-            out += '"';
-            i2 += 2;
-            break;
-          case "\\":
-            out += "\\";
-            i2 += 2;
-            break;
-          case "/":
-            out += "/";
-            i2 += 2;
-            break;
-          case "b":
-            out += "\b";
-            i2 += 2;
-            break;
-          case "f":
-            out += "\f";
-            i2 += 2;
-            break;
-          case "n":
-            out += "\n";
-            i2 += 2;
-            break;
-          case "r":
-            out += "\r";
-            i2 += 2;
-            break;
-          case "t":
-            out += "	";
-            i2 += 2;
-            break;
-          case "u": {
-            const hex = text.slice(i2 + 2, i2 + 6);
-            if (!/^[0-9a-fA-F]{4}$/.test(hex)) throw jsonError("Invalid \\uXXXX escape", i2 + 1);
-            out += String.fromCharCode(parseInt(hex, 16));
-            i2 += 6;
-            break;
-          }
-          default:
-            throw jsonError("Invalid \\escape", i2);
-        }
-        start = i2;
-        continue;
-      }
-      i2++;
-    }
-  };
-  const NUM = /-?(?:0|[1-9]\d*)(\.\d+)?([eE][-+]?\d+)?/y;
-  const parseNumber = () => {
-    NUM.lastIndex = i2;
-    const m = NUM.exec(text);
-    if (!m) throw jsonError("Expecting value", i2);
-    const lit = m[0];
-    i2 += lit.length;
-    if (m[1] === void 0 && m[2] === void 0) {
-      const digits2 = lit.replace("-", "");
-      if (digits2.length > INT_DIGITS_LIMIT2) {
-        throw new PyError("ValueError", `Exceeds the limit (${INT_DIGITS_LIMIT2}) for integer string conversion`);
-      }
-      const v2 = Number(lit);
-      if (Number.isSafeInteger(v2)) return v2 === 0 ? 0 : v2;
-      return new BigIntLiteral(lit);
-    }
-    const v = Number(lit);
-    return Number.isInteger(v) ? new PyFloat(v) : v;
-  };
-  const parseValue = (depth) => {
-    if (depth > MAX_DEPTH) throw new PyError("RecursionError", "maximum recursion depth exceeded while decoding JSON");
-    if (i2 >= n) throw jsonError("Expecting value", i2);
-    const c = text[i2];
-    if (c === '"') return parseString();
-    if (c === "{") {
-      i2++;
-      const obj = {};
-      ws();
-      if (text[i2] === "}") {
-        i2++;
-        return obj;
-      }
-      for (; ; ) {
-        ws();
-        if (text[i2] !== '"') throw jsonError("Expecting property name enclosed in double quotes", i2);
-        const key = parseString();
-        ws();
-        if (text[i2] !== ":") throw jsonError("Expecting ':' delimiter", i2);
-        i2++;
-        ws();
-        const val = parseValue(depth + 1);
-        if (key === "__proto__") {
-          Object.defineProperty(obj, key, { value: val, enumerable: true, writable: true, configurable: true });
-        } else {
-          obj[key] = val;
-        }
-        ws();
-        if (text[i2] === ",") {
-          i2++;
-          continue;
-        }
-        if (text[i2] === "}") {
-          i2++;
-          return obj;
-        }
-        throw jsonError("Expecting ',' delimiter", i2);
-      }
-    }
-    if (c === "[") {
-      i2++;
-      const arr = [];
-      ws();
-      if (text[i2] === "]") {
-        i2++;
-        return arr;
-      }
-      for (; ; ) {
-        ws();
-        arr.push(parseValue(depth + 1));
-        ws();
-        if (text[i2] === ",") {
-          i2++;
-          continue;
-        }
-        if (text[i2] === "]") {
-          i2++;
-          return arr;
-        }
-        throw jsonError("Expecting ',' delimiter", i2);
-      }
-    }
-    if (text.startsWith("true", i2)) {
-      i2 += 4;
-      return true;
-    }
-    if (text.startsWith("false", i2)) {
-      i2 += 5;
-      return false;
-    }
-    if (text.startsWith("null", i2)) {
-      i2 += 4;
-      return null;
-    }
-    if (text.startsWith("NaN", i2)) {
-      i2 += 3;
-      return NaN;
-    }
-    if (text.startsWith("Infinity", i2)) {
-      i2 += 8;
-      return Infinity;
-    }
-    if (text.startsWith("-Infinity", i2)) {
-      i2 += 9;
-      return -Infinity;
-    }
-    return parseNumber();
-  };
-  if (text.charCodeAt(0) === 65279) throw jsonError("Unexpected UTF-8 BOM (decode using utf-8-sig)", 0);
-  ws();
-  const value = parseValue(0);
-  ws();
-  if (i2 !== n) throw jsonError("Extra data", i2);
-  return value;
-}
-function decodeUtf8(bytes) {
-  try {
-    return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
-  } catch {
-    throw new PyError("UnicodeDecodeError", utf8ErrorMessage(bytes));
-  }
-}
-function utf8ErrorMessage(b) {
-  const hex = (x2) => "0x" + x2.toString(16).padStart(2, "0");
-  const fail = (start, len, reason) => len <= 1 ? `'utf-8' codec can't decode byte ${hex(b[start])} in position ${start}: ${reason}` : `'utf-8' codec can't decode bytes in position ${start}-${start + len - 1}: ${reason}`;
-  const cont = (x2) => x2 !== void 0 && (x2 & 192) === 128;
-  let i2 = 0;
-  while (i2 < b.length) {
-    const c = b[i2];
-    if (c < 128) {
-      i2++;
-      continue;
-    }
-    let need;
-    let lo = 128;
-    let hi = 191;
-    if (c >= 194 && c <= 223) need = 1;
-    else if (c >= 224 && c <= 239) {
-      need = 2;
-      if (c === 224) lo = 160;
-      if (c === 237) hi = 159;
-    } else if (c >= 240 && c <= 244) {
-      need = 3;
-      if (c === 240) lo = 144;
-      if (c === 244) hi = 143;
-    } else return fail(i2, 1, "invalid start byte");
-    let k = 1;
-    for (; k <= need; k++) {
-      const x2 = b[i2 + k];
-      if (x2 === void 0) return fail(i2, k, "unexpected end of data");
-      const ok = k === 1 ? x2 >= lo && x2 <= hi : cont(x2);
-      if (!ok) return fail(i2, k, "invalid continuation byte");
-    }
-    i2 += need + 1;
-  }
-  return "'utf-8' codec can't decode bytes: invalid UTF-8";
-}
-function parseJsonBytes(bytes) {
-  const skip = bytes[0] === 239 && bytes[1] === 187 && bytes[2] === 191 ? 3 : 0;
-  return parseJson(decodeUtf8(bytes.subarray(skip)));
-}
-function encodeUtf8(text) {
-  if (!isWellFormed(text)) {
-    throw new PyError("UnicodeEncodeError", "'utf-8' codec can't encode a lone surrogate");
-  }
-  return new TextEncoder().encode(text);
-}
-function pyDumps(value, opts = {}) {
-  const ensureAscii = opts.ensureAscii ?? true;
-  const indent = opts.indent;
-  const [itemSep, keySep] = opts.separators ?? (indent !== void 0 ? [",", ": "] : [", ", ": "]);
-  const str = (s) => dumpString(s, ensureAscii);
-  const go = (v, level) => {
-    if (v === null || v === void 0) return "null";
-    if (v === true) return "true";
-    if (v === false) return "false";
-    if (v instanceof PyFloat) return dumpFloat(v.value);
-    if (v instanceof BigIntLiteral) return v.value.toString();
-    if (typeof v === "bigint") return v.toString();
-    if (typeof v === "number") return dumpNumber(v);
-    if (typeof v === "string") return str(v);
-    const nl = indent !== void 0 ? "\n" + " ".repeat(indent * (level + 1)) : "";
-    const end = indent !== void 0 ? "\n" + " ".repeat(indent * level) : "";
-    if (Array.isArray(v)) {
-      if (v.length === 0) return "[]";
-      return "[" + nl + v.map((x2) => go(x2, level + 1)).join(itemSep + nl) + end + "]";
-    }
-    if (isDict(v)) {
-      let keys = Object.keys(v).filter((k) => v[k] !== void 0);
-      if (keys.length === 0) return "{}";
-      if (opts.sortKeys) keys = keys.sort(codePointCompare);
-      return "{" + nl + keys.map((k) => str(k) + keySep + go(v[k], level + 1)).join(itemSep + nl) + end + "}";
-    }
-    return str(String(v));
-  };
-  return go(value, 0);
-}
-function dumpFloat(x2) {
-  if (Number.isNaN(x2)) return "NaN";
-  if (x2 === Infinity) return "Infinity";
-  if (x2 === -Infinity) return "-Infinity";
-  return pyFloatRepr(x2);
-}
-function dumpNumber(x2) {
-  if (Number.isSafeInteger(x2)) return Object.is(x2, -0) ? "0" : String(x2);
-  return dumpFloat(x2);
-}
-function dumpString(s, ensureAscii) {
-  let out = '"';
-  for (let i2 = 0; i2 < s.length; i2++) {
-    const c = s.charCodeAt(i2);
-    if (c === 34) out += '\\"';
-    else if (c === 92) out += "\\\\";
-    else if (c === 10) out += "\\n";
-    else if (c === 13) out += "\\r";
-    else if (c === 9) out += "\\t";
-    else if (c === 8) out += "\\b";
-    else if (c === 12) out += "\\f";
-    else if (c < 32 || ensureAscii && c > 126) out += "\\u" + c.toString(16).padStart(4, "0");
-    else out += s[i2];
-  }
-  return out + '"';
-}
-
-// packages/verify/src/time.ts
-var US = 1000000n;
-var DAY_US = 86400n * US;
-var MIN_US = daysFromCivil(1, 1, 1) * DAY_US;
-var MAX_US = (daysFromCivil(9999, 12, 31) + 1n) * DAY_US - 1n;
-function daysFromCivil(y, m, d) {
-  const yy = m <= 2 ? y - 1 : y;
-  const era = Math.floor(yy / 400);
-  const yoe = yy - era * 400;
-  const doy = Math.floor((153 * (m + (m > 2 ? -3 : 9)) + 2) / 5) + d - 1;
-  const doe = yoe * 365 + Math.floor(yoe / 4) - Math.floor(yoe / 100) + doy;
-  return BigInt(era * 146097 + doe - 719468);
-}
-function civilFromDays(z0) {
-  const z = Number(z0) + 719468;
-  const era = Math.floor(z / 146097);
-  const doe = z - era * 146097;
-  const yoe = Math.floor((doe - Math.floor(doe / 1460) + Math.floor(doe / 36524) - Math.floor(doe / 146096)) / 365);
-  const y = yoe + era * 400;
-  const doy = doe - (365 * yoe + Math.floor(yoe / 4) - Math.floor(yoe / 100));
-  const mp = Math.floor((5 * doy + 2) / 153);
-  const d = doy - Math.floor((153 * mp + 2) / 5) + 1;
-  const m = mp + (mp < 10 ? 3 : -9);
-  return [m <= 2 ? y + 1 : y, m, d];
-}
-function daysInMonth(y, m) {
-  if (m === 2) return y % 4 === 0 && y % 100 !== 0 || y % 400 === 0 ? 29 : 28;
-  return [4, 6, 9, 11].includes(m) ? 30 : 31;
-}
-var RFC3339 = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,6}))?(Z|[+-]\d{2}:\d{2})$/;
-function parseTime(text) {
-  if (typeof text !== "string") throw new PyError("ValueError", "timestamp must be a string");
-  const m = RFC3339.exec(text);
-  if (m === null) throw new PyError("ValueError", `Invalid RFC 3339 timestamp: ${pyRepr(text)}`);
-  const [year, month, day, hour, minute, second] = m.slice(1, 7).map((x2) => Number(x2));
-  const micro = Number((m[7] ?? "").padEnd(6, "0") || "0");
-  const tz = m[8];
-  let off = 0n;
-  if (tz !== "Z") {
-    const sign = tz[0] === "-" ? -1n : 1n;
-    off = sign * (BigInt(Number(tz.slice(1, 3))) * 3600n + BigInt(Number(tz.slice(4, 6))) * 60n) * US;
-    if (off <= -DAY_US || off >= DAY_US) {
-      throw new PyError(
-        "ValueError",
-        `offset must be a timedelta strictly between -timedelta(hours=24) and timedelta(hours=24), not ${pyTimedeltaRepr(off)}.`
-      );
-    }
-  }
-  if (year < 1 || year > 9999) throw new PyError("ValueError", `year ${year} is out of range`);
-  if (month < 1 || month > 12) throw new PyError("ValueError", "month must be in 1..12");
-  if (day < 1 || day > daysInMonth(year, month)) throw new PyError("ValueError", "day is out of range for month");
-  if (hour > 23) throw new PyError("ValueError", "hour must be in 0..23");
-  if (minute > 59) throw new PyError("ValueError", "minute must be in 0..59");
-  if (second > 59) throw new PyError("ValueError", "second must be in 0..59");
-  const local = daysFromCivil(year, month, day) * DAY_US + (BigInt(hour) * 3600n + BigInt(minute) * 60n + BigInt(second)) * US + BigInt(micro);
-  const utc = local - off;
-  if (utc < MIN_US || utc > MAX_US) throw new PyError("OverflowError", "date value out of range");
-  return utc;
-}
-function pyTimedeltaRepr(us) {
-  let days = us / DAY_US;
-  let rem = us % DAY_US;
-  if (rem < 0n) {
-    rem += DAY_US;
-    days -= 1n;
-  }
-  const secs = rem / US;
-  const micro = rem % US;
-  const parts = [];
-  if (days) parts.push(`days=${days}`);
-  if (secs) parts.push(`seconds=${secs}`);
-  if (micro) parts.push(`microseconds=${micro}`);
-  return `datetime.timedelta(${parts.join(", ") || "0"})`;
-}
-function pad(n, w = 2) {
-  return String(n).padStart(w, "0");
-}
-function split(t) {
-  let days = t / DAY_US;
-  let rem = t % DAY_US;
-  if (rem < 0n) {
-    rem += DAY_US;
-    days -= 1n;
-  }
-  const [y, mo, d] = civilFromDays(days);
-  const secs = Number(rem / US);
-  return { y, mo, d, h: Math.floor(secs / 3600), mi: Math.floor(secs % 3600 / 60), s: secs % 60, us: Number(rem % US) };
-}
-function pyIsoformat(t) {
-  const p = split(t);
-  const frac = p.us ? "." + pad(p.us, 6) : "";
-  return `${pad(p.y, 4)}-${pad(p.mo)}-${pad(p.d)}T${pad(p.h)}:${pad(p.mi)}:${pad(p.s)}${frac}+00:00`;
-}
-function pyTimedelta(us) {
-  let days = us / DAY_US;
-  let rem = us % DAY_US;
-  if (rem < 0n) {
-    rem += DAY_US;
-    days -= 1n;
-  }
-  const secs = Number(rem / US);
-  const micro = Number(rem % US);
-  let out = `${Math.floor(secs / 3600)}:${pad(Math.floor(secs % 3600 / 60))}:${pad(secs % 60)}`;
-  if (micro) out += "." + pad(micro, 6);
-  if (days !== 0n) out = `${days} day${days === 1n || days === -1n ? "" : "s"}, ${out}`;
-  return out;
-}
-function microsFromDate(d) {
-  return BigInt(d.getTime()) * 1000n;
-}
-var MICROS_PER_SECOND = US;
-
-// node_modules/fflate/esm/index.mjs
-import { createRequire } from "module";
-var require2 = createRequire("/");
-var _a;
-var Worker;
-var isMarkedAsUntransferable;
-try {
-  _a = require2("worker_threads"), Worker = _a.Worker, isMarkedAsUntransferable = _a.isMarkedAsUntransferable;
-} catch (e) {
-}
-var u8 = Uint8Array;
-var u16 = Uint16Array;
-var i32 = Int32Array;
-var fleb = new u8([
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  1,
-  1,
-  1,
-  1,
-  2,
-  2,
-  2,
-  2,
-  3,
-  3,
-  3,
-  3,
-  4,
-  4,
-  4,
-  4,
-  5,
-  5,
-  5,
-  5,
-  0,
-  /* unused */
-  0,
-  0,
-  /* impossible */
-  0
-]);
-var fdeb = new u8([
-  0,
-  0,
-  0,
-  0,
-  1,
-  1,
-  2,
-  2,
-  3,
-  3,
-  4,
-  4,
-  5,
-  5,
-  6,
-  6,
-  7,
-  7,
-  8,
-  8,
-  9,
-  9,
-  10,
-  10,
-  11,
-  11,
-  12,
-  12,
-  13,
-  13,
-  /* unused */
-  0,
-  0
-]);
-var clim = new u8([16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15]);
-var freb = function(eb, start) {
-  var b = new u16(31);
-  for (var i2 = 0; i2 < 31; ++i2) {
-    b[i2] = start += 1 << eb[i2 - 1];
-  }
-  var r = new i32(b[30]);
-  for (var i2 = 1; i2 < 30; ++i2) {
-    for (var j = b[i2]; j < b[i2 + 1]; ++j) {
-      r[j] = j - b[i2] << 5 | i2;
-    }
-  }
-  return { b, r };
-};
-var _a = freb(fleb, 2);
-var fl = _a.b;
-var revfl = _a.r;
-fl[28] = 258, revfl[258] = 28;
-var _b = freb(fdeb, 0);
-var fd = _b.b;
-var revfd = _b.r;
-var rev = new u16(32768);
-for (i = 0; i < 32768; ++i) {
-  x = (i & 43690) >> 1 | (i & 21845) << 1;
-  x = (x & 52428) >> 2 | (x & 13107) << 2;
-  x = (x & 61680) >> 4 | (x & 3855) << 4;
-  rev[i] = ((x & 65280) >> 8 | (x & 255) << 8) >> 1;
-}
-var x;
-var i;
-var hMap = (function(cd, mb, r) {
-  var s = cd.length;
-  var i2 = 0;
-  var l = new u16(mb);
-  for (; i2 < s; ++i2) {
-    if (cd[i2])
-      ++l[cd[i2] - 1];
-  }
-  var le = new u16(mb);
-  for (i2 = 1; i2 < mb; ++i2) {
-    le[i2] = le[i2 - 1] + l[i2 - 1] << 1;
-  }
-  var co;
-  if (r) {
-    co = new u16(1 << mb);
-    var rvb = 15 - mb;
-    for (i2 = 0; i2 < s; ++i2) {
-      if (cd[i2]) {
-        var sv = i2 << 4 | cd[i2];
-        var r_1 = mb - cd[i2];
-        var v = le[cd[i2] - 1]++ << r_1;
-        for (var m = v | (1 << r_1) - 1; v <= m; ++v) {
-          co[rev[v] >> rvb] = sv;
-        }
-      }
-    }
-  } else {
-    co = new u16(s);
-    for (i2 = 0; i2 < s; ++i2) {
-      if (cd[i2]) {
-        co[i2] = rev[le[cd[i2] - 1]++] >> 15 - cd[i2];
-      }
-    }
-  }
-  return co;
-});
-var flt = new u8(288);
-for (i = 0; i < 144; ++i)
-  flt[i] = 8;
-var i;
-for (i = 144; i < 256; ++i)
-  flt[i] = 9;
-var i;
-for (i = 256; i < 280; ++i)
-  flt[i] = 7;
-var i;
-for (i = 280; i < 288; ++i)
-  flt[i] = 8;
-var i;
-var fdt = new u8(32);
-for (i = 0; i < 32; ++i)
-  fdt[i] = 5;
-var i;
-var flrm = /* @__PURE__ */ hMap(flt, 9, 1);
-var fdrm = /* @__PURE__ */ hMap(fdt, 5, 1);
-var max = function(a) {
-  var m = a[0];
-  for (var i2 = 1; i2 < a.length; ++i2) {
-    if (a[i2] > m)
-      m = a[i2];
-  }
-  return m;
-};
-var bits = function(d, p, m) {
-  var o = p / 8 | 0;
-  return (d[o] | d[o + 1] << 8) >> (p & 7) & m;
-};
-var bits16 = function(d, p) {
-  var o = p / 8 | 0;
-  return (d[o] | d[o + 1] << 8 | d[o + 2] << 16) >> (p & 7);
-};
-var shft = function(p) {
-  return (p + 7) / 8 | 0;
-};
-var slc = function(v, s, e) {
-  if (s == null || s < 0)
-    s = 0;
-  if (e == null || e > v.length)
-    e = v.length;
-  return new u8(v.subarray(s, e));
-};
-var ec = [
-  "unexpected EOF",
-  "invalid block type",
-  "invalid length/literal",
-  "invalid distance",
-  "stream finished",
-  "no stream handler",
-  ,
-  // determined by compression function
-  "no callback",
-  "invalid UTF-8 data",
-  "extra field too long",
-  "date not in range 1980-2099",
-  "filename too long",
-  "stream finishing",
-  "invalid zip data"
-  // determined by unknown compression method
-];
-var err = function(ind, msg, nt) {
-  var e = new Error(msg || ec[ind]);
-  e.code = ind;
-  if (Error.captureStackTrace)
-    Error.captureStackTrace(e, err);
-  if (!nt)
-    throw e;
-  return e;
-};
-var inflt = function(dat, st, buf, dict) {
-  var sl = dat.length, dl = dict ? dict.length : 0;
-  if (!sl || st.f && !st.l)
-    return buf || new u8(0);
-  var noBuf = !buf;
-  var resize = noBuf || st.i != 2;
-  var noSt = st.i;
-  if (noBuf)
-    buf = new u8(sl * 3);
-  var cbuf = function(l2) {
-    var bl = buf.length;
-    if (l2 > bl) {
-      var nbuf = new u8(Math.max(bl * 2, l2));
-      nbuf.set(buf);
-      buf = nbuf;
-    }
-  };
-  var final = st.f || 0, pos = st.p || 0, bt = st.b || 0, lm = st.l, dm = st.d, lbt = st.m, dbt = st.n;
-  var tbts = sl * 8;
-  do {
-    if (!lm) {
-      final = bits(dat, pos, 1);
-      var type = bits(dat, pos + 1, 3);
-      pos += 3;
-      if (!type) {
-        var s = shft(pos) + 4, l = dat[s - 4] | dat[s - 3] << 8, t = s + l;
-        if (t > sl) {
-          if (noSt)
-            err(0);
-          break;
-        }
-        if (resize)
-          cbuf(bt + l);
-        buf.set(dat.subarray(s, t), bt);
-        st.b = bt += l, st.p = pos = t * 8, st.f = final;
-        continue;
-      } else if (type == 1)
-        lm = flrm, dm = fdrm, lbt = 9, dbt = 5;
-      else if (type == 2) {
-        var hLit = bits(dat, pos, 31) + 257, hcLen = bits(dat, pos + 10, 15) + 4;
-        var tl = hLit + bits(dat, pos + 5, 31) + 1;
-        pos += 14;
-        var ldt = new u8(tl);
-        var clt = new u8(19);
-        for (var i2 = 0; i2 < hcLen; ++i2) {
-          clt[clim[i2]] = bits(dat, pos + i2 * 3, 7);
-        }
-        pos += hcLen * 3;
-        var clb = max(clt), clbmsk = (1 << clb) - 1;
-        var clm = hMap(clt, clb, 1);
-        for (var i2 = 0; i2 < tl; ) {
-          var r = clm[bits(dat, pos, clbmsk)];
-          pos += r & 15;
-          var s = r >> 4;
-          if (s < 16) {
-            ldt[i2++] = s;
-          } else {
-            var c = 0, n = 0;
-            if (s == 16)
-              n = 3 + bits(dat, pos, 3), pos += 2, c = ldt[i2 - 1];
-            else if (s == 17)
-              n = 3 + bits(dat, pos, 7), pos += 3;
-            else if (s == 18)
-              n = 11 + bits(dat, pos, 127), pos += 7;
-            while (n--)
-              ldt[i2++] = c;
-          }
-        }
-        var lt = ldt.subarray(0, hLit), dt = ldt.subarray(hLit);
-        lbt = max(lt);
-        dbt = max(dt);
-        lm = hMap(lt, lbt, 1);
-        dm = hMap(dt, dbt, 1);
-      } else
-        err(1);
-      if (pos > tbts) {
-        if (noSt)
-          err(0);
-        break;
-      }
-    }
-    if (resize)
-      cbuf(bt + 131072);
-    var lms = (1 << lbt) - 1, dms = (1 << dbt) - 1;
-    var lpos = pos;
-    for (; ; lpos = pos) {
-      var c = lm[bits16(dat, pos) & lms], sym = c >> 4;
-      pos += c & 15;
-      if (pos > tbts) {
-        if (noSt)
-          err(0);
-        break;
-      }
-      if (!c)
-        err(2);
-      if (sym < 256)
-        buf[bt++] = sym;
-      else if (sym == 256) {
-        lpos = pos, lm = null;
-        break;
-      } else {
-        var add2 = sym - 254;
-        if (sym > 264) {
-          var i2 = sym - 257, b = fleb[i2];
-          add2 = bits(dat, pos, (1 << b) - 1) + fl[i2];
-          pos += b;
-        }
-        var d = dm[bits16(dat, pos) & dms], dsym = d >> 4;
-        if (!d)
-          err(3);
-        pos += d & 15;
-        var dt = fd[dsym];
-        if (dsym > 3) {
-          var b = fdeb[dsym];
-          dt += bits16(dat, pos) & (1 << b) - 1, pos += b;
-        }
-        if (pos > tbts) {
-          if (noSt)
-            err(0);
-          break;
-        }
-        if (resize)
-          cbuf(bt + 131072);
-        var end = bt + add2;
-        if (bt < dt) {
-          var shift = dl - dt, dend = Math.min(dt, end);
-          if (shift + bt < 0)
-            err(3);
-          for (; bt < dend; ++bt)
-            buf[bt] = dict[shift + bt];
-        }
-        for (; bt < end; ++bt)
-          buf[bt] = buf[bt - dt];
-      }
-    }
-    st.l = lm, st.p = lpos, st.b = bt, st.f = final;
-    if (lm)
-      final = 1, st.m = lbt, st.d = dm, st.n = dbt;
-  } while (!final);
-  return bt != buf.length && noBuf ? slc(buf, 0, bt) : buf.subarray(0, bt);
-};
-var et = /* @__PURE__ */ new u8(0);
-var b2 = function(d, b) {
-  return d[b] | d[b + 1] << 8;
-};
-var b4 = function(d, b) {
-  return (d[b] | d[b + 1] << 8 | d[b + 2] << 16 | d[b + 3] << 24) >>> 0;
-};
-var b8 = function(d, b) {
-  return b4(d, b) + b4(d, b + 4) * 4294967296;
-};
-function inflateSync(data, opts) {
-  return inflt(data, { i: 2 }, opts && opts.out, opts && opts.dictionary);
-}
-var td = typeof TextDecoder != "undefined" && /* @__PURE__ */ new TextDecoder();
-var tds = 0;
-try {
-  td.decode(et, { stream: true });
-  tds = 1;
-} catch (e) {
-}
-var dutf8 = function(d) {
-  for (var r = "", i2 = 0; ; ) {
-    var c = d[i2++];
-    var eb = (c > 127) + (c > 223) + (c > 239);
-    if (i2 + eb > d.length)
-      return { s: r, r: slc(d, i2 - 1) };
-    if (!eb)
-      r += String.fromCharCode(c);
-    else if (eb == 3) {
-      c = ((c & 15) << 18 | (d[i2++] & 63) << 12 | (d[i2++] & 63) << 6 | d[i2++] & 63) - 65536, r += String.fromCharCode(55296 | c >> 10, 56320 | c & 1023);
-    } else if (eb & 1)
-      r += String.fromCharCode((c & 31) << 6 | d[i2++] & 63);
-    else
-      r += String.fromCharCode((c & 15) << 12 | (d[i2++] & 63) << 6 | d[i2++] & 63);
-  }
-};
-function strFromU8(dat, latin1) {
-  if (latin1) {
-    var r = "";
-    for (var i2 = 0; i2 < dat.length; i2 += 16384)
-      r += String.fromCharCode.apply(null, dat.subarray(i2, i2 + 16384));
-    return r;
-  } else if (td) {
-    return td.decode(dat);
-  } else {
-    var _a2 = dutf8(dat), s = _a2.s, r = _a2.r;
-    if (r.length)
-      err(8);
-    return s;
-  }
-}
-var slzh = function(d, b) {
-  return b + 30 + b2(d, b + 26) + b2(d, b + 28);
-};
-var zh = function(d, b, z) {
-  var fnl = b2(d, b + 28), efl = b2(d, b + 30), fn = strFromU8(d.subarray(b + 46, b + 46 + fnl), !(b2(d, b + 8) & 2048)), es = b + 46 + fnl;
-  var _a2 = z64hs(d, es, efl, z, b4(d, b + 20), b4(d, b + 24), b4(d, b + 42)), sc = _a2[0], su = _a2[1], off = _a2[2];
-  return [b2(d, b + 10), sc, su, fn, es + efl + b2(d, b + 32), off];
-};
-var z64hs = function(d, b, l, z, sc, su, off) {
-  var nsc = sc == 4294967295, nsu = su == 4294967295, noff = off == 4294967295, e = b + l;
-  var nf = nsc + nsu + noff;
-  if (z && nf) {
-    for (; b + 4 < e; b += 4 + b2(d, b + 2)) {
-      if (b2(d, b) == 1) {
-        return [
-          nsc ? b8(d, b + 4 + 8 * nsu) : sc,
-          nsu ? b8(d, b + 4) : su,
-          noff ? b8(d, b + 4 + 8 * (nsu + nsc)) : off,
-          1
-        ];
-      }
-    }
-    if (z < 2)
-      err(13);
-  }
-  return [sc, su, off, 0];
-};
-function unzipSync(data, opts) {
-  var files = {};
-  var e = data.length - 22;
-  for (; b4(data, e) != 101010256; --e) {
-    if (!e || data.length - e > 65558)
-      err(13);
-  }
-  ;
-  var c = b2(data, e + 8);
-  if (!c)
-    return {};
-  var o = b4(data, e + 16);
-  var z = b4(data, e - 20) == 117853008;
-  if (z) {
-    var ze = b4(data, e - 12);
-    z = b4(data, ze) == 101075792;
-    if (z) {
-      c = b4(data, ze + 32);
-      o = b4(data, ze + 48);
-    }
-  }
-  var fltr = opts && opts.filter;
-  for (var i2 = 0; i2 < c; ++i2) {
-    var _a2 = zh(data, o, z), c_2 = _a2[0], sc = _a2[1], su = _a2[2], fn = _a2[3], no = _a2[4], off = _a2[5], b = slzh(data, off);
-    o = no;
-    if (!fltr || fltr({
-      name: fn,
-      size: sc,
-      originalSize: su,
-      compression: c_2
-    })) {
-      if (!c_2)
-        files[fn] = slc(data, b, b + sc);
-      else if (c_2 == 8)
-        files[fn] = inflateSync(data.subarray(b, b + sc), { out: new u8(su) });
-      else
-        err(14, "unknown compression type " + c_2);
-    }
-  }
-  return files;
-}
-
-// packages/verify/src/bundle.ts
-var MAX_MEMBER_BYTES = 512 * 1024 * 1024;
-function members(zipBytes) {
-  let total = 0;
-  let files;
-  try {
-    files = unzipSync(zipBytes, {
-      filter: (f) => {
-        if (f.originalSize > MAX_MEMBER_BYTES) throw new PyError("BadZipFile", `member ${f.name} is too large`);
-        total += f.originalSize;
-        if (total > 4 * MAX_MEMBER_BYTES) throw new PyError("BadZipFile", "bundle is too large");
-        return f.name === "manifest.json" || f.name === "records.jsonl" || f.name === "anchors/local-anchor-log.jsonl";
-      }
-    });
-  } catch (exc) {
-    if (exc instanceof PyError) throw exc;
-    throw new PyError("BadZipFile", exc instanceof Error ? exc.message : String(exc));
-  }
-  return new Map(Object.entries(files));
-}
-function jsonLines(text) {
-  return text.split("\n").filter((l) => !/^[ \t\r]*$/.test(l));
-}
-function readBundle(zipBytes) {
-  const m = members(zipBytes);
-  const get = (name) => {
-    const b = m.get(name);
-    if (b === void 0) throw new PyError("KeyError", `"There is no item named '${name}' in the archive"`);
-    return b;
-  };
-  const manifest = parseJsonBytes(get("manifest.json"));
-  const lines2 = jsonLines(decodeUtf8(get("records.jsonl")));
-  let localLog = null;
-  const log = m.get("anchors/local-anchor-log.jsonl");
-  if (log !== void 0) {
-    localLog = jsonLines(decodeUtf8(log)).map((l) => parseJson(l));
-  }
-  const records = lines2.map((l) => parseJson(l));
-  return [manifest, records, localLog];
-}
-
 // node_modules/@noble/hashes/_u64.js
 var U32_MASK64 = /* @__PURE__ */ (() => BigInt(2 ** 32 - 1))();
 var _32n = /* @__PURE__ */ BigInt(32);
@@ -1244,7 +15,7 @@ function fromBig(n, le = false) {
     return { h: Number(n & U32_MASK64), l: Number(n >> _32n & U32_MASK64) };
   return { h: Number(n >> _32n & U32_MASK64) | 0, l: Number(n & U32_MASK64) | 0 };
 }
-function split2(lst, le = false) {
+function split(lst, le = false) {
   const len = lst.length;
   let Ah = new Uint32Array(len);
   let Al = new Uint32Array(len);
@@ -1753,7 +524,7 @@ var _SHA256 = class extends SHA2_32B {
     super(32, SHA256_IV);
   }
 };
-var K512 = /* @__PURE__ */ (() => split2([
+var K512 = /* @__PURE__ */ (() => split([
   "0x428a2f98d728ae22",
   "0x7137449123ef65cd",
   "0xb5c0fbcfec4d3b2f",
@@ -1999,6 +770,295 @@ var sha384 = /* @__PURE__ */ createHasher(
   /* @__PURE__ */ oidNist(2)
 );
 
+// packages/verify/src/py.ts
+var PyError = class extends Error {
+  constructor(name, message) {
+    super(message);
+    this.name = name;
+  }
+};
+var mk = (name) => (message) => new PyError(name, message);
+var KeyError = (key) => new PyError("KeyError", pyRepr(key));
+var TypeErr = mk("TypeError");
+var ValueErr = mk("ValueError");
+var AttributeErr = mk("AttributeError");
+var OverflowErr = mk("OverflowError");
+var SUBCLASSES = {
+  ValueError: [
+    "ValueError",
+    "JSONDecodeError",
+    "UnicodeDecodeError",
+    "UnicodeEncodeError",
+    "Error"
+    /* binascii */
+  ],
+  KeyError: ["KeyError"],
+  TypeError: ["TypeError"],
+  AttributeError: ["AttributeError"]
+};
+function caught(err2, ...names) {
+  if (!(err2 instanceof PyError)) return false;
+  return names.some((n) => (SUBCLASSES[n] ?? [n]).includes(err2.name));
+}
+var BigIntLiteral = class {
+  constructor(text) {
+    this.text = text;
+    this.value = BigInt(text);
+  }
+  text;
+  value;
+  /** `JSON.stringify` writes the nearest double (exactness needs `pyDumps`). */
+  toJSON() {
+    return Number(this.value);
+  }
+};
+var PyFloat = class {
+  constructor(value) {
+    this.value = value;
+  }
+  value;
+  toJSON() {
+    return this.value;
+  }
+};
+function isDict(x2) {
+  if (x2 === null || typeof x2 !== "object" || Array.isArray(x2)) return false;
+  const proto = Object.getPrototypeOf(x2);
+  return proto === Object.prototype || proto === null;
+}
+function hasKey(d, key) {
+  return Object.prototype.hasOwnProperty.call(d, key);
+}
+function isNone(x2) {
+  return x2 === null || x2 === void 0;
+}
+function dget(d, key, dflt = null) {
+  if (!isDict(d)) throw AttributeErr(`'${pyTypeName(d)}' object has no attribute 'get'`);
+  return hasKey(d, key) ? d[key] : dflt;
+}
+function sub(d, key) {
+  if (isDict(d)) {
+    if (!hasKey(d, key)) throw KeyError(key);
+    return d[key];
+  }
+  if (typeof d === "string" || Array.isArray(d)) {
+    throw TypeErr(`${pyTypeName(d) === "str" ? "string" : "list"} indices must be integers or slices, not str`);
+  }
+  throw TypeErr(`'${pyTypeName(d)}' object is not subscriptable`);
+}
+function requireHashable(x2) {
+  if (Array.isArray(x2) || isDict(x2)) throw TypeErr(`unhashable type: '${pyTypeName(x2)}'`);
+}
+function isNumeric(x2) {
+  return typeof x2 === "number" || typeof x2 === "boolean" || x2 instanceof PyFloat || x2 instanceof BigIntLiteral;
+}
+function isPyInt(x2) {
+  return typeof x2 === "number" && Number.isInteger(x2) || typeof x2 === "boolean" || x2 instanceof BigIntLiteral;
+}
+function num(x2) {
+  if (typeof x2 === "number") return x2;
+  if (typeof x2 === "boolean") return x2 ? 1 : 0;
+  if (x2 instanceof PyFloat) return x2.value;
+  if (x2 instanceof BigIntLiteral) return Number(x2.value);
+  throw TypeErr(`unsupported operand type(s): '${pyTypeName(x2)}'`);
+}
+function truthy(x2) {
+  if (isNone(x2) || x2 === false || x2 === "") return false;
+  if (isNumeric(x2)) return x2 instanceof BigIntLiteral ? x2.value !== 0n : num(x2) !== 0;
+  if (Array.isArray(x2)) return x2.length > 0;
+  if (isDict(x2)) return Object.keys(x2).length > 0;
+  return true;
+}
+var INT_DIGITS_LIMIT = 4300;
+function pyIntFromString(x2) {
+  const t = x2.replace(/^[\s\u001c-\u001f\u0085]+|[\s\u001c-\u001f\u0085]+$/gu, "");
+  if (!/^[+-]?[0-9](_?[0-9])*$/.test(t)) throw ValueErr(`invalid literal for int() with base 10: ${pyRepr(x2)}`);
+  const digits2 = t.replace(/[+_-]/g, "");
+  if (digits2.length > INT_DIGITS_LIMIT) {
+    throw ValueErr(`Exceeds the limit (${INT_DIGITS_LIMIT}) for integer string conversion`);
+  }
+  return BigInt(t.replace(/_/g, ""));
+}
+function pyIntBig(x2) {
+  if (typeof x2 === "boolean") return x2 ? 1n : 0n;
+  if (x2 instanceof BigIntLiteral) return x2.value;
+  if (typeof x2 === "number" || x2 instanceof PyFloat) {
+    const v = num(x2);
+    if (Number.isNaN(v)) throw ValueErr("cannot convert float NaN to integer");
+    if (!Number.isFinite(v)) throw OverflowErr("cannot convert float infinity to integer");
+    return BigInt(Math.trunc(v));
+  }
+  if (typeof x2 === "string") return pyIntFromString(x2);
+  throw TypeErr(`int() argument must be a string, a bytes-like object or a real number, not '${pyTypeName(x2)}'`);
+}
+function pyInt(x2) {
+  return Number(pyIntBig(x2));
+}
+function pyIter(x2) {
+  if (Array.isArray(x2)) return x2;
+  if (typeof x2 === "string") return Array.from(x2);
+  if (isDict(x2)) return Object.keys(x2);
+  throw TypeErr(`'${pyTypeName(x2)}' object is not iterable`);
+}
+function numEq(a, b) {
+  if (a instanceof BigIntLiteral || b instanceof BigIntLiteral) {
+    const ex = (v) => {
+      if (v instanceof BigIntLiteral) return v.value;
+      const n = num(v);
+      return Number.isInteger(n) ? BigInt(n) : null;
+    };
+    const ea = ex(a);
+    const eb = ex(b);
+    return ea !== null && eb !== null && ea === eb;
+  }
+  return num(a) === num(b);
+}
+function pyEq(a, b) {
+  if (isNone(a) || isNone(b)) return isNone(a) && isNone(b);
+  if (isNumeric(a) || isNumeric(b)) return isNumeric(a) && isNumeric(b) && numEq(a, b);
+  if (typeof a === "string" || typeof b === "string") return a === b;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+    return a.every((v, i2) => pyEq(v, b[i2]));
+  }
+  if (isDict(a) && isDict(b)) {
+    const ka = Object.keys(a);
+    if (ka.length !== Object.keys(b).length) return false;
+    return ka.every((k) => hasKey(b, k) && pyEq(a[k], b[k]));
+  }
+  return a === b;
+}
+var nanCounter = 0;
+function pyKey(x2) {
+  requireHashable(x2);
+  if (isNone(x2)) return "none";
+  if (typeof x2 === "string") return "s:" + x2;
+  if (x2 instanceof BigIntLiteral) return "n:" + x2.value.toString();
+  if (isNumeric(x2)) {
+    const v = num(x2);
+    if (Number.isNaN(v)) return `nan:${nanCounter++}`;
+    return Number.isInteger(v) ? "n:" + BigInt(v).toString() : "f:" + String(v);
+  }
+  return "o:" + String(x2);
+}
+function isWellFormed(s) {
+  for (let i2 = 0; i2 < s.length; i2++) {
+    const c = s.charCodeAt(i2);
+    if (c >= 55296 && c <= 56319) {
+      const d = s.charCodeAt(i2 + 1);
+      if (d >= 56320 && d <= 57343) {
+        i2++;
+        continue;
+      }
+      return false;
+    }
+    if (c >= 56320 && c <= 57343) return false;
+  }
+  return true;
+}
+function splitlines(text) {
+  const parts = text.split(/\r\n|[\n\r\u000b\u000c\u001c\u001d\u001e\u0085\u2028\u2029]/u);
+  if (parts.length > 0 && parts[parts.length - 1] === "") parts.pop();
+  return parts;
+}
+function codePointCompare(a, b) {
+  const ia = a[Symbol.iterator]();
+  const ib = b[Symbol.iterator]();
+  for (; ; ) {
+    const x2 = ia.next();
+    const y = ib.next();
+    if (x2.done || y.done) return x2.done && y.done ? 0 : x2.done ? -1 : 1;
+    const cx = x2.value.codePointAt(0);
+    const cy = y.value.codePointAt(0);
+    if (cx !== cy) return cx < cy ? -1 : 1;
+  }
+}
+function pyTypeName(x2) {
+  if (isNone(x2)) return "NoneType";
+  if (typeof x2 === "boolean") return "bool";
+  if (typeof x2 === "number") return Number.isInteger(x2) ? "int" : "float";
+  if (x2 instanceof PyFloat) return "float";
+  if (x2 instanceof BigIntLiteral) return "int";
+  if (typeof x2 === "string") return "str";
+  if (Array.isArray(x2)) return "list";
+  if (isDict(x2)) return "dict";
+  if (x2 instanceof Uint8Array) return "bytes";
+  return typeof x2;
+}
+function pyRepr(x2, depth = 0) {
+  if (depth > 20) return "...";
+  if (isNone(x2)) return "None";
+  if (x2 === true) return "True";
+  if (x2 === false) return "False";
+  if (x2 instanceof PyFloat) return pyFloatRepr(x2.value);
+  if (x2 instanceof BigIntLiteral) return x2.value.toString();
+  if (typeof x2 === "number") return Number.isInteger(x2) && Math.abs(x2) <= Number.MAX_SAFE_INTEGER ? String(x2) : pyFloatRepr(x2);
+  if (typeof x2 === "string") return pyStrRepr(x2);
+  if (Array.isArray(x2)) return "[" + x2.map((v) => pyRepr(v, depth + 1)).join(", ") + "]";
+  if (isDict(x2)) {
+    return "{" + Object.keys(x2).map((k) => `${pyStrRepr(k)}: ${pyRepr(x2[k], depth + 1)}`).join(", ") + "}";
+  }
+  return String(x2);
+}
+function pyStr(x2) {
+  return typeof x2 === "string" ? x2 : pyRepr(x2);
+}
+function pyFloatRepr(x2) {
+  if (Number.isNaN(x2)) return "nan";
+  if (x2 === Infinity) return "inf";
+  if (x2 === -Infinity) return "-inf";
+  if (x2 === 0) return Object.is(x2, -0) ? "-0.0" : "0.0";
+  const sign = x2 < 0 ? "-" : "";
+  const [mant, expText] = Math.abs(x2).toExponential().split("e");
+  const digits2 = mant.replace(".", "");
+  const exp = Number(expText);
+  if (exp < -4 || exp >= 16) {
+    const m = digits2.length > 1 ? `${digits2[0]}.${digits2.slice(1)}` : digits2;
+    const e = Math.abs(exp) < 10 ? `0${Math.abs(exp)}` : String(Math.abs(exp));
+    return `${sign}${m}e${exp < 0 ? "-" : "+"}${e}`;
+  }
+  if (exp < 0) return `${sign}0.${"0".repeat(-exp - 1)}${digits2}`;
+  if (digits2.length <= exp + 1) return `${sign}${digits2}${"0".repeat(exp + 1 - digits2.length)}.0`;
+  return `${sign}${digits2.slice(0, exp + 1)}.${digits2.slice(exp + 1)}`;
+}
+function pyStrRepr(s) {
+  const quote = s.includes("'") && !s.includes('"') ? '"' : "'";
+  let out = quote;
+  for (const ch of s) {
+    const cp = ch.codePointAt(0);
+    if (ch === quote || ch === "\\") out += "\\" + ch;
+    else if (ch === "\n") out += "\\n";
+    else if (ch === "\r") out += "\\r";
+    else if (ch === "	") out += "\\t";
+    else if (cp < 32 || cp === 127) out += "\\x" + cp.toString(16).padStart(2, "0");
+    else if (cp >= 55296 && cp <= 57343) out += "\\u" + cp.toString(16).padStart(4, "0");
+    else out += ch;
+  }
+  return out + quote;
+}
+function formatFixed(x2, digits2) {
+  if (!Number.isFinite(x2)) return Number.isNaN(x2) ? "nan" : x2 > 0 ? "inf" : "-inf";
+  const neg = x2 < 0 || Object.is(x2, -0);
+  const exact = Math.abs(x2).toFixed(100);
+  if (Math.abs(x2) >= 1e21) return (neg ? "-" : "") + BigInt(Math.abs(x2)).toString() + (digits2 ? "." + "0".repeat(digits2) : "");
+  const [ip, fp] = exact.split(".");
+  let keep = BigInt(ip + fp.slice(0, digits2));
+  const rest = fp.slice(digits2);
+  const first = rest.charCodeAt(0) - 48;
+  const tail = rest.slice(1).replace(/0+$/, "");
+  if (first > 5 || first === 5 && (tail.length > 0 || keep % 2n === 1n)) keep += 1n;
+  let s = keep.toString().padStart(digits2 + 1, "0");
+  if (digits2) s = s.slice(0, -digits2) + "." + s.slice(-digits2);
+  return (neg ? "-" : "") + s;
+}
+function pyRound(x2, digits2) {
+  return Number(formatFixed(x2, digits2));
+}
+function errorText(err2) {
+  if (err2 instanceof Error) return `${err2.name}: ${err2.message}`;
+  return `Error: ${String(err2)}`;
+}
+
 // packages/verify/src/bytes.ts
 var HEX = "0123456789abcdef";
 function bytesToHex2(b) {
@@ -2104,6 +1164,23 @@ function b64uDecode(text) {
   }
   return a2bBase64(raw);
 }
+function b64encode(b) {
+  let s = "";
+  let i2 = 0;
+  for (; i2 + 2 < b.length; i2 += 3) {
+    const n = b[i2] << 16 | b[i2 + 1] << 8 | b[i2 + 2];
+    s += B64[n >> 18] + B64[n >> 12 & 63] + B64[n >> 6 & 63] + B64[n & 63];
+  }
+  if (i2 < b.length) {
+    const n = b[i2] << 16 | (b[i2 + 1] ?? 0) << 8;
+    s += B64[n >> 18] + B64[n >> 12 & 63];
+    s += i2 + 1 < b.length ? B64[n >> 6 & 63] + "=" : "==";
+  }
+  return s;
+}
+function b64uEncode(b) {
+  return b64encode(b).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
 function concatBytes2(...parts) {
   let n = 0;
   for (const p of parts) n += p.length;
@@ -2123,169 +1200,6 @@ function bytesEqual(a, b) {
 function utf8(text) {
   return new TextEncoder().encode(text);
 }
-
-// packages/verify/src/canon.ts
-var HASH_PREFIX = "sha256:";
-var MAX_SAFE = Number.MAX_SAFE_INTEGER;
-var CANON_MAX_DEPTH = 985;
-var CanonicalizationError = class extends PyError {
-  constructor(kind, message) {
-    super(kind, message);
-  }
-};
-function serializeNumber(x2) {
-  if (!Number.isFinite(x2)) throw new CanonicalizationError("FloatDomainError", `${x2} is not representable in JCS`);
-  return Object.is(x2, -0) ? "0" : String(x2);
-}
-function serializeString(s) {
-  if (!isWellFormed(s)) throw new CanonicalizationError("CanonicalizationError", "input contains non-UTF-8 codepoints");
-  let out = '"';
-  for (let i2 = 0; i2 < s.length; i2++) {
-    const c = s.charCodeAt(i2);
-    if (c === 34) out += '\\"';
-    else if (c === 92) out += "\\\\";
-    else if (c < 32) {
-      if (c === 8) out += "\\b";
-      else if (c === 9) out += "\\t";
-      else if (c === 10) out += "\\n";
-      else if (c === 12) out += "\\f";
-      else if (c === 13) out += "\\r";
-      else out += "\\u" + c.toString(16).padStart(4, "0");
-    } else out += s[i2];
-  }
-  return out + '"';
-}
-function utf16Compare(a, b) {
-  return a < b ? -1 : a > b ? 1 : 0;
-}
-function serialize(value, depth) {
-  if (depth > CANON_MAX_DEPTH) throw new PyError("RecursionError", "maximum recursion depth exceeded");
-  if (value === null) return "null";
-  if (value === true) return "true";
-  if (value === false) return "false";
-  if (typeof value === "string") return serializeString(value);
-  if (typeof value === "number") {
-    return serializeNumber(value);
-  }
-  if (value instanceof PyFloat) return serializeNumber(value.value);
-  if (value instanceof BigIntLiteral || typeof value === "bigint") {
-    const v = value instanceof BigIntLiteral ? value.value : value;
-    if (v > BigInt(MAX_SAFE) || v < -BigInt(MAX_SAFE)) {
-      throw new CanonicalizationError("IntegerDomainError", `${v} exceeds safe integer domain for JSON floats`);
-    }
-    return v.toString();
-  }
-  if (Array.isArray(value)) return "[" + value.map((v) => serialize(v, depth + 1)).join(",") + "]";
-  if (isDict(value)) {
-    const keys = Object.keys(value).filter((k) => value[k] !== void 0).sort(utf16Compare);
-    return "{" + keys.map((k) => serializeString(k) + ":" + serialize(value[k], depth + 1)).join(",") + "}";
-  }
-  throw new CanonicalizationError("CanonicalizationError", `unsupported type: ${typeof value}`);
-}
-function canonicalizeString(value) {
-  return serialize(value, 0);
-}
-function canonicalize(value) {
-  return encodeUtf8(canonicalizeString(value));
-}
-function sha256Tagged(data) {
-  return HASH_PREFIX + bytesToHex2(sha256(data));
-}
-function recordBody(record) {
-  const body = {};
-  for (const k of Object.keys(record)) {
-    if (k === "sig") continue;
-    Object.defineProperty(body, k, { value: record[k], enumerable: true, writable: true, configurable: true });
-  }
-  return body;
-}
-function recordHash(record) {
-  return sha256Tagged(canonicalize(recordBody(record)));
-}
-function hashToBytes(tagged) {
-  if (typeof tagged !== "string" || !tagged.startsWith(HASH_PREFIX)) {
-    throw new PyError("ValueError", `not a sha256 hash: ${pyRepr(tagged)}`);
-  }
-  const raw = hexToBytes2(tagged.slice(HASH_PREFIX.length));
-  if (raw.length !== 32) throw new PyError("ValueError", `wrong hash length: ${tagged}`);
-  return raw;
-}
-
-// packages/verify/src/anchors.ts
-function anchorResult(ok, detail = "", independent = false, time = null) {
-  return { ok, detail, independent, time };
-}
-function localLogEntryHash(entry) {
-  const body = {};
-  for (const k of Object.keys(entry)) if (k !== "hash") body[k] = entry[k];
-  return sha256Tagged(canonicalize(body));
-}
-function checkLocalLog(entries) {
-  let prev = null;
-  for (let i2 = 0; i2 < entries.length; i2++) {
-    const e = entries[i2];
-    if (!pyEq(dget(e, "index"), i2)) return `entry ${i2} has index ${pyRepr(dget(e, "index"))}`;
-    if (!pyEq(dget(e, "prev"), prev)) return `entry ${i2} does not link to entry ${i2 - 1}`;
-    const h = localLogEntryHash(e);
-    if (!pyEq(dget(e, "hash"), h)) return `entry ${i2} hash mismatch`;
-    prev = h;
-  }
-  return null;
-}
-function readLocalLog(bytes) {
-  const text = decodeUtf8(bytes).replace(/\r\n?/g, "\n");
-  const out = [];
-  for (const line of text.split(/(?<=\n)/)) {
-    if (!/^[ \t\r\n]*$/.test(line)) out.push(parseJson(line));
-  }
-  return out;
-}
-function localEntries(options) {
-  if (options._localCache) return options._localCache;
-  let entries = null;
-  let error = null;
-  const src = options.localAnchorLog;
-  if (src) {
-    if ("error" in src) error = `cannot read local anchor log: ${src.error}`;
-    else {
-      try {
-        entries = readLocalLog(src.bytes);
-      } catch (exc) {
-        if (exc instanceof PyError && exc.name === "JSONDecodeError") error = `cannot read local anchor log: ${exc.message}`;
-        else throw exc;
-      }
-    }
-  } else if (!isNone(options.localAnchorEntries)) {
-    entries = options.localAnchorEntries;
-  }
-  if (entries !== null && error === null) {
-    const problem = checkLocalLog(entries);
-    if (problem) error = `local anchor log is inconsistent: ${problem}`;
-  }
-  options._localCache = { entries, error };
-  return options._localCache;
-}
-var verifyLocal = (receipt, { segmentHash, chain, options }) => {
-  const { entries, error } = localEntries(options);
-  if (error) return anchorResult(false, error);
-  if (entries === null) {
-    return anchorResult(
-      null,
-      "local anchor log not provided (use --local-anchor-log); local anchors are for testing and are not independent of the vendor"
-    );
-  }
-  const r = dget(receipt, "receipt", {});
-  const idx = dget(r, "index");
-  if (!isPyInt(idx) || !(pyInt(idx) >= 0 && pyInt(idx) < entries.length)) {
-    return anchorResult(false, `receipt index ${pyRepr(idx)} not in local anchor log`);
-  }
-  const entry = entries[pyInt(idx)];
-  if (!pyEq(dget(entry, "hash"), dget(r, "entry_hash"))) return anchorResult(false, "receipt does not match the log entry");
-  if (!pyEq(dget(entry, "segment_hash"), segmentHash) || !pyEq(dget(entry, "chain"), chain)) {
-    return anchorResult(false, "log entry is for a different segment");
-  }
-  return anchorResult(true, "local anchor log entry found (not independent of the vendor)", false);
-};
 
 // node_modules/@noble/curves/utils.js
 /*! noble-curves - MIT License (c) 2022 Paul Miller (paulmillr.com) */
@@ -5339,6 +4253,1266 @@ function verifySignature(publicKey, message, sigText) {
   return publicKey instanceof Uint8Array ? ed25519Verify(sig, message, publicKey) : p256Verify(sig, message, publicKey.point);
 }
 
+// packages/verify/src/json.ts
+var MAX_DEPTH = 900;
+var INT_DIGITS_LIMIT2 = 4300;
+function jsonError(message, pos) {
+  return new PyError("JSONDecodeError", `${message}: char ${pos}`);
+}
+function parseJson(text) {
+  let i2 = 0;
+  const n = text.length;
+  const ws = () => {
+    while (i2 < n) {
+      const c = text.charCodeAt(i2);
+      if (c === 32 || c === 9 || c === 10 || c === 13) i2++;
+      else break;
+    }
+  };
+  const parseString = () => {
+    i2++;
+    let out = "";
+    let start = i2;
+    for (; ; ) {
+      if (i2 >= n) throw jsonError("Unterminated string starting at", start - 1);
+      const c = text.charCodeAt(i2);
+      if (c === 34) {
+        out += text.slice(start, i2);
+        i2++;
+        return out;
+      }
+      if (c < 32) throw jsonError("Invalid control character at", i2);
+      if (c === 92) {
+        out += text.slice(start, i2);
+        const e = text[i2 + 1];
+        switch (e) {
+          case '"':
+            out += '"';
+            i2 += 2;
+            break;
+          case "\\":
+            out += "\\";
+            i2 += 2;
+            break;
+          case "/":
+            out += "/";
+            i2 += 2;
+            break;
+          case "b":
+            out += "\b";
+            i2 += 2;
+            break;
+          case "f":
+            out += "\f";
+            i2 += 2;
+            break;
+          case "n":
+            out += "\n";
+            i2 += 2;
+            break;
+          case "r":
+            out += "\r";
+            i2 += 2;
+            break;
+          case "t":
+            out += "	";
+            i2 += 2;
+            break;
+          case "u": {
+            const hex = text.slice(i2 + 2, i2 + 6);
+            if (!/^[0-9a-fA-F]{4}$/.test(hex)) throw jsonError("Invalid \\uXXXX escape", i2 + 1);
+            out += String.fromCharCode(parseInt(hex, 16));
+            i2 += 6;
+            break;
+          }
+          default:
+            throw jsonError("Invalid \\escape", i2);
+        }
+        start = i2;
+        continue;
+      }
+      i2++;
+    }
+  };
+  const NUM = /-?(?:0|[1-9]\d*)(\.\d+)?([eE][-+]?\d+)?/y;
+  const parseNumber = () => {
+    NUM.lastIndex = i2;
+    const m = NUM.exec(text);
+    if (!m) throw jsonError("Expecting value", i2);
+    const lit = m[0];
+    i2 += lit.length;
+    if (m[1] === void 0 && m[2] === void 0) {
+      const digits2 = lit.replace("-", "");
+      if (digits2.length > INT_DIGITS_LIMIT2) {
+        throw new PyError("ValueError", `Exceeds the limit (${INT_DIGITS_LIMIT2}) for integer string conversion`);
+      }
+      const v2 = Number(lit);
+      if (Number.isSafeInteger(v2)) return v2 === 0 ? 0 : v2;
+      return new BigIntLiteral(lit);
+    }
+    const v = Number(lit);
+    return Number.isInteger(v) ? new PyFloat(v) : v;
+  };
+  const parseValue = (depth) => {
+    if (depth > MAX_DEPTH) throw new PyError("RecursionError", "maximum recursion depth exceeded while decoding JSON");
+    if (i2 >= n) throw jsonError("Expecting value", i2);
+    const c = text[i2];
+    if (c === '"') return parseString();
+    if (c === "{") {
+      i2++;
+      const obj = {};
+      ws();
+      if (text[i2] === "}") {
+        i2++;
+        return obj;
+      }
+      for (; ; ) {
+        ws();
+        if (text[i2] !== '"') throw jsonError("Expecting property name enclosed in double quotes", i2);
+        const key = parseString();
+        ws();
+        if (text[i2] !== ":") throw jsonError("Expecting ':' delimiter", i2);
+        i2++;
+        ws();
+        const val = parseValue(depth + 1);
+        if (key === "__proto__") {
+          Object.defineProperty(obj, key, { value: val, enumerable: true, writable: true, configurable: true });
+        } else {
+          obj[key] = val;
+        }
+        ws();
+        if (text[i2] === ",") {
+          i2++;
+          continue;
+        }
+        if (text[i2] === "}") {
+          i2++;
+          return obj;
+        }
+        throw jsonError("Expecting ',' delimiter", i2);
+      }
+    }
+    if (c === "[") {
+      i2++;
+      const arr = [];
+      ws();
+      if (text[i2] === "]") {
+        i2++;
+        return arr;
+      }
+      for (; ; ) {
+        ws();
+        arr.push(parseValue(depth + 1));
+        ws();
+        if (text[i2] === ",") {
+          i2++;
+          continue;
+        }
+        if (text[i2] === "]") {
+          i2++;
+          return arr;
+        }
+        throw jsonError("Expecting ',' delimiter", i2);
+      }
+    }
+    if (text.startsWith("true", i2)) {
+      i2 += 4;
+      return true;
+    }
+    if (text.startsWith("false", i2)) {
+      i2 += 5;
+      return false;
+    }
+    if (text.startsWith("null", i2)) {
+      i2 += 4;
+      return null;
+    }
+    if (text.startsWith("NaN", i2)) {
+      i2 += 3;
+      return NaN;
+    }
+    if (text.startsWith("Infinity", i2)) {
+      i2 += 8;
+      return Infinity;
+    }
+    if (text.startsWith("-Infinity", i2)) {
+      i2 += 9;
+      return -Infinity;
+    }
+    return parseNumber();
+  };
+  if (text.charCodeAt(0) === 65279) throw jsonError("Unexpected UTF-8 BOM (decode using utf-8-sig)", 0);
+  ws();
+  const value = parseValue(0);
+  ws();
+  if (i2 !== n) throw jsonError("Extra data", i2);
+  return value;
+}
+function decodeUtf8(bytes) {
+  try {
+    return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
+  } catch {
+    throw new PyError("UnicodeDecodeError", utf8ErrorMessage(bytes));
+  }
+}
+function utf8ErrorMessage(b) {
+  const hex = (x2) => "0x" + x2.toString(16).padStart(2, "0");
+  const fail = (start, len, reason) => len <= 1 ? `'utf-8' codec can't decode byte ${hex(b[start])} in position ${start}: ${reason}` : `'utf-8' codec can't decode bytes in position ${start}-${start + len - 1}: ${reason}`;
+  const cont = (x2) => x2 !== void 0 && (x2 & 192) === 128;
+  let i2 = 0;
+  while (i2 < b.length) {
+    const c = b[i2];
+    if (c < 128) {
+      i2++;
+      continue;
+    }
+    let need;
+    let lo = 128;
+    let hi = 191;
+    if (c >= 194 && c <= 223) need = 1;
+    else if (c >= 224 && c <= 239) {
+      need = 2;
+      if (c === 224) lo = 160;
+      if (c === 237) hi = 159;
+    } else if (c >= 240 && c <= 244) {
+      need = 3;
+      if (c === 240) lo = 144;
+      if (c === 244) hi = 143;
+    } else return fail(i2, 1, "invalid start byte");
+    let k = 1;
+    for (; k <= need; k++) {
+      const x2 = b[i2 + k];
+      if (x2 === void 0) return fail(i2, k, "unexpected end of data");
+      const ok = k === 1 ? x2 >= lo && x2 <= hi : cont(x2);
+      if (!ok) return fail(i2, k, "invalid continuation byte");
+    }
+    i2 += need + 1;
+  }
+  return "'utf-8' codec can't decode bytes: invalid UTF-8";
+}
+function parseJsonBytes(bytes) {
+  const skip = bytes[0] === 239 && bytes[1] === 187 && bytes[2] === 191 ? 3 : 0;
+  return parseJson(decodeUtf8(bytes.subarray(skip)));
+}
+function encodeUtf8(text) {
+  if (!isWellFormed(text)) {
+    throw new PyError("UnicodeEncodeError", "'utf-8' codec can't encode a lone surrogate");
+  }
+  return new TextEncoder().encode(text);
+}
+function pyDumps(value, opts = {}) {
+  const ensureAscii = opts.ensureAscii ?? true;
+  const indent = opts.indent;
+  const [itemSep, keySep] = opts.separators ?? (indent !== void 0 ? [",", ": "] : [", ", ": "]);
+  const str = (s) => dumpString(s, ensureAscii);
+  const go = (v, level) => {
+    if (v === null || v === void 0) return "null";
+    if (v === true) return "true";
+    if (v === false) return "false";
+    if (v instanceof PyFloat) return dumpFloat(v.value);
+    if (v instanceof BigIntLiteral) return v.value.toString();
+    if (typeof v === "bigint") return v.toString();
+    if (typeof v === "number") return dumpNumber(v);
+    if (typeof v === "string") return str(v);
+    const nl = indent !== void 0 ? "\n" + " ".repeat(indent * (level + 1)) : "";
+    const end = indent !== void 0 ? "\n" + " ".repeat(indent * level) : "";
+    if (Array.isArray(v)) {
+      if (v.length === 0) return "[]";
+      return "[" + nl + v.map((x2) => go(x2, level + 1)).join(itemSep + nl) + end + "]";
+    }
+    if (isDict(v)) {
+      let keys = Object.keys(v).filter((k) => v[k] !== void 0);
+      if (keys.length === 0) return "{}";
+      if (opts.sortKeys) keys = keys.sort(codePointCompare);
+      return "{" + nl + keys.map((k) => str(k) + keySep + go(v[k], level + 1)).join(itemSep + nl) + end + "}";
+    }
+    return str(String(v));
+  };
+  return go(value, 0);
+}
+function dumpFloat(x2) {
+  if (Number.isNaN(x2)) return "NaN";
+  if (x2 === Infinity) return "Infinity";
+  if (x2 === -Infinity) return "-Infinity";
+  return pyFloatRepr(x2);
+}
+function dumpNumber(x2) {
+  if (Number.isSafeInteger(x2)) return Object.is(x2, -0) ? "0" : String(x2);
+  return dumpFloat(x2);
+}
+function dumpString(s, ensureAscii) {
+  let out = '"';
+  for (let i2 = 0; i2 < s.length; i2++) {
+    const c = s.charCodeAt(i2);
+    if (c === 34) out += '\\"';
+    else if (c === 92) out += "\\\\";
+    else if (c === 10) out += "\\n";
+    else if (c === 13) out += "\\r";
+    else if (c === 9) out += "\\t";
+    else if (c === 8) out += "\\b";
+    else if (c === 12) out += "\\f";
+    else if (c < 32 || ensureAscii && c > 126) out += "\\u" + c.toString(16).padStart(4, "0");
+    else out += s[i2];
+  }
+  return out + '"';
+}
+
+// packages/verify/src/approvals.ts
+var APPROVAL_DOMAIN = "gleipnir/approval/v1\n";
+var SIGNATURE_TYPES = ["key", "webauthn"];
+var DIGEST = /^sha256:[0-9a-f]{64}$/;
+var B64U = /^[A-Za-z0-9_-]*$/;
+var UP = 1;
+var UV = 4;
+var BE = 8;
+var BS = 16;
+var AT = 64;
+var ED = 128;
+function approvalMessage(actionDigest2) {
+  return utf8(APPROVAL_DOMAIN + actionDigest2);
+}
+function approvalChallenge(actionDigest2) {
+  if (typeof actionDigest2 !== "string" || !DIGEST.test(actionDigest2)) {
+    throw new PyError("ValueError", "action digest must be sha256: followed by 64 lowercase hex characters");
+  }
+  return hexToBytes2(actionDigest2.slice("sha256:".length));
+}
+function isText(value) {
+  return typeof value === "string" && value.length > 0 && isWellFormed(value);
+}
+function isB64u(value) {
+  return typeof value === "string" && B64U.test(value) && value.length % 4 !== 1;
+}
+function tryDecode(text) {
+  try {
+    return decodePublicKey(text);
+  } catch {
+    return null;
+  }
+}
+var isP256 = (k) => k !== null && !(k instanceof Uint8Array);
+function loadApprovers(data) {
+  const bad = (msg) => new PyError("ValueError", msg);
+  if (!Array.isArray(data)) throw bad("the approvers file must be a JSON list");
+  const out = /* @__PURE__ */ new Map();
+  data.forEach((entry, i2) => {
+    if (!isDict(entry)) throw bad(`approver #${i2} must be a JSON object`);
+    const aid = dget(entry, "id");
+    if (typeof aid !== "string" || !aid) throw bad(`approver #${i2} needs a non-empty string id`);
+    const r = pyRepr(aid);
+    if (out.has(aid)) throw bad(`approver id ${r} appears twice`);
+    const name = dget(entry, "name");
+    if (typeof name !== "string") throw bad(`approver ${r} needs a string name`);
+    const roles = dget(entry, "roles", []);
+    if (!Array.isArray(roles) || !roles.every((x2) => typeof x2 === "string")) throw bad(`approver ${r}: roles must be a list of strings`);
+    if (hasKey(entry, "public_key") === hasKey(entry, "webauthn")) throw bad(`approver ${r} needs exactly one of public_key or webauthn`);
+    if (hasKey(entry, "public_key")) {
+      const pub2 = tryDecode(entry["public_key"]);
+      if (pub2 === null) throw bad(`approver ${r}: cannot read public_key`);
+      out.set(aid, { id: aid, name, type: "key", public: pub2, publicKey: entry["public_key"], rpId: null, credentialId: null, roles: [...roles] });
+      return;
+    }
+    const wa = entry["webauthn"];
+    if (!isDict(wa)) throw bad(`approver ${r}: webauthn must be a JSON object`);
+    const pub = tryDecode(dget(wa, "public_key"));
+    if (!isP256(pub)) throw bad(`approver ${r}: webauthn.public_key must be an ECDSA P-256 key`);
+    const rpId = dget(wa, "rp_id");
+    if (!isText(rpId)) throw bad(`approver ${r}: webauthn.rp_id must be a non-empty string`);
+    const cred = dget(wa, "credential_id");
+    if (cred !== null && (!isB64u(cred) || !cred)) throw bad(`approver ${r}: webauthn.credential_id must be base64url`);
+    out.set(aid, {
+      id: aid,
+      name,
+      type: "webauthn",
+      public: pub,
+      publicKey: wa["public_key"],
+      rpId,
+      credentialId: cred ?? null,
+      roles: [...roles]
+    });
+  });
+  return out;
+}
+function checkSignature(body, approvers, origins, require3) {
+  const strict = require3 ? "error" : "warn";
+  if (!hasKey(body, "signature")) {
+    return [[require3 || approvers !== null ? "error" : "warn", "approval_unsigned", "the approval is not signed by the approver, so who approved is only the vendor's word"]];
+  }
+  const sig = body["signature"];
+  if (!isDict(sig)) return [["error", "approval_bad_signature", "the approval signature is not a JSON object"]];
+  const typ = dget(sig, "type");
+  if (typeof typ !== "string" || !SIGNATURE_TYPES.includes(typ)) {
+    return [["error", "approval_bad_signature", "the approval signature has an unknown type"]];
+  }
+  const aid = dget(sig, "approver_id");
+  if (typeof aid !== "string" || !aid) return [["error", "approval_bad_signature", "the approval signature names no approver_id"]];
+  const r = pyRepr(aid);
+  if (hasKey(body, "reviewer") && !pyEq(body["reviewer"], aid)) {
+    return [["error", "approval_bad_signature", `the approval names reviewer ${pyRepr(body["reviewer"])} but is signed by ${r}`]];
+  }
+  const bad = typ === "key" ? "approval_bad_signature" : "approval_webauthn_invalid";
+  let pub = tryDecode(dget(sig, "public_key"));
+  if (pub === null) return [["error", bad, `cannot read the public key of approver ${r}`]];
+  if (typ === "webauthn" && !isP256(pub)) return [["error", bad, `the passkey of approver ${r} is not an ECDSA P-256 key`]];
+  let entry = null;
+  if (approvers !== null) {
+    entry = approvers.get(aid) ?? null;
+    if (entry === null) return [["error", "approval_unknown_approver", `approver ${r} is not in the approver registry`]];
+    if (entry.type !== typ) return [["error", "approval_unknown_approver", `approver ${r} is registered for ${entry.type} signatures, not ${typ}`]];
+    if (keyId(entry.public) !== keyId(pub)) {
+      return [["error", "approval_unknown_approver", `approver ${r} signed with a key that is not the one in the approver registry`]];
+    }
+    pub = entry.public;
+  }
+  const digest = dget(body, "action_digest");
+  if (typeof digest !== "string" || !DIGEST.test(digest)) {
+    return [["error", bad, "the approved action digest is malformed, so no signature can cover it"]];
+  }
+  if (typ === "key") {
+    if (!verifySignature(pub, approvalMessage(digest), dget(sig, "sig"))) {
+      return [["error", bad, `the signature of approver ${r} does not match the approved action`]];
+    }
+  } else {
+    const rpId = entry !== null ? entry.rpId : dget(sig, "rp_id");
+    if (!isText(rpId)) return [["error", bad, "WebAuthn assertion invalid: no valid rp_id"]];
+    const allowed = origins && origins.length ? [...origins] : [`https://${rpId}`];
+    const detail = webauthnProblem(sig, pub, digest, rpId, allowed, entry !== null ? entry.credentialId : null);
+    if (detail !== null) return [["error", bad, `WebAuthn assertion invalid: ${detail}`]];
+  }
+  if (entry !== null) return [["info", "approval_verified", `approved by ${entry.name} (${aid}), signature verified`]];
+  return [
+    [strict, "approval_unknown_approver", `the signature by ${r} is valid, but no approver registry was given, so nothing shows whose key it is (pass --approvers)`]
+  ];
+}
+function webauthnProblem(sig, pub, digest, rpId, origins, credentialId) {
+  const fields = [dget(sig, "authenticator_data"), dget(sig, "client_data_json"), dget(sig, "signature")];
+  if (!fields.every(isB64u)) return "authenticator_data, client_data_json and signature must be base64url strings";
+  const [auth, cdj] = fields.map(b64uDecode);
+  if (auth.length < 37) return "authenticator data is too short";
+  let cd = null;
+  try {
+    cd = parseJson(decodeUtf8(cdj));
+  } catch {
+    cd = null;
+  }
+  if (!isDict(cd)) return "client data is not a JSON object";
+  if (!pyEq(dget(cd, "type"), "webauthn.get")) return "client data type is not webauthn.get";
+  if (!pyEq(dget(cd, "challenge"), b64uEncode(approvalChallenge(digest)))) return "the challenge is not the approved action digest";
+  const origin = dget(cd, "origin");
+  if (typeof origin !== "string") return "client data has no origin";
+  if (!origins.includes(origin)) return `origin ${pyRepr(origin)} is not allowed`;
+  if (dget(cd, "crossOrigin") === true || hasKey(cd, "topOrigin")) return "the assertion was made in a cross-origin frame";
+  if (!bytesEqual(auth.subarray(0, 32), sha256(utf8(rpId)))) return "rpIdHash does not match the relying party id";
+  const flags = auth[32];
+  if (!(flags & UP)) return "user presence (UP) flag not set";
+  if (!(flags & UV)) return "user verification (UV) flag not set";
+  if (flags & AT) return "attested credential data (AT) flag set in an assertion";
+  if (flags & BS && !(flags & BE)) return "backup state (BS) set without backup eligibility (BE)";
+  if (auth.length > 37 !== Boolean(flags & ED)) return "authenticator data length does not match its flags";
+  if (credentialId !== null && !pyEq(dget(sig, "credential_id"), credentialId)) return "the credential id is not the registered one";
+  if (!verifySignature(pub, concatBytes2(auth, sha256(cdj)), P256_PREFIX + fields[2])) return "the signature does not verify";
+  return null;
+}
+
+// packages/verify/src/time.ts
+var US = 1000000n;
+var DAY_US = 86400n * US;
+var MIN_US = daysFromCivil(1, 1, 1) * DAY_US;
+var MAX_US = (daysFromCivil(9999, 12, 31) + 1n) * DAY_US - 1n;
+function daysFromCivil(y, m, d) {
+  const yy = m <= 2 ? y - 1 : y;
+  const era = Math.floor(yy / 400);
+  const yoe = yy - era * 400;
+  const doy = Math.floor((153 * (m + (m > 2 ? -3 : 9)) + 2) / 5) + d - 1;
+  const doe = yoe * 365 + Math.floor(yoe / 4) - Math.floor(yoe / 100) + doy;
+  return BigInt(era * 146097 + doe - 719468);
+}
+function civilFromDays(z0) {
+  const z = Number(z0) + 719468;
+  const era = Math.floor(z / 146097);
+  const doe = z - era * 146097;
+  const yoe = Math.floor((doe - Math.floor(doe / 1460) + Math.floor(doe / 36524) - Math.floor(doe / 146096)) / 365);
+  const y = yoe + era * 400;
+  const doy = doe - (365 * yoe + Math.floor(yoe / 4) - Math.floor(yoe / 100));
+  const mp = Math.floor((5 * doy + 2) / 153);
+  const d = doy - Math.floor((153 * mp + 2) / 5) + 1;
+  const m = mp + (mp < 10 ? 3 : -9);
+  return [m <= 2 ? y + 1 : y, m, d];
+}
+function daysInMonth(y, m) {
+  if (m === 2) return y % 4 === 0 && y % 100 !== 0 || y % 400 === 0 ? 29 : 28;
+  return [4, 6, 9, 11].includes(m) ? 30 : 31;
+}
+var RFC3339 = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,6}))?(Z|[+-]\d{2}:\d{2})$/;
+function parseTime(text) {
+  if (typeof text !== "string") throw new PyError("ValueError", "timestamp must be a string");
+  const m = RFC3339.exec(text);
+  if (m === null) throw new PyError("ValueError", `Invalid RFC 3339 timestamp: ${pyRepr(text)}`);
+  const [year, month, day, hour, minute, second] = m.slice(1, 7).map((x2) => Number(x2));
+  const micro = Number((m[7] ?? "").padEnd(6, "0") || "0");
+  const tz = m[8];
+  let off = 0n;
+  if (tz !== "Z") {
+    const sign = tz[0] === "-" ? -1n : 1n;
+    off = sign * (BigInt(Number(tz.slice(1, 3))) * 3600n + BigInt(Number(tz.slice(4, 6))) * 60n) * US;
+    if (off <= -DAY_US || off >= DAY_US) {
+      throw new PyError(
+        "ValueError",
+        `offset must be a timedelta strictly between -timedelta(hours=24) and timedelta(hours=24), not ${pyTimedeltaRepr(off)}.`
+      );
+    }
+  }
+  if (year < 1 || year > 9999) throw new PyError("ValueError", `year ${year} is out of range`);
+  if (month < 1 || month > 12) throw new PyError("ValueError", "month must be in 1..12");
+  if (day < 1 || day > daysInMonth(year, month)) throw new PyError("ValueError", "day is out of range for month");
+  if (hour > 23) throw new PyError("ValueError", "hour must be in 0..23");
+  if (minute > 59) throw new PyError("ValueError", "minute must be in 0..59");
+  if (second > 59) throw new PyError("ValueError", "second must be in 0..59");
+  const local = daysFromCivil(year, month, day) * DAY_US + (BigInt(hour) * 3600n + BigInt(minute) * 60n + BigInt(second)) * US + BigInt(micro);
+  const utc = local - off;
+  if (utc < MIN_US || utc > MAX_US) throw new PyError("OverflowError", "date value out of range");
+  return utc;
+}
+function pyTimedeltaRepr(us) {
+  let days = us / DAY_US;
+  let rem = us % DAY_US;
+  if (rem < 0n) {
+    rem += DAY_US;
+    days -= 1n;
+  }
+  const secs = rem / US;
+  const micro = rem % US;
+  const parts = [];
+  if (days) parts.push(`days=${days}`);
+  if (secs) parts.push(`seconds=${secs}`);
+  if (micro) parts.push(`microseconds=${micro}`);
+  return `datetime.timedelta(${parts.join(", ") || "0"})`;
+}
+function pad(n, w = 2) {
+  return String(n).padStart(w, "0");
+}
+function split2(t) {
+  let days = t / DAY_US;
+  let rem = t % DAY_US;
+  if (rem < 0n) {
+    rem += DAY_US;
+    days -= 1n;
+  }
+  const [y, mo, d] = civilFromDays(days);
+  const secs = Number(rem / US);
+  return { y, mo, d, h: Math.floor(secs / 3600), mi: Math.floor(secs % 3600 / 60), s: secs % 60, us: Number(rem % US) };
+}
+function pyIsoformat(t) {
+  const p = split2(t);
+  const frac = p.us ? "." + pad(p.us, 6) : "";
+  return `${pad(p.y, 4)}-${pad(p.mo)}-${pad(p.d)}T${pad(p.h)}:${pad(p.mi)}:${pad(p.s)}${frac}+00:00`;
+}
+function pyTimedelta(us) {
+  let days = us / DAY_US;
+  let rem = us % DAY_US;
+  if (rem < 0n) {
+    rem += DAY_US;
+    days -= 1n;
+  }
+  const secs = Number(rem / US);
+  const micro = Number(rem % US);
+  let out = `${Math.floor(secs / 3600)}:${pad(Math.floor(secs % 3600 / 60))}:${pad(secs % 60)}`;
+  if (micro) out += "." + pad(micro, 6);
+  if (days !== 0n) out = `${days} day${days === 1n || days === -1n ? "" : "s"}, ${out}`;
+  return out;
+}
+function microsFromDate(d) {
+  return BigInt(d.getTime()) * 1000n;
+}
+var MICROS_PER_SECOND = US;
+
+// node_modules/fflate/esm/index.mjs
+import { createRequire } from "module";
+var require2 = createRequire("/");
+var _a;
+var Worker;
+var isMarkedAsUntransferable;
+try {
+  _a = require2("worker_threads"), Worker = _a.Worker, isMarkedAsUntransferable = _a.isMarkedAsUntransferable;
+} catch (e) {
+}
+var u8 = Uint8Array;
+var u16 = Uint16Array;
+var i32 = Int32Array;
+var fleb = new u8([
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  1,
+  1,
+  1,
+  1,
+  2,
+  2,
+  2,
+  2,
+  3,
+  3,
+  3,
+  3,
+  4,
+  4,
+  4,
+  4,
+  5,
+  5,
+  5,
+  5,
+  0,
+  /* unused */
+  0,
+  0,
+  /* impossible */
+  0
+]);
+var fdeb = new u8([
+  0,
+  0,
+  0,
+  0,
+  1,
+  1,
+  2,
+  2,
+  3,
+  3,
+  4,
+  4,
+  5,
+  5,
+  6,
+  6,
+  7,
+  7,
+  8,
+  8,
+  9,
+  9,
+  10,
+  10,
+  11,
+  11,
+  12,
+  12,
+  13,
+  13,
+  /* unused */
+  0,
+  0
+]);
+var clim = new u8([16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15]);
+var freb = function(eb, start) {
+  var b = new u16(31);
+  for (var i2 = 0; i2 < 31; ++i2) {
+    b[i2] = start += 1 << eb[i2 - 1];
+  }
+  var r = new i32(b[30]);
+  for (var i2 = 1; i2 < 30; ++i2) {
+    for (var j = b[i2]; j < b[i2 + 1]; ++j) {
+      r[j] = j - b[i2] << 5 | i2;
+    }
+  }
+  return { b, r };
+};
+var _a = freb(fleb, 2);
+var fl = _a.b;
+var revfl = _a.r;
+fl[28] = 258, revfl[258] = 28;
+var _b = freb(fdeb, 0);
+var fd = _b.b;
+var revfd = _b.r;
+var rev = new u16(32768);
+for (i = 0; i < 32768; ++i) {
+  x = (i & 43690) >> 1 | (i & 21845) << 1;
+  x = (x & 52428) >> 2 | (x & 13107) << 2;
+  x = (x & 61680) >> 4 | (x & 3855) << 4;
+  rev[i] = ((x & 65280) >> 8 | (x & 255) << 8) >> 1;
+}
+var x;
+var i;
+var hMap = (function(cd, mb, r) {
+  var s = cd.length;
+  var i2 = 0;
+  var l = new u16(mb);
+  for (; i2 < s; ++i2) {
+    if (cd[i2])
+      ++l[cd[i2] - 1];
+  }
+  var le = new u16(mb);
+  for (i2 = 1; i2 < mb; ++i2) {
+    le[i2] = le[i2 - 1] + l[i2 - 1] << 1;
+  }
+  var co;
+  if (r) {
+    co = new u16(1 << mb);
+    var rvb = 15 - mb;
+    for (i2 = 0; i2 < s; ++i2) {
+      if (cd[i2]) {
+        var sv = i2 << 4 | cd[i2];
+        var r_1 = mb - cd[i2];
+        var v = le[cd[i2] - 1]++ << r_1;
+        for (var m = v | (1 << r_1) - 1; v <= m; ++v) {
+          co[rev[v] >> rvb] = sv;
+        }
+      }
+    }
+  } else {
+    co = new u16(s);
+    for (i2 = 0; i2 < s; ++i2) {
+      if (cd[i2]) {
+        co[i2] = rev[le[cd[i2] - 1]++] >> 15 - cd[i2];
+      }
+    }
+  }
+  return co;
+});
+var flt = new u8(288);
+for (i = 0; i < 144; ++i)
+  flt[i] = 8;
+var i;
+for (i = 144; i < 256; ++i)
+  flt[i] = 9;
+var i;
+for (i = 256; i < 280; ++i)
+  flt[i] = 7;
+var i;
+for (i = 280; i < 288; ++i)
+  flt[i] = 8;
+var i;
+var fdt = new u8(32);
+for (i = 0; i < 32; ++i)
+  fdt[i] = 5;
+var i;
+var flrm = /* @__PURE__ */ hMap(flt, 9, 1);
+var fdrm = /* @__PURE__ */ hMap(fdt, 5, 1);
+var max = function(a) {
+  var m = a[0];
+  for (var i2 = 1; i2 < a.length; ++i2) {
+    if (a[i2] > m)
+      m = a[i2];
+  }
+  return m;
+};
+var bits = function(d, p, m) {
+  var o = p / 8 | 0;
+  return (d[o] | d[o + 1] << 8) >> (p & 7) & m;
+};
+var bits16 = function(d, p) {
+  var o = p / 8 | 0;
+  return (d[o] | d[o + 1] << 8 | d[o + 2] << 16) >> (p & 7);
+};
+var shft = function(p) {
+  return (p + 7) / 8 | 0;
+};
+var slc = function(v, s, e) {
+  if (s == null || s < 0)
+    s = 0;
+  if (e == null || e > v.length)
+    e = v.length;
+  return new u8(v.subarray(s, e));
+};
+var ec = [
+  "unexpected EOF",
+  "invalid block type",
+  "invalid length/literal",
+  "invalid distance",
+  "stream finished",
+  "no stream handler",
+  ,
+  // determined by compression function
+  "no callback",
+  "invalid UTF-8 data",
+  "extra field too long",
+  "date not in range 1980-2099",
+  "filename too long",
+  "stream finishing",
+  "invalid zip data"
+  // determined by unknown compression method
+];
+var err = function(ind, msg, nt) {
+  var e = new Error(msg || ec[ind]);
+  e.code = ind;
+  if (Error.captureStackTrace)
+    Error.captureStackTrace(e, err);
+  if (!nt)
+    throw e;
+  return e;
+};
+var inflt = function(dat, st, buf, dict) {
+  var sl = dat.length, dl = dict ? dict.length : 0;
+  if (!sl || st.f && !st.l)
+    return buf || new u8(0);
+  var noBuf = !buf;
+  var resize = noBuf || st.i != 2;
+  var noSt = st.i;
+  if (noBuf)
+    buf = new u8(sl * 3);
+  var cbuf = function(l2) {
+    var bl = buf.length;
+    if (l2 > bl) {
+      var nbuf = new u8(Math.max(bl * 2, l2));
+      nbuf.set(buf);
+      buf = nbuf;
+    }
+  };
+  var final = st.f || 0, pos = st.p || 0, bt = st.b || 0, lm = st.l, dm = st.d, lbt = st.m, dbt = st.n;
+  var tbts = sl * 8;
+  do {
+    if (!lm) {
+      final = bits(dat, pos, 1);
+      var type = bits(dat, pos + 1, 3);
+      pos += 3;
+      if (!type) {
+        var s = shft(pos) + 4, l = dat[s - 4] | dat[s - 3] << 8, t = s + l;
+        if (t > sl) {
+          if (noSt)
+            err(0);
+          break;
+        }
+        if (resize)
+          cbuf(bt + l);
+        buf.set(dat.subarray(s, t), bt);
+        st.b = bt += l, st.p = pos = t * 8, st.f = final;
+        continue;
+      } else if (type == 1)
+        lm = flrm, dm = fdrm, lbt = 9, dbt = 5;
+      else if (type == 2) {
+        var hLit = bits(dat, pos, 31) + 257, hcLen = bits(dat, pos + 10, 15) + 4;
+        var tl = hLit + bits(dat, pos + 5, 31) + 1;
+        pos += 14;
+        var ldt = new u8(tl);
+        var clt = new u8(19);
+        for (var i2 = 0; i2 < hcLen; ++i2) {
+          clt[clim[i2]] = bits(dat, pos + i2 * 3, 7);
+        }
+        pos += hcLen * 3;
+        var clb = max(clt), clbmsk = (1 << clb) - 1;
+        var clm = hMap(clt, clb, 1);
+        for (var i2 = 0; i2 < tl; ) {
+          var r = clm[bits(dat, pos, clbmsk)];
+          pos += r & 15;
+          var s = r >> 4;
+          if (s < 16) {
+            ldt[i2++] = s;
+          } else {
+            var c = 0, n = 0;
+            if (s == 16)
+              n = 3 + bits(dat, pos, 3), pos += 2, c = ldt[i2 - 1];
+            else if (s == 17)
+              n = 3 + bits(dat, pos, 7), pos += 3;
+            else if (s == 18)
+              n = 11 + bits(dat, pos, 127), pos += 7;
+            while (n--)
+              ldt[i2++] = c;
+          }
+        }
+        var lt = ldt.subarray(0, hLit), dt = ldt.subarray(hLit);
+        lbt = max(lt);
+        dbt = max(dt);
+        lm = hMap(lt, lbt, 1);
+        dm = hMap(dt, dbt, 1);
+      } else
+        err(1);
+      if (pos > tbts) {
+        if (noSt)
+          err(0);
+        break;
+      }
+    }
+    if (resize)
+      cbuf(bt + 131072);
+    var lms = (1 << lbt) - 1, dms = (1 << dbt) - 1;
+    var lpos = pos;
+    for (; ; lpos = pos) {
+      var c = lm[bits16(dat, pos) & lms], sym = c >> 4;
+      pos += c & 15;
+      if (pos > tbts) {
+        if (noSt)
+          err(0);
+        break;
+      }
+      if (!c)
+        err(2);
+      if (sym < 256)
+        buf[bt++] = sym;
+      else if (sym == 256) {
+        lpos = pos, lm = null;
+        break;
+      } else {
+        var add2 = sym - 254;
+        if (sym > 264) {
+          var i2 = sym - 257, b = fleb[i2];
+          add2 = bits(dat, pos, (1 << b) - 1) + fl[i2];
+          pos += b;
+        }
+        var d = dm[bits16(dat, pos) & dms], dsym = d >> 4;
+        if (!d)
+          err(3);
+        pos += d & 15;
+        var dt = fd[dsym];
+        if (dsym > 3) {
+          var b = fdeb[dsym];
+          dt += bits16(dat, pos) & (1 << b) - 1, pos += b;
+        }
+        if (pos > tbts) {
+          if (noSt)
+            err(0);
+          break;
+        }
+        if (resize)
+          cbuf(bt + 131072);
+        var end = bt + add2;
+        if (bt < dt) {
+          var shift = dl - dt, dend = Math.min(dt, end);
+          if (shift + bt < 0)
+            err(3);
+          for (; bt < dend; ++bt)
+            buf[bt] = dict[shift + bt];
+        }
+        for (; bt < end; ++bt)
+          buf[bt] = buf[bt - dt];
+      }
+    }
+    st.l = lm, st.p = lpos, st.b = bt, st.f = final;
+    if (lm)
+      final = 1, st.m = lbt, st.d = dm, st.n = dbt;
+  } while (!final);
+  return bt != buf.length && noBuf ? slc(buf, 0, bt) : buf.subarray(0, bt);
+};
+var et = /* @__PURE__ */ new u8(0);
+var b2 = function(d, b) {
+  return d[b] | d[b + 1] << 8;
+};
+var b4 = function(d, b) {
+  return (d[b] | d[b + 1] << 8 | d[b + 2] << 16 | d[b + 3] << 24) >>> 0;
+};
+var b8 = function(d, b) {
+  return b4(d, b) + b4(d, b + 4) * 4294967296;
+};
+function inflateSync(data, opts) {
+  return inflt(data, { i: 2 }, opts && opts.out, opts && opts.dictionary);
+}
+var td = typeof TextDecoder != "undefined" && /* @__PURE__ */ new TextDecoder();
+var tds = 0;
+try {
+  td.decode(et, { stream: true });
+  tds = 1;
+} catch (e) {
+}
+var dutf8 = function(d) {
+  for (var r = "", i2 = 0; ; ) {
+    var c = d[i2++];
+    var eb = (c > 127) + (c > 223) + (c > 239);
+    if (i2 + eb > d.length)
+      return { s: r, r: slc(d, i2 - 1) };
+    if (!eb)
+      r += String.fromCharCode(c);
+    else if (eb == 3) {
+      c = ((c & 15) << 18 | (d[i2++] & 63) << 12 | (d[i2++] & 63) << 6 | d[i2++] & 63) - 65536, r += String.fromCharCode(55296 | c >> 10, 56320 | c & 1023);
+    } else if (eb & 1)
+      r += String.fromCharCode((c & 31) << 6 | d[i2++] & 63);
+    else
+      r += String.fromCharCode((c & 15) << 12 | (d[i2++] & 63) << 6 | d[i2++] & 63);
+  }
+};
+function strFromU8(dat, latin1) {
+  if (latin1) {
+    var r = "";
+    for (var i2 = 0; i2 < dat.length; i2 += 16384)
+      r += String.fromCharCode.apply(null, dat.subarray(i2, i2 + 16384));
+    return r;
+  } else if (td) {
+    return td.decode(dat);
+  } else {
+    var _a2 = dutf8(dat), s = _a2.s, r = _a2.r;
+    if (r.length)
+      err(8);
+    return s;
+  }
+}
+var slzh = function(d, b) {
+  return b + 30 + b2(d, b + 26) + b2(d, b + 28);
+};
+var zh = function(d, b, z) {
+  var fnl = b2(d, b + 28), efl = b2(d, b + 30), fn = strFromU8(d.subarray(b + 46, b + 46 + fnl), !(b2(d, b + 8) & 2048)), es = b + 46 + fnl;
+  var _a2 = z64hs(d, es, efl, z, b4(d, b + 20), b4(d, b + 24), b4(d, b + 42)), sc = _a2[0], su = _a2[1], off = _a2[2];
+  return [b2(d, b + 10), sc, su, fn, es + efl + b2(d, b + 32), off];
+};
+var z64hs = function(d, b, l, z, sc, su, off) {
+  var nsc = sc == 4294967295, nsu = su == 4294967295, noff = off == 4294967295, e = b + l;
+  var nf = nsc + nsu + noff;
+  if (z && nf) {
+    for (; b + 4 < e; b += 4 + b2(d, b + 2)) {
+      if (b2(d, b) == 1) {
+        return [
+          nsc ? b8(d, b + 4 + 8 * nsu) : sc,
+          nsu ? b8(d, b + 4) : su,
+          noff ? b8(d, b + 4 + 8 * (nsu + nsc)) : off,
+          1
+        ];
+      }
+    }
+    if (z < 2)
+      err(13);
+  }
+  return [sc, su, off, 0];
+};
+function unzipSync(data, opts) {
+  var files = {};
+  var e = data.length - 22;
+  for (; b4(data, e) != 101010256; --e) {
+    if (!e || data.length - e > 65558)
+      err(13);
+  }
+  ;
+  var c = b2(data, e + 8);
+  if (!c)
+    return {};
+  var o = b4(data, e + 16);
+  var z = b4(data, e - 20) == 117853008;
+  if (z) {
+    var ze = b4(data, e - 12);
+    z = b4(data, ze) == 101075792;
+    if (z) {
+      c = b4(data, ze + 32);
+      o = b4(data, ze + 48);
+    }
+  }
+  var fltr = opts && opts.filter;
+  for (var i2 = 0; i2 < c; ++i2) {
+    var _a2 = zh(data, o, z), c_2 = _a2[0], sc = _a2[1], su = _a2[2], fn = _a2[3], no = _a2[4], off = _a2[5], b = slzh(data, off);
+    o = no;
+    if (!fltr || fltr({
+      name: fn,
+      size: sc,
+      originalSize: su,
+      compression: c_2
+    })) {
+      if (!c_2)
+        files[fn] = slc(data, b, b + sc);
+      else if (c_2 == 8)
+        files[fn] = inflateSync(data.subarray(b, b + sc), { out: new u8(su) });
+      else
+        err(14, "unknown compression type " + c_2);
+    }
+  }
+  return files;
+}
+
+// packages/verify/src/bundle.ts
+var MAX_MEMBER_BYTES = 512 * 1024 * 1024;
+function members(zipBytes) {
+  let total = 0;
+  let files;
+  try {
+    files = unzipSync(zipBytes, {
+      filter: (f) => {
+        if (f.originalSize > MAX_MEMBER_BYTES) throw new PyError("BadZipFile", `member ${f.name} is too large`);
+        total += f.originalSize;
+        if (total > 4 * MAX_MEMBER_BYTES) throw new PyError("BadZipFile", "bundle is too large");
+        return f.name === "manifest.json" || f.name === "records.jsonl" || f.name === "anchors/local-anchor-log.jsonl";
+      }
+    });
+  } catch (exc) {
+    if (exc instanceof PyError) throw exc;
+    throw new PyError("BadZipFile", exc instanceof Error ? exc.message : String(exc));
+  }
+  return new Map(Object.entries(files));
+}
+function jsonLines(text) {
+  return text.split("\n").filter((l) => !/^[ \t\r]*$/.test(l));
+}
+function readBundle(zipBytes) {
+  const m = members(zipBytes);
+  const get = (name) => {
+    const b = m.get(name);
+    if (b === void 0) throw new PyError("KeyError", `"There is no item named '${name}' in the archive"`);
+    return b;
+  };
+  const manifest = parseJsonBytes(get("manifest.json"));
+  const lines2 = jsonLines(decodeUtf8(get("records.jsonl")));
+  let localLog = null;
+  const log = m.get("anchors/local-anchor-log.jsonl");
+  if (log !== void 0) {
+    localLog = jsonLines(decodeUtf8(log)).map((l) => parseJson(l));
+  }
+  const records = lines2.map((l) => parseJson(l));
+  return [manifest, records, localLog];
+}
+
+// packages/verify/src/canon.ts
+var HASH_PREFIX = "sha256:";
+var MAX_SAFE = Number.MAX_SAFE_INTEGER;
+var CANON_MAX_DEPTH = 985;
+var CanonicalizationError = class extends PyError {
+  constructor(kind, message) {
+    super(kind, message);
+  }
+};
+function serializeNumber(x2) {
+  if (!Number.isFinite(x2)) throw new CanonicalizationError("FloatDomainError", `${x2} is not representable in JCS`);
+  return Object.is(x2, -0) ? "0" : String(x2);
+}
+function serializeString(s) {
+  if (!isWellFormed(s)) throw new CanonicalizationError("CanonicalizationError", "input contains non-UTF-8 codepoints");
+  let out = '"';
+  for (let i2 = 0; i2 < s.length; i2++) {
+    const c = s.charCodeAt(i2);
+    if (c === 34) out += '\\"';
+    else if (c === 92) out += "\\\\";
+    else if (c < 32) {
+      if (c === 8) out += "\\b";
+      else if (c === 9) out += "\\t";
+      else if (c === 10) out += "\\n";
+      else if (c === 12) out += "\\f";
+      else if (c === 13) out += "\\r";
+      else out += "\\u" + c.toString(16).padStart(4, "0");
+    } else out += s[i2];
+  }
+  return out + '"';
+}
+function utf16Compare(a, b) {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+function serialize(value, depth) {
+  if (depth > CANON_MAX_DEPTH) throw new PyError("RecursionError", "maximum recursion depth exceeded");
+  if (value === null) return "null";
+  if (value === true) return "true";
+  if (value === false) return "false";
+  if (typeof value === "string") return serializeString(value);
+  if (typeof value === "number") {
+    return serializeNumber(value);
+  }
+  if (value instanceof PyFloat) return serializeNumber(value.value);
+  if (value instanceof BigIntLiteral || typeof value === "bigint") {
+    const v = value instanceof BigIntLiteral ? value.value : value;
+    if (v > BigInt(MAX_SAFE) || v < -BigInt(MAX_SAFE)) {
+      throw new CanonicalizationError("IntegerDomainError", `${v} exceeds safe integer domain for JSON floats`);
+    }
+    return v.toString();
+  }
+  if (Array.isArray(value)) return "[" + value.map((v) => serialize(v, depth + 1)).join(",") + "]";
+  if (isDict(value)) {
+    const keys = Object.keys(value).filter((k) => value[k] !== void 0).sort(utf16Compare);
+    return "{" + keys.map((k) => serializeString(k) + ":" + serialize(value[k], depth + 1)).join(",") + "}";
+  }
+  throw new CanonicalizationError("CanonicalizationError", `unsupported type: ${typeof value}`);
+}
+function canonicalizeString(value) {
+  return serialize(value, 0);
+}
+function canonicalize(value) {
+  return encodeUtf8(canonicalizeString(value));
+}
+function sha256Tagged(data) {
+  return HASH_PREFIX + bytesToHex2(sha256(data));
+}
+function recordBody(record) {
+  const body = {};
+  for (const k of Object.keys(record)) {
+    if (k === "sig") continue;
+    Object.defineProperty(body, k, { value: record[k], enumerable: true, writable: true, configurable: true });
+  }
+  return body;
+}
+function recordHash(record) {
+  return sha256Tagged(canonicalize(recordBody(record)));
+}
+function hashToBytes(tagged) {
+  if (typeof tagged !== "string" || !tagged.startsWith(HASH_PREFIX)) {
+    throw new PyError("ValueError", `not a sha256 hash: ${pyRepr(tagged)}`);
+  }
+  const raw = hexToBytes2(tagged.slice(HASH_PREFIX.length));
+  if (raw.length !== 32) throw new PyError("ValueError", `wrong hash length: ${tagged}`);
+  return raw;
+}
+
+// packages/verify/src/anchors.ts
+function anchorResult(ok, detail = "", independent = false, time = null) {
+  return { ok, detail, independent, time };
+}
+function localLogEntryHash(entry) {
+  const body = {};
+  for (const k of Object.keys(entry)) if (k !== "hash") body[k] = entry[k];
+  return sha256Tagged(canonicalize(body));
+}
+function checkLocalLog(entries) {
+  let prev = null;
+  for (let i2 = 0; i2 < entries.length; i2++) {
+    const e = entries[i2];
+    if (!pyEq(dget(e, "index"), i2)) return `entry ${i2} has index ${pyRepr(dget(e, "index"))}`;
+    if (!pyEq(dget(e, "prev"), prev)) return `entry ${i2} does not link to entry ${i2 - 1}`;
+    const h = localLogEntryHash(e);
+    if (!pyEq(dget(e, "hash"), h)) return `entry ${i2} hash mismatch`;
+    prev = h;
+  }
+  return null;
+}
+function readLocalLog(bytes) {
+  const text = decodeUtf8(bytes).replace(/\r\n?/g, "\n");
+  const out = [];
+  for (const line of text.split(/(?<=\n)/)) {
+    if (!/^[ \t\r\n]*$/.test(line)) out.push(parseJson(line));
+  }
+  return out;
+}
+function localEntries(options) {
+  if (options._localCache) return options._localCache;
+  let entries = null;
+  let error = null;
+  const src = options.localAnchorLog;
+  if (src) {
+    if ("error" in src) error = `cannot read local anchor log: ${src.error}`;
+    else {
+      try {
+        entries = readLocalLog(src.bytes);
+      } catch (exc) {
+        if (exc instanceof PyError && exc.name === "JSONDecodeError") error = `cannot read local anchor log: ${exc.message}`;
+        else throw exc;
+      }
+    }
+  } else if (!isNone(options.localAnchorEntries)) {
+    entries = options.localAnchorEntries;
+  }
+  if (entries !== null && error === null) {
+    const problem = checkLocalLog(entries);
+    if (problem) error = `local anchor log is inconsistent: ${problem}`;
+  }
+  options._localCache = { entries, error };
+  return options._localCache;
+}
+var verifyLocal = (receipt, { segmentHash, chain, options }) => {
+  const { entries, error } = localEntries(options);
+  if (error) return anchorResult(false, error);
+  if (entries === null) {
+    return anchorResult(
+      null,
+      "local anchor log not provided (use --local-anchor-log); local anchors are for testing and are not independent of the vendor"
+    );
+  }
+  const r = dget(receipt, "receipt", {});
+  const idx = dget(r, "index");
+  if (!isPyInt(idx) || !(pyInt(idx) >= 0 && pyInt(idx) < entries.length)) {
+    return anchorResult(false, `receipt index ${pyRepr(idx)} not in local anchor log`);
+  }
+  const entry = entries[pyInt(idx)];
+  if (!pyEq(dget(entry, "hash"), dget(r, "entry_hash"))) return anchorResult(false, "receipt does not match the log entry");
+  if (!pyEq(dget(entry, "segment_hash"), segmentHash) || !pyEq(dget(entry, "chain"), chain)) {
+    return anchorResult(false, "log entry is for a different segment");
+  }
+  return anchorResult(true, "local anchor log entry found (not independent of the vendor)", false);
+};
+
 // packages/verify/src/merkle.ts
 var LEAF = Uint8Array.of(0);
 var NODE = Uint8Array.of(1);
@@ -6168,7 +6342,10 @@ function resolve(opts) {
     requireFull: opts.requireFull ?? false,
     anchorVerifiers: opts.anchorVerifiers ?? defaultVerifiers(),
     // A fresh options object per verification: it carries a per-run cache.
-    anchorOptions: { ...opts.anchorOptions ?? {}, _localCache: void 0 }
+    anchorOptions: { ...opts.anchorOptions ?? {}, _localCache: void 0 },
+    approvers: isNone(opts.approvers) ? null : opts.approvers instanceof Map ? opts.approvers : loadApprovers(opts.approvers),
+    webauthnOrigins: opts.webauthnOrigins ? [...opts.webauthnOrigins] : null,
+    requireSignedApprovals: opts.requireSignedApprovals ?? false
   };
 }
 function verifyRecords(records, options = {}) {
@@ -6567,7 +6744,7 @@ function verifyRecordsInner(records, o) {
   if (unchecked) {
     report.add(WARN, "anchors_unchecked", `${unchecked} segments have anchor receipts that could not be checked`);
   }
-  checkApprovals(recs, report, !(isNone(firstBodySeq) || pyEq(firstBodySeq, 1)));
+  checkApprovals(recs, report, !(isNone(firstBodySeq) || pyEq(firstBodySeq, 1)), o);
   if (o.requireFull && body.length > 0 && !pyEq(body[0], 1)) {
     report.add(ERROR, "partial_bundle", "a full bundle was required but records are missing at the start");
   }
@@ -6646,7 +6823,7 @@ function hasDropped(value, depth = 0) {
   if (Array.isArray(value)) return value.some((v) => hasDropped(v, depth + 1));
   return false;
 }
-function checkApprovals(records, report, partial) {
+function checkApprovals(records, report, partial, o) {
   const reviews = new PyMap();
   for (const r of records) {
     if (pyEq(dget(r, "kind"), "review")) reviews.set(dget(r, "id"), r);
@@ -6701,6 +6878,9 @@ function checkApprovals(records, report, partial) {
         seq
       );
     }
+    for (const [level, code, message] of checkSignature(body, o.approvers, o.webauthnOrigins, o.requireSignedApprovals)) {
+      report.add(level, code, message, seq);
+    }
   }
 }
 function summarize(report, records, genesis, keys, segments, anchored, independent = 0, lastAnchoredClose = null) {
@@ -6743,6 +6923,9 @@ function firstBodySeqOf(records) {
   return null;
 }
 function verifyBundle(zipBytes, options = {}) {
+  if (!isNone(options.approvers) && !(options.approvers instanceof Map)) {
+    options = { ...options, approvers: loadApprovers(options.approvers) };
+  }
   let manifest;
   let records;
   let localLog;
@@ -7117,7 +7300,8 @@ var MARK = { [ERROR]: "FAIL", [WARN]: "WARN", [INFO]: "info" };
 var PROG = "gleipnir-verify";
 var USAGE = `usage: ${PROG} [-h] [--json] [--expect-key KEY_ID] [--expect-until TIME] [--known-head SEQ:HASH]
                        [--require-anchor {rekor,rfc3161}] [--max-anchor-delay SECONDS] [--require-full]
-                       [--trusted-root PATH] [--local-anchor-log PATH] [--strict] [--version]
+                       [--trusted-root PATH] [--local-anchor-log PATH] [--approvers FILE] [--require-signed-approvals]
+                       [--webauthn-origin ORIGIN] [--strict] [--version]
                        bundle`;
 var HELP = `${USAGE}
 
@@ -7143,6 +7327,12 @@ options:
   --trusted-root PATH   Sigstore trusted_root.json to use instead of the embedded one (for newer log shards)
   --local-anchor-log PATH
                         local anchor log to check local receipts against
+  --approvers FILE      JSON list of the people who may approve actions, with their keys or passkeys; approvals
+                        must be signed by one of them
+  --require-signed-approvals
+                        fail unless every approval is signed by an approver from --approvers
+  --webauthn-origin ORIGIN
+                        origin allowed in passkey approvals (default: https://<rp_id>); repeatable
   --strict              treat warnings as failures
   --version             show program's version number and exit
 
@@ -7326,6 +7516,9 @@ function run(argv, io) {
         "require-full": { type: "boolean" },
         "trusted-root": { type: "string" },
         "local-anchor-log": { type: "string" },
+        approvers: { type: "string" },
+        "require-signed-approvals": { type: "boolean" },
+        "webauthn-origin": { type: "string", multiple: true },
         strict: { type: "boolean" }
       }
     });
@@ -7367,6 +7560,31 @@ function run(argv, io) {
     if (knownHead === null) usageError(io, "--known-head must look like 12:sha256:<64 hex>");
   }
   const maxDelay = a["max-anchor-delay"] !== void 0 ? parseFloatArg(io, a["max-anchor-delay"]) : null;
+  let approvers = null;
+  if (a.approvers) {
+    let raw;
+    try {
+      raw = readFileSync(a.approvers);
+    } catch (exc) {
+      usageError(io, `--approvers: ${osError(exc, a.approvers)}`);
+    }
+    let data;
+    try {
+      data = parseJsonBytes(raw);
+    } catch (exc) {
+      if (exc instanceof PyError) usageError(io, "--approvers: the file is not valid JSON");
+      throw exc;
+    }
+    try {
+      approvers = loadApprovers(data);
+    } catch (exc) {
+      if (exc instanceof PyError) usageError(io, `--approvers: ${exc.message}`);
+      throw exc;
+    }
+  }
+  if (a["require-signed-approvals"] && approvers === null) {
+    usageError(io, "--require-signed-approvals needs --approvers (who may approve is your decision)");
+  }
   let report;
   let bytes = null;
   try {
@@ -7383,7 +7601,10 @@ function run(argv, io) {
       requireAnchor: a["require-anchor"] ?? null,
       maxAnchorDelay: maxDelay,
       requireFull: a["require-full"] ?? false,
-      anchorOptions: options
+      anchorOptions: options,
+      approvers,
+      webauthnOrigins: a["webauthn-origin"] ?? null,
+      requireSignedApprovals: a["require-signed-approvals"] ?? false
     });
   }
   report = report;
