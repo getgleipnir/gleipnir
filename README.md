@@ -26,6 +26,17 @@ The buyer checks the bundle offline, with no account and no access to the vendor
 pipx run gleipnir-verify bundle.zip --expect-key k_ed25519_... --require-anchor rekor --require-full
 ```
 
+## Zero-code: any MCP client
+
+Put `gleipnir-mcp` in front of a local MCP server in Claude Desktop, Cursor or Claude Code and every tool call through it gets a signed record, with no code changes:
+
+```bash
+gleipnir-mcp --print-config claude-desktop -- npx -y @modelcontextprotocol/server-filesystem ~/Desktop
+gleipnir report --open      # what my agent did
+```
+
+See [docs/mcp-proxy.md](docs/mcp-proxy.md).
+
 ## Try it in five minutes
 
 [examples/refund-agent](examples/refund-agent): a toy refund agent, a fake payments API with a hidden bug, verification, and a tamper demo.
@@ -39,6 +50,7 @@ pipx run gleipnir-verify bundle.zip --expect-key k_ed25519_... --require-anchor 
 | TypeScript | `@getgleipnir/verify` (also runs in the browser) and `@getgleipnir/sdk`, byte-for-byte compatible with Python, see [typescript/](typescript/) |
 | `gleipnir-verify` | Small offline verifier the buyer runs: signatures, hash chain, Merkle roots, Rekor inclusion proofs and checkpoints, truncation checks |
 | Records | RFC 8785 canonical JSON, Ed25519 signatures, hash chain, segments with RFC 6962 Merkle roots, anchored in Sigstore Rekor v2 with RFC 3161 trusted timestamps. See [spec/format.md](spec/format.md) |
+| `gleipnir-mcp` | Transparent stdio MCP proxy that records every `tools/call`, plus `gleipnir report` (HTML of what the agent did) |
 | `gleipnir check` | Which items of the open [agent security review checklist](https://github.com/getgleipnir/agent-security-review) your records evidence |
 
 Docs: [design](docs/design.md), [threat model](docs/threat-model.md) (what a valid result proves, and what it doesn't).
