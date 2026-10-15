@@ -48,6 +48,27 @@ for name, rec in RECORDS.items():
               .decode("utf-8"), "hash": h}
     (OUT / f"{name}.json").write_text(json.dumps(vector, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
+# ECDSA P-256 key type (RFC 6979 deterministic signatures, so the vector is reproducible).
+from cryptography.hazmat.primitives import hashes  # noqa: E402
+from cryptography.hazmat.primitives.asymmetric import ec  # noqa: E402
+
+from gleipnir_verify.crypto import encode_p256_public_key, encode_p256_signature  # noqa: E402
+
+p256 = ec.derive_private_key(int.from_bytes(bytes(range(1, 33)), "big"), ec.SECP256R1())
+spki = p256.public_key().public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
+P256_KID, P256_PUB = key_id(("ecdsa-p256", spki)), encode_p256_public_key(spki)
+prec = {"v": 1, "kind": "genesis", "chain": "ch_vector_p256", "seq": 0, "id": "gen_p256",
+        "time": "2026-10-14T09:00:00.000Z", "key": P256_KID, "public_key": {"id": P256_KID, "public": P256_PUB},
+        "config": {"heartbeat_seconds": 600, "segment_max_records": 1000}}
+ph = record_hash(prec)
+prec["sig"] = encode_p256_signature(
+    p256.sign(record_message(ph), ec.ECDSA(hashes.SHA256(), deterministic_signing=True)))
+(OUT / "03-genesis-ecdsa-p256.json").write_text(json.dumps({
+    "description": "genesis signed with an ECDSA P-256 key (deterministic RFC 6979 signature)",
+    "private_key_scalar_hex": bytes(range(1, 33)).hex(), "public_key": P256_PUB, "key_id": P256_KID,
+    "record": prec, "canonical": canonicalize({k: v for k, v in prec.items() if k != "sig"}).decode("utf-8"),
+    "hash": ph}, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
 leaves = [hash_to_bytes(record_hash(r)) for r in RECORDS.values()]
 merkle_vectors = {"description": "RFC 6962 Merkle roots over raw 32-byte record hashes",
                   "cases": []}

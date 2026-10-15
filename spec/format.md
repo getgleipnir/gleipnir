@@ -27,6 +27,8 @@ Normative. Implementations in any language must produce and accept exactly this.
 
 Key ids: `"k_ed25519_" || first 16 hex chars of SHA-256(raw 32-byte public key)`. Public keys: `"ed25519:" || base64url-nopad(raw)`.
 
+ECDSA P-256 keys are also allowed, for KMS/HSM setups without Ed25519 (Azure Key Vault, Cloud KMS HSM): public key `"ecdsa-p256:" || base64url-nopad(DER SubjectPublicKeyInfo)`, key id `"k_p256_" || first 16 hex chars of SHA-256(DER SPKI)`, signature `"ecdsa-p256:" || base64url-nopad(DER ECDSA-SHA256 signature)` over the same message. A chain may rotate between key types.
+
 ## Kinds
 
 **genesis**: `public_key: {id, public}`, `config: {heartbeat_seconds, segment_max_records}`. Signed by that key.

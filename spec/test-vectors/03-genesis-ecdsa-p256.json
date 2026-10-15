@@ -1,0 +1,26 @@
+{
+  "description": "genesis signed with an ECDSA P-256 key (deterministic RFC 6979 signature)",
+  "private_key_scalar_hex": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+  "public_key": "ecdsa-p256:MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEUVw9brnjlrkE0_7Kf1T9zQzB6Ze_N13KUVrQpsO0A19FNr46UPMY-_mlR1kCoiFQK-8NV-CMU7LMClbxfZ-TVA",
+  "key_id": "k_p256_f1d59449b727165d",
+  "record": {
+    "v": 1,
+    "kind": "genesis",
+    "chain": "ch_vector_p256",
+    "seq": 0,
+    "id": "gen_p256",
+    "time": "2026-10-14T09:00:00.000Z",
+    "key": "k_p256_f1d59449b727165d",
+    "public_key": {
+      "id": "k_p256_f1d59449b727165d",
+      "public": "ecdsa-p256:MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEUVw9brnjlrkE0_7Kf1T9zQzB6Ze_N13KUVrQpsO0A19FNr46UPMY-_mlR1kCoiFQK-8NV-CMU7LMClbxfZ-TVA"
+    },
+    "config": {
+      "heartbeat_seconds": 600,
+      "segment_max_records": 1000
+    },
+    "sig": "ecdsa-p256:MEUCIBVW1UEN_VFOYdItW5fJWHs2sOP5xOp2mjUC3QbJgjzDAiEAofgKFIg2A9UFjqViMwg0MRtTTjYKSXfoKypN26L8Oqg"
+  },
+  "canonical": "{\"chain\":\"ch_vector_p256\",\"config\":{\"heartbeat_seconds\":600,\"segment_max_records\":1000},\"id\":\"gen_p256\",\"key\":\"k_p256_f1d59449b727165d\",\"kind\":\"genesis\",\"public_key\":{\"id\":\"k_p256_f1d59449b727165d\",\"public\":\"ecdsa-p256:MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEUVw9brnjlrkE0_7Kf1T9zQzB6Ze_N13KUVrQpsO0A19FNr46UPMY-_mlR1kCoiFQK-8NV-CMU7LMClbxfZ-TVA\"},\"seq\":0,\"time\":\"2026-10-14T09:00:00.000Z\",\"v\":1}",
+  "hash": "sha256:569dc3c8fc7cfad1e0780155b98cfc8e2702639165feba8b1d97aae5edf99568"
+}
