@@ -37,9 +37,23 @@ gleipnir report --open      # what my agent did
 
 See [docs/mcp-proxy.md](docs/mcp-proxy.md).
 
-## Try it in five minutes
+## Try it in one minute
 
-[examples/refund-agent](examples/refund-agent): a toy refund agent, a fake payments API with a hidden bug, verification, and a tamper demo.
+```bash
+git clone https://github.com/getgleipnir/gleipnir && cd gleipnir
+uv run gleipnir demo --open
+```
+
+A support agent issues refunds through a payments API with a hidden bug. The agent reports every refund as done; Gleipnir reads each one back from the payments system and records two mismatches. Then the demo verifies the records as a buyer would (VALID), edits one record to hide a mismatch, and verifies again (INVALID: bad signature, broken chain). You get `gleipnir-demo/summary.html`, the evidence report a buyer would read, plus the bundle anyone can check offline:
+
+```
+  T-102  refund  180.00  agent says done, system booked 179.50  <- outcome mismatch
+  ...
+  1. Verify as the buyer would            VALID
+  2. Edit record 2 to hide the mismatch   INVALID: bad_signature, broken_chain
+```
+
+No API keys, no network. The same agent as readable code, step by step: [examples/refund-agent](examples/refund-agent).
 
 ## What's in the box
 

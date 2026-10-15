@@ -1,5 +1,7 @@
 # Quickstart: a refund agent with verifiable records
 
+In a hurry? `uv run gleipnir demo --open` from the repo root runs the same scenario in one step.
+
 Five minutes, no API keys. A toy support agent issues refunds against a fake payments API. Every refund is recorded with the payments system's real response, checked by reading the refund back, signed, chained and anchored. Then you verify the records as a buyer would, tamper with them, and watch verification fail.
 
 ```bash
