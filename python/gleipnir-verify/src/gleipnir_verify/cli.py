@@ -40,7 +40,42 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+def reconcile_main(argv: list[str]) -> int:
+    from .reconcile import reconcile
+
+    p = argparse.ArgumentParser(prog="gleipnir-verify reconcile",
+                                description="Verify a bundle, then compare its object ids with your own system.")
+    p.add_argument("bundle")
+    p.add_argument("system_csv", help="CSV export from your system, filtered to what the agent touched")
+    p.add_argument("--column", required=True, help="id column in the CSV, e.g. refund_id")
+    p.add_argument("--field", help="response field holding that id in the records (default: same as --column)")
+    p.add_argument("--expect-key", metavar="KEY_ID")
+    args = p.parse_args(argv)
+    try:
+        res = reconcile(args.bundle, args.system_csv, column=args.column, field_name=args.field,
+                        expect_key=args.expect_key)
+    except (OSError, ValueError) as exc:
+        p.error(str(exc))
+    if not res.report.valid():
+        print("bundle does not verify; run gleipnir-verify on it first")
+        return 1
+    print(f"matched:                  {len(res.matched)}")
+    print(f"in your system only:      {len(res.only_in_system)}  (agent may have acted without a record)")
+    for x in sorted(res.only_in_system)[:50]:
+        print(f"  {x}")
+    print(f"in the records only:      {len(res.only_in_records)}  (claimed, but not in your system)")
+    for x in sorted(res.only_in_records)[:50]:
+        print(f"  {x}")
+    print("result: " + ("RECONCILED" if res.ok else "DIFFERENCES FOUND"))
+    return 0 if res.ok else 1
+
+
 def main(argv: list[str] | None = None) -> int:
+    import sys as _sys
+
+    argv = list(_sys.argv[1:] if argv is None else argv)
+    if argv[:1] == ["reconcile"]:
+        return reconcile_main(argv[1:])
     parser = build_parser()
     args = parser.parse_args(argv)
     expect_until = None
