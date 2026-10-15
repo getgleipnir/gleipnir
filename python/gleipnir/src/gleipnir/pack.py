@@ -110,7 +110,7 @@ word-break:break-all}.ok{color:var(--ok);font-weight:600}.bad{color:var(--bad);f
 .warn{color:var(--warn)}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
 .card{border:1px solid var(--line);border-radius:8px;padding:12px}.card b{display:block;font-size:22px}
 td.id{white-space:nowrap}.s-covered{color:var(--ok);font-weight:600}.s-partial{color:var(--warn);font-weight:600}
-.s-missing{color:var(--bad);font-weight:600}.s-process{color:var(--muted)}
+.s-missing{color:var(--bad);font-weight:600}.s-process{color:var(--muted)}td.refs{font-size:12px;color:var(--muted)}
 @media print{body{margin:0}h2{break-after:avoid}tr{break-inside:avoid}}
 """
 
@@ -125,7 +125,8 @@ def _table(headers: list[str], rows: list[list[Any]], numeric: set[int] | None =
 
 
 def render_html(s: dict[str, Any], *, verify: dict[str, Any], coverage: list[Any], period: str, key: str,
-                chain: str, head: str, command: str) -> str:
+                chain: str, head: str, command: str, refs: dict[str, str] | None = None) -> str:
+    refs = refs or {}
     e = html.escape
     a = s["actions"]
     v_ok = verify["result"] == "VALID"
@@ -150,6 +151,10 @@ def render_html(s: dict[str, Any], *, verify: dict[str, Any], coverage: list[Any
     parts.append(f"<p>{sm.get('segments', 0)} segments, {sm.get('segments_anchored', 0)} anchored, "
                  f"{sm.get('anchors_independent', 0)} in an independent public log. Max delay from segment close "
                  f"to anchor: {s['anchor_delay_max_s'] if s['anchor_delay_max_s'] is not None else 'n/a'} s.</p>")
+    if sm.get("segments_timestamped"):
+        parts.append(f"<p>Trusted time: {sm['segments_timestamped']} segments carry an RFC 3161 timestamp from an "
+                     f"independent authority; the longest delay after a segment closed was "
+                     f"{sm.get('max_timestamp_delay_s')} s.</p>")
     parts.append(f"<p>Chain head: <code>{e(head)}</code>. Keep this value: passing it to "
                  "<code>--known-head</code> on the next pack detects truncated or rewritten history.</p>")
     findings = [f for f in verify.get("findings", []) if f["level"] in ("error", "warn")]
@@ -196,9 +201,10 @@ def render_html(s: dict[str, Any], *, verify: dict[str, Any], coverage: list[Any
                  "agent-security-review</a> checklist that these records evidence. Process items need documents, "
                  "not records.</p>")
     cov_rows = "".join(
-        f"<tr><td class=id>{e(c.id)}</td><td>{e(c.question)}</td><td class=s-{e(c.status)}>{e(c.status)}</td></tr>"
+        f"<tr><td class=id>{e(c.id)}</td><td>{e(c.question)}</td><td class=s-{e(c.status)}>{e(c.status)}</td>"
+        f"<td class=refs>{e(refs.get(c.id, ''))}</td></tr>"
         for c in coverage)
-    parts.append(f"<table><thead><tr><th>Item</th><th>Question</th><th>Status</th></tr></thead>"
+    parts.append(f"<table><thead><tr><th>Item</th><th>Question</th><th>Status</th><th>Controls</th></tr></thead>"
                  f"<tbody>{cov_rows}</tbody></table>")
     parts.append("<h2>What this pack proves and what it does not</h2><p>A VALID result shows the records were not "
                  "edited, removed, reordered or inserted after they were written, and (for anchored segments) "
@@ -221,7 +227,12 @@ def build_pack(records: list[dict[str, Any]], out: str | Path, *, since: datetim
     verify = report.as_dict()
     s = summarize(records, since, until)
     caps, _ = capabilities_from_records(records)
-    coverage = evaluate(load_checklist(checklist), caps)
+    checklist_data = load_checklist(checklist)
+    coverage = evaluate(checklist_data, caps)
+    fws = checklist_data.get("frameworks", {})
+    refs = {item["id"]: "; ".join(f"{fws.get(r['fw'], {}).get('short', r['fw'])} {r['ref']}"
+                                  for r in item.get("references", []))
+            for item in checklist_data.get("items", [])}
     if since or until:
         period = f"{iso(since) if since else 'the start of the chain'} to {iso(until) if until else 'now'}"
     else:
@@ -233,7 +244,7 @@ def build_pack(records: list[dict[str, Any]], out: str | Path, *, since: datetim
         picked = [json.loads(x) for x in bz.read("records.jsonl").decode().split("\n") if x.strip()]
     command = verify_command(picked, "bundle.zip", full=not report.summary.get("partial"))
     page = render_html(s, verify=verify, coverage=coverage, period=period, key=key, chain=records[0]["chain"],
-                       head=head, command=command)
+                       head=head, command=command, refs=refs)
     with zipfile.ZipFile(out, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("summary.html", page)
         zf.writestr("actions.csv", actions_csv(s["actions"]))
