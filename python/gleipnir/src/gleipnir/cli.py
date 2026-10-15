@@ -1,4 +1,4 @@
-"""gleipnir command line: init, status, export, check, pack, prove, report, approve, mcp-proxy."""
+"""gleipnir command line: demo, init, status, export, check, pack, prove, report, approve, mcp-proxy."""
 
 from __future__ import annotations
 
@@ -143,12 +143,32 @@ def cmd_approve(args: argparse.Namespace) -> int:
     return run(args, args.approve_parser)
 
 
+def cmd_demo(args: argparse.Namespace) -> int:
+    from .demo import run
+
+    try:
+        res = run(args.output, anchor="rekor" if args.rekor else "local")
+    except FileExistsError as exc:
+        print(f"gleipnir demo: {exc}", file=sys.stderr)
+        return 2
+    if args.open:
+        import webbrowser
+
+        webbrowser.open(res["summary"].resolve().as_uri())
+    return 0 if res["valid"] and not res["tampered_valid"] else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="gleipnir", description="Verifiable action records for AI agents")
     p.add_argument("--home", default=".gleipnir", help="data directory (default: .gleipnir)")
     p.add_argument("--chain", default="default", help="chain name (default: default)")
     p.add_argument("--version", action="version", version=f"gleipnir-sdk {__version__}")
     sub = p.add_subparsers(dest="cmd", required=True)
+    d = sub.add_parser("demo", help="run a one-minute demo: a refund agent, its evidence report, a tamper test")
+    d.add_argument("-o", "--output", default="gleipnir-demo", help="folder to write into (default: gleipnir-demo)")
+    d.add_argument("--rekor", action="store_true", help="anchor in the public Sigstore Rekor log (needs network)")
+    d.add_argument("--open", action="store_true", help="open the evidence report in a browser")
+    d.set_defaults(fn=cmd_demo)
     sub.add_parser("init", help="create the signing key and print its id").set_defaults(fn=cmd_init)
     sub.add_parser("status", help="show chain status").set_defaults(fn=cmd_status)
     e = sub.add_parser("export", help="write a bundle for gleipnir-verify")
