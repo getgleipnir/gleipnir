@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Approve an agent action</title>
+<meta name="description" content="Approve one exact AI agent action with your passkey. Nothing is uploaded; you copy the signed approval.">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src '__SCRIPT_HASH__'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; form-action 'none'; base-uri 'none'">
+<meta name="referrer" content="no-referrer">
+<style>
+:root {
+  color-scheme: light dark;
+  --paper: #e8edf0; --sheet: #f7f9fa; --ink: #17222b; --muted: #55626c; --rule: #c3ccd2; --steel: #2b5b86;
+  --ok: #1d6a4d; --bad: #a1271e; --focus: #2b5b86;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #12181d; --sheet: #1a2229; --ink: #dce4e9; --muted: #93a1ab; --rule: #33414b; --steel: #8db7de;
+    --ok: #6fcf9f; --bad: #f08a7f; --focus: #8db7de;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #12181d; --sheet: #1a2229; --ink: #dce4e9; --muted: #93a1ab; --rule: #33414b; --steel: #8db7de;
+  --ok: #6fcf9f; --bad: #f08a7f; --focus: #8db7de;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--paper); color: var(--ink); font: 17px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+main { max-width: 42rem; margin: 0 auto; padding: 3rem 16px 4rem; }
+h1 { font-size: 1.9rem; line-height: 1.2; margin: 0 0 .5rem; font-weight: 650; letter-spacing: -.01em; }
+h2 { font-size: 1.05rem; margin: 2rem 0 .5rem; font-weight: 650; }
+p { margin: 0 0 1rem; max-width: 38em; }
+.lede { color: var(--muted); }
+.private { margin: 1.25rem 0 2rem; padding: .75rem 1rem; border-left: 3px solid var(--ok); background: var(--sheet); border-radius: 0 6px 6px 0; }
+.field { margin: 1rem 0; }
+.field label { display: block; font-weight: 600; margin-bottom: .3rem; font-size: .95rem; }
+.help { display: block; color: var(--muted); font-size: .88rem; margin-top: .3rem; }
+input[type="text"], textarea {
+  width: 100%; font: .92rem/1.4 ui-monospace, "SF Mono", Menlo, Consolas, monospace; color: var(--ink);
+  background: var(--sheet); border: 1px solid var(--rule); border-radius: 6px; padding: .55rem .65rem;
+}
+textarea { min-height: 6.5rem; resize: vertical; }
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+.row { display: grid; grid-template-columns: 1fr 1fr; gap: 0 1rem; }
+@media (max-width: 560px) { .row { grid-template-columns: 1fr; } }
+.actions { display: flex; flex-wrap: wrap; gap: .75rem; margin: 1.5rem 0 1rem; }
+button { font: inherit; font-weight: 600; padding: .65rem 1.1rem; border-radius: 8px; border: 1px solid var(--steel); background: var(--sheet); color: var(--steel); cursor: pointer; }
+button.primary { background: var(--steel); color: var(--sheet); }
+button:disabled { opacity: .5; cursor: not-allowed; }
+.status { min-height: 1.5em; font-weight: 600; }
+.status.ok { color: var(--ok); }
+.status.bad, .err { color: var(--bad); }
+.err { font-size: .9rem; margin-top: .3rem; display: block; }
+.result { margin-top: 1rem; }
+details { margin-top: 1rem; border-top: 1px solid var(--rule); padding-top: .75rem; }
+summary { cursor: pointer; font-weight: 600; }
+.notice { color: var(--bad); font-weight: 600; }
+footer { margin-top: 4rem; padding-top: 1rem; border-top: 1px solid var(--rule); color: var(--muted); font-size: .9rem; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Approve an agent action</h1>
+  <p class="lede">An AI agent wants to take an action that needs your approval. Check what it is, then approve it with your passkey. Your approval covers this exact action and nothing else.</p>
+  <p class="private">Nothing is uploaded and the page makes no network requests. Your passkey signs the action on this device; you copy the result and send it back to whoever asked.</p>
+  <p class="notice" id="support" hidden>Passkeys are not available here. Open this page over https (or on localhost) in a current browser.</p>
+
+  <h2>What you approve</h2>
+  <div class="row">
+    <div class="field"><label for="tool">Tool</label><input type="text" id="tool" autocomplete="off" spellcheck="false" placeholder="issue_refund"></div>
+    <div class="field"><label for="system">System</label><input type="text" id="system" autocomplete="off" spellcheck="false" placeholder="payments-api"></div>
+  </div>
+  <div class="field">
+    <label for="args">Arguments (JSON)</label>
+    <textarea id="args" spellcheck="false" aria-describedby="args-help" placeholder='{"order_id": "A-1001", "amount": "500.00"}'></textarea>
+    <span class="help" id="args-help">With tool, system and arguments, the page computes the digest itself, so you see what you sign. Redacted fields appear as {"redacted": "hmac-sha256:…"}.</span>
+  </div>
+  <div class="field">
+    <label for="digest">Action digest</label>
+    <input type="text" id="digest" autocomplete="off" spellcheck="false" placeholder="sha256:…" aria-describedby="digest-help">
+    <span class="help" id="digest-help">From <code>gleipnir approve digest</code> or the approval link. This is the WebAuthn challenge your passkey signs.</span>
+    <span class="err" id="digest-error" hidden></span>
+  </div>
+
+  <h2>You</h2>
+  <div class="row">
+    <div class="field"><label for="approver-id">Approver id</label><input type="text" id="approver-id" autocomplete="off" spellcheck="false" placeholder="ops:anna"></div>
+    <div class="field"><label for="approver-name">Name</label><input type="text" id="approver-name" autocomplete="name" placeholder="Anna Berger"></div>
+  </div>
+  <details>
+    <summary>Passkey details</summary>
+    <div class="field"><label for="rp-id">Relying party id</label><input type="text" id="rp-id" autocomplete="off" spellcheck="false"><span class="help">The domain your passkey belongs to: this page's host unless the buyer says otherwise.</span></div>
+    <div class="field"><label for="public-key">Passkey public key</label><input type="text" id="public-key" autocomplete="off" spellcheck="false" placeholder="ecdsa-p256:…"><span class="help">As in the buyer's approvers file. Remembered on this device after you create or use a passkey here.</span></div>
+    <div class="field"><label for="credential-id">Credential id</label><input type="text" id="credential-id" autocomplete="off" spellcheck="false"></div>
+  </details>
+
+  <div class="actions">
+    <button type="button" class="primary" id="approve">Approve with passkey</button>
+    <button type="button" id="register">Create a passkey</button>
+  </div>
+  <p class="status" id="status" role="status" aria-live="polite"></p>
+  <div class="result" hidden>
+    <label for="out" id="out-label" class="field"></label>
+    <textarea id="out" readonly spellcheck="false"></textarea>
+    <div class="actions"><button type="button" id="copy">Copy</button></div>
+  </div>
+
+  <footer><p>Gleipnir signed approvals. Verifiers check the passkey signature, the challenge, the relying party and the origin against the buyer's approvers file (<code>gleipnir-verify --approvers</code>).</p></footer>
+</main>
+<script type="module">__SCRIPT__</script>
+</body>
+</html>
