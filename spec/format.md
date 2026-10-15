@@ -41,7 +41,41 @@ Redacted values are replaced before hashing by `{"redacted": "dropped"}` or `{"r
 
 **note**: `note: {text, ...}`.
 
-**review**: `review: {reviewer, decision, rule?, before_execution?, reason?, changes?, action?}` for reviews, overrides and reversals. An *approval* of one exact action is a review with `decision: "approved"`, `tool`, `system` and `action_digest = sha256:hex(SHA-256(JCS({"tool", "system", "args"})))` over the action's (redacted) arguments. The approved action carries `approval: <review id>`. Verifiers require the review to come earlier in the chain, to match the digest, to be used by only one action, and the action's arguments to contain no dropped fields. `reviewer` is asserted by the vendor; binding it to the approver's own key is future work.
+**review**: `review: {reviewer, decision, rule?, before_execution?, reason?, changes?, action?}` for reviews, overrides and reversals. An *approval* of one exact action is a review with `decision: "approved"`, `tool`, `system` and `action_digest = sha256:hex(SHA-256(JCS({"tool", "system", "args"})))` over the action's (redacted) arguments. The approved action carries `approval: <review id>`. Verifiers require the review to come earlier in the chain, to match the digest, to be used by only one action, and the action's arguments to contain no dropped fields. `reviewer` is asserted by the vendor; a signed approval (below) binds the approval to the approver's own key.
+
+### Signed approvals
+
+An approval may carry `review.signature`, made by the approver outside the agent's process. It covers the approval message
+
+    approval_message = "gleipnir/approval/v1\n" || action_digest      (ASCII, action_digest as written in the review)
+
+Two signature types:
+
+- **`type: "key"`**: `{type, approver_id, public_key, sig}`. `public_key` is an Ed25519 or ECDSA P-256 public key in the record key format (`"ed25519:"…` or `"ecdsa-p256:"…` DER SPKI); `sig` is a signature over `approval_message` in the record signature format (`"ed25519:"…`, or `"ecdsa-p256:"…` DER ECDSA-SHA256).
+- **`type: "webauthn"`**: a passkey assertion (ES256), so a person approves on a phone or laptop. `{type, approver_id, public_key, rp_id, credential_id, authenticator_data, client_data_json, signature}`. `public_key` is the credential public key as `"ecdsa-p256:"…` DER SPKI; `authenticator_data`, `client_data_json` and `signature` (DER ECDSA) are base64url-nopad of the bytes the authenticator returned; `credential_id` is base64url-nopad of the credential's raw id; `rp_id` is informational (the registry's value is used). The WebAuthn challenge is the 32 raw bytes of the action digest (the hex after `sha256:`), so `clientDataJSON.challenge = base64url-nopad(those bytes)`. WebAuthn's own structure (`type`, rpId hash) separates these signatures from other uses of the credential.
+
+**Approver registry.** Who may approve is the buyer's decision, not the vendor's. The buyer gives the verifier a registry, a JSON list of approvers:
+
+```json
+[{"id": "ops:anna", "name": "Anna Berger", "public_key": "ed25519:…", "roles": ["refunds"]},
+ {"id": "ops:li", "name": "Li Wei", "webauthn": {"public_key": "ecdsa-p256:…", "rp_id": "approve.example.com",
+  "credential_id": "…"}}]
+```
+
+Each entry has a unique non-empty string `id`, a string `name`, exactly one of `public_key` (for `key` signatures) or `webauthn` (`public_key` P-256, non-empty `rp_id`, optional base64url `credential_id`), and optional `roles` (list of strings, informational). Anything else is a usage error.
+
+**Verification** of each action's approval, after the checks above, in this order:
+
+1. No `signature`: `approval_unsigned`, a warning without a registry; an error with a registry (the buyer named who may approve) or with `--require-signed-approvals`.
+2. `signature` is not an object, has an unknown `type`, no non-empty string `approver_id`, or the review's `reviewer` differs from `approver_id`: `approval_bad_signature`.
+3. `public_key` cannot be decoded (or is not P-256 for `webauthn`): `approval_bad_signature` (`approval_webauthn_invalid` for `webauthn`).
+4. With a registry: `approver_id` not in it, registered for the other type, or registered with a different key (compared by key id): `approval_unknown_approver`, an error. The registry's key, `rp_id` and `credential_id` are used from here on.
+5. The review's `action_digest` must be `sha256:` + 64 lowercase hex, else the signature check fails.
+6. `key`: the signature must verify over `approval_message` with the key: else `approval_bad_signature`.
+7. `webauthn` (WebAuthn Level 3 §7.2 assertion checks; any failure is `approval_webauthn_invalid`): the three byte fields are base64url; `authenticator_data` is at least 37 bytes; `client_data_json` is UTF-8 JSON object with `type = "webauthn.get"`, `challenge` as above, `origin` in the verifier's allowed origins (`--webauthn-origin`, repeatable; default `https://<rp_id>`), no `crossOrigin: true` and no `topOrigin`; `rpIdHash` (bytes 0..31) = SHA-256(rp_id); flags (byte 32) have UP (0x01) and UV (0x04) set, AT (0x40) clear, BS (0x10) only with BE (0x08), and the data is exactly 37 bytes unless ED (0x80) is set (then longer); `credential_id` equals the registry's when it names one; the signature verifies with ECDSA P-256/SHA-256 over `authenticator_data || SHA-256(client_data_json)`.
+8. Valid: with a registry, `approval_verified` (info) naming the approver; without one, `approval_unknown_approver` as a warning (an error with `--require-signed-approvals`): the signature is consistent, but nothing says whose key it is.
+
+The signature counter is not checked (a stateless verifier has no previous value).
 
 **config**: `config: {sinks: [{type, role, target, ...}], retention?: {days, note?}}`. The data-handling setup, written when it changes. `role: "buyer"` marks a copy the buyer controls.
 
@@ -79,4 +113,6 @@ A zip file containing:
 
 A bundle is valid when, for every record: it is a JSON object with `v = 1` and the genesis chain id; its signature verifies with a key introduced by the genesis or a signed rotation that is current at that point; seqs are consecutive; `prev` matches; every segment's members are present and its root matches; segments link and tile; anchor receipts match their segment hash and verify for their type; the manifest range matches; and, when given, the expected key, expected coverage time and known head match.
 
-Warnings (valid, but reported): records after the last segment, segments without receipts, time gaps longer than the heartbeat, receipts that could not be checked.
+Warnings (valid, but reported): records after the last segment, segments without receipts, time gaps longer than the heartbeat, receipts that could not be checked, approvals not signed by a registered approver.
+
+Signed approvals are checked as described under **review**. Test vectors: [test-vectors/approvals.json](test-vectors/approvals.json) (`key` signatures with Ed25519 and P-256, a WebAuthn assertion from a fixed P-256 key with fixed authenticator data and client data, and invalid variants with their finding codes).

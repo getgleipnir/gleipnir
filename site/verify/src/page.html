@@ -198,6 +198,18 @@ footer p { max-width: none; }
         <span class="err" id="expect-until-error" hidden>Use a time with a timezone, for example 2026-10-14T18:00:00Z.</span>
       </div>
       <span class="check field"><input type="checkbox" id="require-full"><label for="require-full">Require the whole chain, from its first record</label></span>
+      <div class="field">
+        <label for="approvers">Approvers file</label>
+        <input type="file" id="approvers" accept=".json,application/json" aria-describedby="approvers-help">
+        <span class="help" id="approvers-help">Your list of who may approve actions, with their keys or passkeys (JSON). Approvals must then be signed by one of them; who approved is no longer only the vendor's word.</span>
+        <span class="err" id="approvers-error" hidden></span>
+      </div>
+      <div class="field">
+        <label for="webauthn-origins">Allowed passkey origins</label>
+        <input type="text" id="webauthn-origins" name="webauthn-origin" placeholder="https://approve.example.com" autocomplete="off" spellcheck="false" aria-describedby="webauthn-origins-help">
+        <span class="help" id="webauthn-origins-help">Pages allowed to collect passkey approvals, separated by spaces. Default: https:// and the approver's relying party id.</span>
+      </div>
+      <span class="check field"><input type="checkbox" id="require-signed"><label for="require-signed">Require every approval to be signed by an approver from the file</label></span>
       <button type="submit">Verify again</button>
     </details>
   </form>
