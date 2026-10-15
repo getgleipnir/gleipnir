@@ -130,3 +130,42 @@ def export_bundle(records: list[dict[str, Any]], out: str | Path, *, since: date
             zf.write(local_anchor_log, "anchors/local-anchor-log.jsonl")
     return out
 
+
+
+def export_proof(records: list[dict[str, Any]], action_id: str, out: str | Path, *,
+                 local_anchor_log: str | Path | None = None) -> Path:
+    """Write a proof for one action: the record, its segment, a Merkle inclusion proof and the
+    segment's anchor receipts. Lets a vendor answer a dispute about one action without handing
+    over the whole bundle."""
+    from gleipnir_verify import merkle
+    from gleipnir_verify.canon import hash_to_bytes, record_hash
+
+    out = Path(out)
+    by_id = {r.get("id"): r for r in records}
+    action = by_id.get(action_id)
+    if action is None:
+        raise ValueError(f"no record with id {action_id!r}")
+    if any(r.get("kind") == "key_rotation" for r in records):
+        raise NotImplementedError("proofs for chains with key rotations are not supported yet")
+    seq = action["seq"]
+    segment = next((r for r in records if r.get("kind") == "segment"
+                    and r["segment"]["from"] <= seq < r["segment"]["from"] + r["segment"]["count"]), None)
+    if segment is None:
+        raise ValueError("the action is not in a closed segment yet; call flush() first")
+    s = segment["segment"]
+    members = [record_hash(r) for r in records if s["from"] <= r["seq"] < s["from"] + s["count"]]
+    index = seq - s["from"]
+    proof = merkle.inclusion_proof(index, [hash_to_bytes(h) for h in members])
+    anchors = [r for r in records if r.get("kind") == "anchor" and r["anchor"]["segment_seq"] == segment["seq"]]
+    manifest = {"format": FORMAT_VERSION, "type": "proof", "chain": records[0]["chain"], "action": action_id,
+                "action_seq": seq, "segment_seq": segment["seq"], "leaf_index": index, "tree_size": len(members),
+                "proof": [p.hex() for p in proof], "key": records[0]["public_key"]["id"],
+                "exported_at": iso(utcnow()), "tool": f"gleipnir-sdk {__version__}"}
+    picked = [records[0], action, segment, *anchors]
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(out, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("manifest.json", json.dumps(manifest, indent=2, sort_keys=True))
+        zf.writestr("records.jsonl", "".join(_dumps_line(r) for r in picked))
+        if local_anchor_log and Path(local_anchor_log).exists():
+            zf.write(local_anchor_log, "anchors/local-anchor-log.jsonl")
+    return out

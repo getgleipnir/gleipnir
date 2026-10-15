@@ -49,6 +49,13 @@ def cmd_export(args: argparse.Namespace) -> int:
     if not records:
         print("no records to export", file=sys.stderr)
         return 1
+    if args.format == "ocsf":
+        from .sinks import to_ndjson
+
+        out_path = Path(args.output if args.output != "bundle.zip" else "actions.ocsf.ndjson")
+        out_path.write_bytes(to_ndjson(records, "ocsf"))
+        print(f"wrote {out_path} (OCSF API Activity events, one per action)")
+        return 0
     since = parse_time(args.since) if args.since else None
     until = parse_time(args.until) if args.until else None
     log = Path(args.home) / "anchors" / "local-anchor-log.jsonl"
@@ -91,6 +98,17 @@ def cmd_pack(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_prove(args: argparse.Namespace) -> int:
+    from .export import export_proof
+
+    records = _store(args).read_all()
+    log = Path(args.home) / "anchors" / "local-anchor-log.jsonl"
+    out = export_proof(records, args.action_id, args.output, local_anchor_log=log if log.exists() else None)
+    print(f"wrote {out}; verify with: pipx run gleipnir-verify {out.name} --expect-key "
+          f"{records[0]['public_key']['id']}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="gleipnir", description="Verifiable action records for AI agents")
     p.add_argument("--home", default=".gleipnir", help="data directory (default: .gleipnir)")
@@ -103,7 +121,13 @@ def build_parser() -> argparse.ArgumentParser:
     e.add_argument("-o", "--output", default="bundle.zip")
     e.add_argument("--since", help="ISO 8601 start time")
     e.add_argument("--until", help="ISO 8601 end time")
+    e.add_argument("--format", choices=["bundle", "ocsf"], default="bundle",
+                   help="bundle (verifiable zip) or ocsf (NDJSON events for a SIEM)")
     e.set_defaults(fn=cmd_export)
+    pr = sub.add_parser("prove", help="write a proof for a single action")
+    pr.add_argument("action_id")
+    pr.add_argument("-o", "--output", default="proof.zip")
+    pr.set_defaults(fn=cmd_prove)
     c = sub.add_parser("check", help="show which security review checklist items your records evidence")
     c.add_argument("--checklist", help="path to a checklist.yaml (default: the pinned copy shipped with the SDK)")
     c.add_argument("--json", action="store_true")

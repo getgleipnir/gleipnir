@@ -23,7 +23,7 @@ F = TypeVar("F", bound=Callable[..., Any])
 
 _CONTEXT: contextvars.ContextVar[dict[str, Any] | None] = contextvars.ContextVar("gleipnir_context", default=None)
 _CONTEXT_KEYS = {"trace_id", "span_id", "session", "on_behalf_of", "run_id", "parent_action", "tool_call_id"}
-_TOP_LEVEL_KEYS = {"model", "versions", "identity"}
+_TOP_LEVEL_KEYS = {"model", "versions", "identity", "approval"}
 
 
 # ---- outcomes --------------------------------------------------------------------------
@@ -166,6 +166,9 @@ class Recorder:
         default_redaction: str = "hmac",
         fsync: bool = True,
         quiet: bool = False,
+        sinks: list[Any] | None = None,
+        retention_days: int | None = None,
+        retention_note: str | None = None,
     ):
         self.agent = {"id": agent_id, "version": agent_version}
         self.home = Path(home)
@@ -176,10 +179,12 @@ class Recorder:
         if redaction_key is None:
             redaction_key = load_or_create_secret(self.home, "redaction-hmac.key")
         self.redactor = Redactor(redaction_key, default_redaction)
+        state_dir = getattr(store, "directory", None) or (self.home / "chains" / chain)
         self.chain = ChainWriter(
             store, signer, clock=clock, anchor=anchor, segment_max_records=segment_max_records,
-            heartbeat_seconds=heartbeat_seconds, background=background,
+            heartbeat_seconds=heartbeat_seconds, background=background, sinks=sinks, state_dir=state_dir,
         )
+        self._write_config(sinks or [], retention_days, retention_note)
         self.tools: dict[str, dict[str, Any]] = {}
         self.features: set[str] = set()
 
@@ -193,6 +198,21 @@ class Recorder:
         if isinstance(anchor, str):
             raise ValueError(f"unknown anchor {anchor!r}; use 'local', 'rekor', or pass Anchor instances")
         return anchor
+
+    def _write_config(self, sinks: list[Any], retention_days: int | None, note: str | None) -> None:
+        """Record the data-handling setup in the chain (signed), when it changes."""
+        config: dict[str, Any] = {"sinks": [s.describe() for s in sinks]}
+        if retention_days is not None:
+            config["retention"] = {"days": int(retention_days)}
+            if note:
+                config["retention"]["note"] = note
+        last = None
+        for r in self.chain.store.read_all():
+            if r.get("kind") == "config":
+                last = r.get("config")
+        if last == to_jsonable(config) or (last is None and config == {"sinks": []}):
+            return
+        self.chain.append("config", {"config": config})
 
     # -- context ---------------------------------------------------------------------------
     @contextlib.contextmanager
@@ -303,6 +323,31 @@ class Recorder:
             body["changes"] = to_jsonable(dict(changes))
         return self.chain.append("review", {"review": body})
 
+    def approve(self, tool: Any, args: Mapping[str, Any], *, approver: str, rule: str | None = None,
+                system: str | None = None, redact: RedactSpec = None, reason: str | None = None) -> str:
+        """Record an approval of one specific action *before* it runs; returns the approval id.
+
+        Run the action inside ``with rec.context(approval=approval_id):``. The verifier then checks
+        that the approval came first and that the action's tool, system and arguments are exactly
+        what was approved. ``tool`` is a function wrapped with ``@rec.tool`` or a tool name.
+        """
+        from gleipnir_verify.verifier import action_digest
+
+        name = getattr(tool, "gleipnir_tool", tool)
+        system = system or getattr(tool, "gleipnir_system", None)
+        if not isinstance(name, str) or not system:
+            raise ValueError("pass a @rec.tool function, or a tool name together with system=")
+        rules = self.redactor.rules(redact if redact is not None else getattr(tool, "gleipnir_redact", None))
+        digest = action_digest(name, system, self.redactor.apply(to_jsonable(dict(args)), rules))
+        body: dict[str, Any] = {"action_digest": digest, "tool": name, "system": system, "reviewer": approver,
+                                "decision": "approved", "before_execution": True}
+        if rule:
+            body["rule"] = rule
+        if reason:
+            body["reason"] = reason
+        rec = self.chain.append("review", {"review": body})
+        return rec["id"]
+
     def note(self, text: str, **data: Any) -> dict[str, Any]:
         return self.chain.append("note", {"note": {"text": text, **to_jsonable(data)}})
 
@@ -375,6 +420,8 @@ class Recorder:
                     return result
 
                 async_wrapper.gleipnir_tool = tool_name  # type: ignore[attr-defined]
+                async_wrapper.gleipnir_system = system  # type: ignore[attr-defined]
+                async_wrapper.gleipnir_redact = redact  # type: ignore[attr-defined]
                 return async_wrapper  # type: ignore[return-value]
 
             @functools.wraps(func)
@@ -389,6 +436,8 @@ class Recorder:
                 return result
 
             wrapper.gleipnir_tool = tool_name  # type: ignore[attr-defined]
+            wrapper.gleipnir_system = system  # type: ignore[attr-defined]
+            wrapper.gleipnir_redact = redact  # type: ignore[attr-defined]
             return wrapper  # type: ignore[return-value]
 
         return decorate(fn) if fn is not None else decorate
@@ -402,6 +451,14 @@ class Recorder:
         local_log = next((a.path for a in self.chain.anchors if isinstance(a, LocalFileAnchor)), None)
         return export_bundle(self.chain.store.read_all(), out, since=since, until=until,
                              local_anchor_log=local_log)
+
+    def prove(self, action_id: str, out: str | Path) -> Path:
+        """Flush and write a single-action proof (record, segment, Merkle proof, anchors)."""
+        from .export import export_proof
+
+        self.flush()
+        local_log = next((a.path for a in self.chain.anchors if isinstance(a, LocalFileAnchor)), None)
+        return export_proof(self.chain.store.read_all(), action_id, out, local_anchor_log=local_log)
 
     def pack(self, out: str | Path, *, since: Any = None, until: Any = None) -> Path:
         """Flush and build a Security Review Pack (summary.html, actions.csv, bundle.zip)."""
