@@ -32,3 +32,4 @@ export {
 export { JsonlStore, MemoryStore, recordLine, type Rec, type Store } from "./store.js";
 export { iso, newId, toJsonable, utcnow, type Clock } from "./util.js";
 export { VERSION } from "./version.js";
+export * as outcomes from "./outcomes/index.js";
