@@ -123,7 +123,9 @@ await rec.export("bundle.zip"); // closes the open segment, anchors it, writes t
 - `approve(tool, args, { approver, rule })` records an approval of one exact action before it runs; run the action in `rec.context({ approval: id }, ...)` and the verifier checks the approval came first and the tool, system and (redacted) arguments match.
 - `prove(actionId, "proof.zip")` writes a single-action proof for a dispute about one action.
 - The chain writer closes a segment every `segmentMaxRecords` records and after `heartbeatSeconds` (also when empty), with a background timer that never keeps the process alive. Anchoring may be asynchronous and is retried; it never breaks recording.
-- Anchors: `"local"` (default, a local append-only log for tests and demos, not independent) or any object implementing `Anchor` (`{ type, anchor({ segmentHash, chain, segmentSeq }) }`, sync or async). Public Rekor and RFC 3161 anchoring are implemented in the Python SDK; their receipts verify here.
+- Anchors: `"local"` (default, a local append-only log for tests and demos, not independent), `"rekor"` (Sigstore Rekor v2 public log plus an RFC 3161 timestamp from Sigstore's TSA: `[new RekorAnchor(home), new TimestampAnchor()]`), or any object implementing `Anchor` (`{ type, anchor({ segmentHash, chain, segmentSeq }) }`, sync or async).
+  - `RekorAnchor(home, { url, timeoutMs, privateKey, fetch })` sends only a `hashedrekord` v0.0.2 entry (SHA-256 digest of the anchor message, an ECDSA P-256 signature and the anchor public key). The anchor key is `<home>/keys/anchor-ecdsa-p256.pem` (PKCS#8, created on first use, the same file the Python SDK uses). `TimestampAnchor(url, { timeoutMs, fetch })` sends an RFC 3161 request (SHA-512 imprint, nonce, certReq). Both write the same receipts as the Python SDK and verify every receipt offline before storing it.
+  - Network anchoring runs off the tool-call path: closing a segment queues it, one anchoring run is in flight at a time, failures are reported through `onWarning` and retried on the next run (timer, next segment, `flush()` or `export()`). Tool calls never wait for Rekor or the TSA. Both use the global `fetch` (Node 20+); behind an HTTPS proxy, pass a `fetch` that uses it (or run Node 22.21+ with `NODE_USE_ENV_PROXY=1`).
 - Signing keys are PKCS#8 PEM files (`.gleipnir/keys/signing-ed25519.pem`), the same format the Python SDK uses. For production, pass a `Signer` backed by a KMS or HSM: `new SpkiSigner({ spki, signMessage })` wraps an external Ed25519 or ECDSA P-256 key (DER or raw r||s signatures); `EcdsaP256Signer` is a local P-256 key. Ed25519 stays the default.
 - Storage: `JsonlStore` (default, append-only, fsync) or `MemoryStore`, or your own `Store`.
 
@@ -136,4 +138,6 @@ npm run build
 npm test            # spec vectors, Rekor/RFC 3161 fixtures, tamper tests; differential tests run if `uv` is available
 npm run interop     # Python SDK bundle -> TS verifier and TS SDK bundle -> Python verifier (needs `uv sync --all-packages`)
 npm run build:site  # site/verify/index.html (a test fails if it is stale)
+GLEIPNIR_LIVE_REKOR=1 npx vitest run packages/sdk/test/anchors.test.ts  # publishes test hashes to public Rekor + Sigstore TSA
+node scripts/record-anchor-fixtures.mjs  # re-record the Rekor/TSA responses the anchor unit tests replay
 ```

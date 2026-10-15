@@ -1,0 +1,75 @@
+name: Gleipnir verify
+description: Verify Gleipnir agent action record bundles offline; job summary with findings; fails on INVALID.
+author: Gleipnir
+branding:
+  icon: check-circle
+  color: gray-dark
+
+inputs:
+  bundle:
+    description: >
+      Bundle(s) to verify: a path or glob (`*`, `**`, `?`, `[...]`, `{a,b}`), one per line;
+      a line starting with `!` excludes. bundle.zip and proof.zip files both work.
+    required: true
+  expect-key:
+    description: Fail unless the chain is signed with this key id (e.g. k_ed25519_56475aa75463474c).
+    required: false
+    default: ""
+  require-anchor:
+    description: >
+      Fail unless every segment has a verified independent anchor of each listed type
+      (comma or space separated): rekor (public transparency log), rfc3161 (trusted timestamp).
+    required: false
+    default: ""
+  require-full:
+    description: Fail unless the bundle starts at the beginning of the chain (true/false).
+    required: false
+    default: "false"
+  max-anchor-delay:
+    description: Fail if a segment was timestamped more than this many seconds after it closed.
+    required: false
+    default: ""
+  known-head:
+    description: >
+      SEQ:HASH of a record from an earlier bundle (its `head`); fail unless it is present and
+      unchanged. Detects truncation and rewritten history.
+    required: false
+    default: ""
+  expect-until:
+    description: Fail unless records cover at least until this ISO 8601 time.
+    required: false
+    default: ""
+  trusted-root:
+    description: Sigstore trusted_root.json to use instead of the embedded one (for newer log shards).
+    required: false
+    default: ""
+  strict:
+    description: Treat warnings as failures (true/false).
+    required: false
+    default: "false"
+  verifier:
+    description: >
+      typescript (default: the bundled @getgleipnir/verify, no install) or python (the reference
+      gleipnir-verify, run with python-command).
+    required: false
+    default: typescript
+  python-command:
+    description: Command that runs the Python verifier when verifier is python.
+    required: false
+    default: pipx run gleipnir-verify
+
+outputs:
+  result:
+    description: VALID, INVALID, or ERROR (bad inputs, no bundle matched, verifier failed to run).
+  bundles:
+    description: Number of bundles verified.
+  invalid:
+    description: The bundles that are INVALID, one per line.
+  head:
+    description: SEQ:HASH head of the bundle, when exactly one bundle was verified (keep it for known-head).
+  report:
+    description: JSON array of the verifier's reports, one per bundle, with `bundle` and `valid`.
+
+runs:
+  using: node24
+  main: run.mjs

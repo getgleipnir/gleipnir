@@ -1,6 +1,18 @@
 /** @getgleipnir/sdk: verifiable action records for AI agents (Node). */
 
-export { LocalFileAnchor, type Anchor, type AnchorRequest } from "./anchor.js";
+export {
+  DEFAULT_REKOR_V2_URL,
+  DEFAULT_TSA_URL,
+  LocalFileAnchor,
+  RekorAnchor,
+  TimestampAnchor,
+  timestampRequest,
+  type Anchor,
+  type AnchorRequest,
+  type FetchLike,
+  type RekorAnchorOptions,
+  type TimestampAnchorOptions,
+} from "./anchor.js";
 export { ChainWriter, type ChainWriterOptions } from "./chain.js";
 export { buildBundle, buildProof, exportBundle, exportProof, selectRecords, verifyCommand, type ExportOptions } from "./export.js";
 export {
