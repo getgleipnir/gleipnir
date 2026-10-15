@@ -3,7 +3,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname } from "node:path";
 import { zipSync, strToU8 } from "fflate";
-import { FORMAT_VERSION, parseTime, pyDumps } from "@getgleipnir/verify";
+import { FORMAT_VERSION, bytesToHex, hashToBytes, inclusionProof, parseTime, pyDumps, recordHash } from "@getgleipnir/verify";
 import type { Rec } from "./store.js";
 import { iso, utcnow } from "./util.js";
 import { VERSION } from "./version.js";
@@ -139,6 +139,66 @@ export function buildBundle(records: Rec[], name: string, opts: ExportOptions = 
     files["anchors/local-anchor-log.jsonl"] = readFileSync(opts.localAnchorLog);
   }
   return zipSync(files, { level: 6 });
+}
+
+/**
+ * Build a proof for one action in memory: the genesis, the action record, its segment, a Merkle
+ * inclusion proof and the segment's anchor receipts (manifest `type: "proof"`). Lets a vendor
+ * answer a dispute about one action without handing over the whole bundle. Mirrors the Python
+ * SDK's `export_proof`.
+ */
+export function buildProof(records: Rec[], actionId: string, opts: { localAnchorLog?: string | null } = {}): Uint8Array {
+  const action = records.find((r) => r["id"] === actionId);
+  if (action === undefined) throw new Error(`no record with id ${JSON.stringify(actionId)}`);
+  if (records.some((r) => r["kind"] === "key_rotation")) {
+    throw new Error("proofs for chains with key rotations are not supported yet");
+  }
+  const seq = action["seq"] as number;
+  const segment = records.find((r) => {
+    if (r["kind"] !== "segment") return false;
+    const s = r["segment"] as Rec;
+    return (s["from"] as number) <= seq && seq < (s["from"] as number) + (s["count"] as number);
+  });
+  if (segment === undefined) throw new Error("the action is not in a closed segment yet; call flush() first");
+  const s = segment["segment"] as Rec;
+  const from = s["from"] as number;
+  const end = from + (s["count"] as number);
+  const members = records.filter((r) => from <= (r["seq"] as number) && (r["seq"] as number) < end).map((r) => hashToBytes(recordHash(r)));
+  const index = seq - from;
+  const proof = inclusionProof(index, members);
+  const anchors = records.filter((r) => r["kind"] === "anchor" && (r["anchor"] as Rec)["segment_seq"] === segment["seq"]);
+  const genesis = records[0]!;
+  const manifest: Rec = {
+    format: FORMAT_VERSION,
+    type: "proof",
+    chain: genesis["chain"],
+    action: actionId,
+    action_seq: seq,
+    segment_seq: segment["seq"],
+    leaf_index: index,
+    tree_size: members.length,
+    proof: proof.map(bytesToHex),
+    key: (genesis["public_key"] as Rec)["id"],
+    exported_at: iso(utcnow()),
+    tool: `@getgleipnir/sdk ${VERSION}`,
+  };
+  const picked = [genesis, action, segment, ...anchors];
+  const files: Record<string, Uint8Array> = {
+    "manifest.json": strToU8(pyDumps(manifest, { indent: 2, sortKeys: true })),
+    "records.jsonl": strToU8(picked.map((r) => pyDumps(r, { sortKeys: true, separators: [",", ":"] }) + "\n").join("")),
+  };
+  if (opts.localAnchorLog && existsSync(opts.localAnchorLog)) {
+    files["anchors/local-anchor-log.jsonl"] = readFileSync(opts.localAnchorLog);
+  }
+  return zipSync(files, { level: 6 });
+}
+
+/** Write a single-action proof to `out`; returns the path. */
+export function exportProof(records: Rec[], actionId: string, out: string, opts: { localAnchorLog?: string | null } = {}): string {
+  const zip = buildProof(records, actionId, opts);
+  mkdirSync(dirname(out), { recursive: true });
+  writeFileSync(out, zip);
+  return out;
 }
 
 /** Write a verification bundle to `out`; returns the path. */
