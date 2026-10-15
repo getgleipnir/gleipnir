@@ -446,3 +446,28 @@ def test_bad_cli_arguments_exit_cleanly(tmp_path, args, capsys):
         cli.main([str(tmp_path / "x.zip"), *args])
     assert exc.value.code == 2
     capsys.readouterr()
+
+
+@pytest.mark.parametrize("text,ok", [
+    ("2026-10-14T09:00:00Z", True), ("2026-10-14T09:00:00.1Z", True), ("2026-10-14T09:00:00.123456+02:00", True),
+    ("2026-10-14 09:00:00Z", False), ("2026-10-14T09:00:00", False), ("20261014T090000Z", False),
+    ("2026-10-14T09:00:00+0100", False), ("2026-10-14T09:00:00.1234567Z", False), ("2026-10-14x09:00:00Z", False),
+    ("2026-13-01T00:00:00Z", False), (17, False),
+])
+def test_time_grammar_is_strict_rfc3339(text, ok):
+    from gleipnir_verify.verifier import parse_time
+    if ok:
+        parse_time(text)
+    else:
+        with pytest.raises(ValueError):
+            parse_time(text)
+
+
+def test_non_string_kind_does_not_crash_json_output(tmp_path, capsys):
+    b = Builder().standard()
+    recs = b.copy()
+    recs[2]["kind"] = False
+    p = write_bundle(tmp_path, b, records=recs)
+    assert cli.main([str(p), "--json"]) == 1
+    out = json.loads(capsys.readouterr().out)
+    assert out["summary"]["by_kind"].get("?") == 1

@@ -34,16 +34,18 @@ pipx run gleipnir-verify bundle.zip --expect-key k_ed25519_... --require-anchor 
 
 | | |
 |---|---|
-| `gleipnir-sdk` (`import gleipnir`) | `Recorder.tool` decorator (sync and async), outcome checks, field redaction, context (identity, scope, model, prompt versions), review records, MCP client middleware, `export`, `pack`, `check` |
+| `gleipnir-sdk` (`import gleipnir`) | `Recorder.tool` decorator (sync and async), outcome checks, field redaction, context (identity, scope, model, prompt versions), review records, `export`, `pack`, `check` |
+| Adapters | MCP client middleware, OpenTelemetry span exporter (GenAI semantic conventions), OpenAI Agents SDK, Claude Agent SDK hooks, LangChain/LangGraph callback handler |
+| TypeScript | `@getgleipnir/verify` (also runs in the browser) and `@getgleipnir/sdk`, byte-for-byte compatible with Python, see [typescript/](typescript/) |
 | `gleipnir-verify` | Small offline verifier the buyer runs: signatures, hash chain, Merkle roots, Rekor inclusion proofs and checkpoints, truncation checks |
-| Records | RFC 8785 canonical JSON, Ed25519 signatures, hash chain, segments with RFC 6962 Merkle roots, anchored in Sigstore Rekor v2. See [spec/format.md](spec/format.md) |
+| Records | RFC 8785 canonical JSON, Ed25519 signatures, hash chain, segments with RFC 6962 Merkle roots, anchored in Sigstore Rekor v2 with RFC 3161 trusted timestamps. See [spec/format.md](spec/format.md) |
 | `gleipnir check` | Which items of the open [agent security review checklist](https://github.com/getgleipnir/agent-security-review) your records evidence |
 
 Docs: [design](docs/design.md), [threat model](docs/threat-model.md) (what a valid result proves, and what it doesn't).
 
 ## Status
 
-Pre-release (0.1.0.dev0), not yet on PyPI. Python first; TypeScript and adapters for the OpenAI Agents SDK, Claude Agent SDK, LangGraph and OpenTelemetry are next.
+Pre-release (0.1.0.dev0), not yet on PyPI or npm.
 
 ```bash
 git clone https://github.com/getgleipnir/gleipnir && cd gleipnir

@@ -7,3 +7,4 @@ dist/
 .DS_Store
 examples/refund-agent/.gleipnir/
 examples/refund-agent/*.zip
+.claude/

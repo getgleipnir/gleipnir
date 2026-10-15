@@ -15,6 +15,7 @@ changed after they were written and anchored? It checks, in order:
 from __future__ import annotations
 
 import json
+import re
 import zipfile
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
@@ -72,13 +73,30 @@ class Report:
         }
 
 
+_RFC3339 = re.compile(r"(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,6}))?(Z|[+-]\d{2}:\d{2})",
+                      re.ASCII)
+
+
 def parse_time(text: str) -> datetime:
-    if text.endswith("Z"):
-        text = text[:-1] + "+00:00"
-    dt = datetime.fromisoformat(text)
-    if dt.tzinfo is None:
-        raise ValueError("timestamp without timezone")
-    return dt.astimezone(timezone.utc)
+    """Parse a strict RFC 3339 timestamp (``YYYY-MM-DDTHH:MM:SS[.ffffff](Z|+HH:MM)``) to UTC.
+
+    The grammar is deliberately narrow and identical in every implementation, so a bundle's
+    validity never depends on the language or Python version that checks it.
+    """
+    if not isinstance(text, str):
+        raise ValueError("timestamp must be a string")
+    m = _RFC3339.fullmatch(text)
+    if m is None:
+        raise ValueError(f"Invalid RFC 3339 timestamp: {text!r}")
+    year, month, day, hour, minute, second = (int(x) for x in m.groups()[:6])
+    micro = int((m.group(7) or "").ljust(6, "0") or "0")
+    tz = m.group(8)
+    if tz == "Z":
+        tzinfo = timezone.utc
+    else:
+        sign = 1 if tz[0] == "+" else -1
+        tzinfo = timezone(sign * timedelta(hours=int(tz[1:3]), minutes=int(tz[4:6])))
+    return datetime(year, month, day, hour, minute, second, micro, tzinfo=tzinfo).astimezone(timezone.utc)
 
 
 def verify_records(records: list[dict[str, Any]], **kwargs: Any) -> Report:
@@ -397,7 +415,9 @@ def _summarize(report: Report, records: list[dict[str, Any]], genesis: dict[str,
                last_anchored_close: str | None = None) -> None:
     kinds: dict[str, int] = {}
     for r in records:
-        kinds[r.get("kind", "?")] = kinds.get(r.get("kind", "?"), 0) + 1
+        k = r.get("kind", "?") if isinstance(r, dict) else "?"
+        k = k if isinstance(k, str) else "?"  # non-string kinds are counted as "?" in every implementation
+        kinds[k] = kinds.get(k, 0) + 1
     report.summary = {
         "chain": genesis.get("chain"),
         "keys": sorted(keys),
@@ -424,10 +444,10 @@ def _first_body_seq(records: list[Any]) -> Any:
 def read_bundle(path: str | Path) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]] | None]:
     with zipfile.ZipFile(path) as zf:
         manifest = json.loads(zf.read("manifest.json"))
-        lines = zf.read("records.jsonl").decode("utf-8").splitlines()
+        lines = zf.read("records.jsonl").decode("utf-8").split("\n")
         local_log = None
         if "anchors/local-anchor-log.jsonl" in zf.namelist():
-            raw = zf.read("anchors/local-anchor-log.jsonl").decode("utf-8").splitlines()
+            raw = zf.read("anchors/local-anchor-log.jsonl").decode("utf-8").split("\n")
             local_log = [json.loads(line) for line in raw if line.strip()]
     records = [json.loads(line) for line in lines if line.strip()]
     return manifest, records, local_log

@@ -357,3 +357,30 @@ def test_cli_init_status_export(tmp_path, capsys, clock):
     assert cli.main(["--home", home, "export", "-o", str(out)]) == 0
     assert verify_bundle(out).valid(strict=True)
     assert "verify with" in capsys.readouterr().out
+
+
+def test_unicode_line_separators_survive_reload(rec, tmp_path):
+    @rec.tool(system="s")
+    def f(text):
+        return text
+
+    f("line sep par\u0085nel")
+    rec.flush()
+    records = rec.chain.store.read_all()
+    assert actions(rec)[0]["args"]["text"] == "line sep par\u0085nel"
+    path = rec.export(tmp_path / "u.zip")
+    assert verify_bundle(path).valid(strict=True)
+    raw_lines = rec.chain.store.path.read_text(encoding="utf-8").count("\n")
+    assert raw_lines == len(rec.chain.store.read_all()) >= len(records)
+    assert "\u2028" not in rec.chain.store.path.read_text(encoding="utf-8")
+
+
+def test_huge_integers_are_recorded_not_raised(rec):
+    @rec.tool(system="s")
+    def f(n):
+        return n * 2
+
+    assert f(2**70) == 2**71
+    a = actions(rec)[0]
+    assert a["args"]["n"] == {"int": str(2**70)}
+    assert a["response"]["body"] == {"int": str(2**71)}

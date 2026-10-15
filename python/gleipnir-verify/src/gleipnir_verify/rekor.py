@@ -85,7 +85,7 @@ def parse_checkpoint(envelope: str) -> tuple[str, int, bytes, str, list[tuple[st
         raise ValueError("checkpoint note too short")
     origin, size, root = lines[0], int(lines[1]), _b64(lines[2])
     sigs = []
-    for line in sig_block.splitlines():
+    for line in sig_block.split("\n"):
         if not line.startswith("— "):
             continue
         _, name, sig = line.split(" ", 2)

@@ -11,6 +11,7 @@ from typing import Any
 from gleipnir_verify.verifier import FORMAT_VERSION, parse_time
 
 from . import __version__
+from .store import _dumps_line
 from .util import iso, utcnow
 
 VERIFY_README = """\
@@ -122,8 +123,7 @@ def export_bundle(records: list[dict[str, Any]], out: str | Path, *, since: date
     out.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(out, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("manifest.json", json.dumps(manifest, indent=2, sort_keys=True))
-        zf.writestr("records.jsonl", "".join(json.dumps(r, sort_keys=True, separators=(",", ":")) + "\n"
-                                             for r in picked))
+        zf.writestr("records.jsonl", "".join(_dumps_line(r) for r in picked))
         full = bool(body) and body[0]["seq"] == 1
         zf.writestr("VERIFY.md", VERIFY_README.format(command=verify_command(picked, out.name, full)))
         if local_anchor_log and Path(local_anchor_log).exists():

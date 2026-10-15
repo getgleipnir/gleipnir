@@ -470,8 +470,9 @@ describe("Python-compatible message formatting", () => {
     expect(r.errors.find((f) => f.code === "coverage")!.message).toBe(
       `records end at ${b.records.filter((x) => x["kind"] === "segment").pop()!["segment"]["closed_at"]}, earlier than expected 2027-01-01T00:00:00.500000+00:00 (truncated?)`,
     );
-    // Python 3.10's datetime.fromisoformat accepts only 3 or 6 fraction digits; so does this verifier.
-    expect(() => run(b, undefined, { expectUntil: "2027-01-01T00:00:00.5Z" })).toThrow(RangeError);
+    // Strict RFC 3339: 1 to 6 fraction digits, a "T" separator and an explicit offset.
+    expect(() => run(b, undefined, { expectUntil: "2027-01-01T00:00:00.5Z" })).not.toThrow();
+    expect(() => run(b, undefined, { expectUntil: "2027-01-01 00:00:00Z" })).toThrow(RangeError);
   });
 
   it("time helpers", () => {

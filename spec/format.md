@@ -5,10 +5,11 @@ Normative. Implementations in any language must produce and accept exactly this.
 ## Encoding
 
 - A record is a JSON object. Bytes for hashing are its **RFC 8785 (JCS)** canonical form, UTF-8.
-- Integers must be in the IEEE 754 safe range (|n| ≤ 2^53 − 1). Money should be strings or integer minor units.
+- Integers must be in the IEEE 754 safe range (|n| ≤ 2^53 − 1). Producers record larger integers as `{"int": "<decimal>"}` instead of failing. Money should be strings or integer minor units.
 - `record_hash = "sha256:" || hex(SHA-256(JCS(record minus "sig")))`.
 - Optional fields are omitted, never `null`. Unknown fields are allowed and are covered by the hash.
-- Timestamps are RFC 3339 UTC with a `Z` suffix, for example `2026-10-14T09:14:05.112Z`.
+- Timestamps are strict RFC 3339: `YYYY-MM-DDTHH:MM:SS[.f{1,6}](Z|+HH:MM|-HH:MM)`, uppercase `T` and `Z`. Producers write UTC with milliseconds and `Z`, for example `2026-10-14T09:14:05.112Z`. Verifiers reject anything else, so validity never depends on the implementation.
+- JSON Lines files split on `\n` only. Producers escape U+2028, U+2029 and U+0085 inside strings (this does not change the canonical bytes).
 
 ## Common fields
 

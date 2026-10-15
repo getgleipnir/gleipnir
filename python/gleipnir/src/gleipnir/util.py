@@ -32,8 +32,11 @@ def to_jsonable(value: Any, _depth: int = 0) -> Any:
     """Convert a tool argument or response into a JSON value that JCS can encode."""
     if _depth > 50:
         return {"repr": "<max depth>"}
-    if value is None or isinstance(value, (bool, str, int)):
+    if value is None or isinstance(value, (bool, str)):
         return value
+    if isinstance(value, int):
+        # JCS only allows integers in the IEEE 754 safe range; larger ones are kept exactly as text.
+        return value if -(2**53 - 1) <= value <= 2**53 - 1 else {"int": str(value)}
     if isinstance(value, float):
         if math.isnan(value) or math.isinf(value):
             return {"float": repr(value)}

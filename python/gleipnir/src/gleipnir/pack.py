@@ -230,7 +230,7 @@ def build_pack(records: list[dict[str, Any]], out: str | Path, *, since: datetim
     head = f"{head_seq}:{report.summary.get('head', {}).get('hash')}"
     key = records[0]["public_key"]["id"]
     with zipfile.ZipFile(bundle_path) as bz:
-        picked = [json.loads(x) for x in bz.read("records.jsonl").decode().splitlines() if x.strip()]
+        picked = [json.loads(x) for x in bz.read("records.jsonl").decode().split("\n") if x.strip()]
     command = verify_command(picked, "bundle.zip", full=not report.summary.get("partial"))
     page = render_html(s, verify=verify, coverage=coverage, period=period, key=key, chain=records[0]["chain"],
                        head=head, command=command)
