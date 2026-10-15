@@ -51,6 +51,7 @@ export class ChainWriter {
   private readonly warn: (message: string) => void;
   private timer: ReturnType<typeof setInterval> | null = null;
   private anchoring: Promise<number> | null = null;
+  private rerun: Promise<number> | null = null;
 
   constructor(store: Store, signer: Signer, opts: ChainWriterOptions = {}) {
     const segmentMaxRecords = opts.segmentMaxRecords ?? 1000;
@@ -153,7 +154,9 @@ export class ChainWriter {
     const rec = this.write({ kind, ...fields });
     if (this.openMembers.length >= this.segmentMaxRecords) {
       this.closeSegment();
-      if (!this.background) void this.anchorPending();
+      // Without the background timer, anchor right away, but never wait for it: network
+      // anchors resolve later and write their receipts as records when they arrive.
+      if (!this.background) this.anchorInBackground();
     }
     return rec;
   }
@@ -201,12 +204,30 @@ export class ChainWriter {
    */
   anchorPending(): Promise<number> {
     if (!this.anchors.length) return Promise.resolve(0);
-    if (this.anchoring) return this.anchoring.then(() => this.anchorPending());
+    if (this.anchoring) {
+      // One follow-up run covers every request made while a run is in flight (segments closed
+      // meanwhile), so a burst of segment closes during a slow network call queues one run, not many.
+      this.rerun ??= this.anchoring.then(
+        () => this.startRun(),
+        () => this.startRun(),
+      );
+      return this.rerun;
+    }
+    return this.startRun();
+  }
+
+  private startRun(): Promise<number> {
+    this.rerun = null;
     const run = this.runAnchoring().finally(() => {
       if (this.anchoring === run) this.anchoring = null;
     });
     this.anchoring = run;
     return run;
+  }
+
+  /** Anchor in the background: never throws, never rejects, reports failures through the warning callback. */
+  private anchorInBackground(): void {
+    this.anchorPending().catch((exc) => this.warn(`gleipnir: background anchoring failed: ${exc instanceof Error ? exc.message : String(exc)}`));
   }
 
   private async runAnchoring(): Promise<number> {
@@ -252,7 +273,7 @@ export class ChainWriter {
     this.timer = setInterval(() => {
       try {
         this.maybeHeartbeat();
-        this.anchorPending().catch((exc) => this.warn(`gleipnir: background task failed: ${String(exc)}`));
+        this.anchorInBackground();
       } catch (exc) {
         this.warn(`gleipnir: background task failed: ${exc instanceof Error ? exc.message : String(exc)}`);
       }

@@ -182,7 +182,7 @@ describe("Recorder", () => {
   it("rejects unknown context keys and unknown anchors", () => {
     const rec = recorder(tmp());
     expect(() => rec.context({ nope: 1 } as never, () => 0)).toThrow(/unknown context keys/);
-    expect(() => recorder(tmp(), { anchor: "rekor" as never })).toThrow(/unknown anchor/);
+    expect(() => recorder(tmp(), { anchor: "nope" as never })).toThrow(/unknown anchor/);
   });
 
   it("writes claims, reviews and notes", async () => {
