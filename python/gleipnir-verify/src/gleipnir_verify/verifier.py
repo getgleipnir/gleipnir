@@ -422,11 +422,18 @@ def check_approvals(records: list[dict[str, Any]], by_seq: dict[int, dict[str, A
                     partial: bool) -> None:
     """Every action that names an approval must point to an earlier, matching ``approved`` review."""
     reviews = {r.get("id"): r for r in records if isinstance(r, dict) and r.get("kind") == "review"}
+    used: dict[Any, Any] = {}
     for rec in records:
         if not isinstance(rec, dict) or rec.get("kind") != "action" or "approval" not in rec:
             continue
         seq = rec.get("seq")
-        review = reviews.get(rec["approval"])
+        key = rec["approval"] if isinstance(rec["approval"], (str, int)) else repr(rec["approval"])
+        if key in used:
+            report.add(ERROR, "approval_reused", f"approval already used by the action at seq {used[key]}; "
+                       "an approval covers exactly one action", seq)
+        else:
+            used[key] = seq
+        review = reviews.get(rec["approval"]) if isinstance(rec["approval"], (str, int)) else None
         if review is None:
             report.add(WARN if partial else ERROR, "approval_missing",
                        f"action names approval {rec['approval']!r}, which is not in this bundle", seq)
@@ -544,6 +551,10 @@ def _verify_proof(manifest: dict[str, Any], records: list[Any], *, expect_key: s
     if expect_key and expect_key != pk["id"]:
         report.add(ERROR, "unexpected_key", f"chain key {pk['id']} is not the expected key {expect_key}")
     chain = genesis.get("chain")
+    if manifest.get("chain") != chain:
+        report.add(ERROR, "manifest_chain", "manifest chain does not match records")
+    if manifest.get("key") is not None and manifest.get("key") != pk["id"]:
+        report.add(ERROR, "manifest_key", "manifest key does not match the genesis key")
     hashes = {}
     for rec in records:
         h = record_hash(rec)
@@ -559,14 +570,20 @@ def _verify_proof(manifest: dict[str, Any], records: list[Any], *, expect_key: s
     s = segment["segment"]
     seq, frm, count = action["seq"], int(s["from"]), int(s["count"])
     index, size = manifest.get("leaf_index"), manifest.get("tree_size")
-    if not (frm <= seq < frm + count) or index != seq - frm or size != count:
+    if (not isinstance(index, int) or isinstance(index, bool) or not isinstance(size, int)
+            or not (frm <= seq < frm + count) or index != seq - frm or size != count):
         report.add(ERROR, "proof_position", "the action is not where the proof says it is in the segment", seq)
-    path = [bytes.fromhex(x) for x in manifest.get("proof", [])]
-    if not merkle.verify_inclusion(seq - frm, count, merkle.leaf_hash(hash_to_bytes(hashes[seq])), path,
-                                   hash_to_bytes(s["root"])):
+    try:
+        path = [bytes.fromhex(x) for x in manifest.get("proof", [])]
+        included = merkle.verify_inclusion(seq - frm, count, merkle.leaf_hash(hash_to_bytes(hashes[seq])), path,
+                                           hash_to_bytes(s["root"]))
+    except (TypeError, ValueError):
+        included = False
+    if not included:
         report.add(ERROR, "proof_invalid", "the action is not included in the segment's Merkle root", seq)
     required = [require_anchor] if isinstance(require_anchor, str) else list(require_anchor or [])
     verified: set[str] = set()
+    anchored_any = False
     for a in anchors:
         body = a.get("anchor", {})
         if a.get("kind") != "anchor" or body.get("segment_hash") != hashes[segment["seq"]]:
@@ -574,15 +591,22 @@ def _verify_proof(manifest: dict[str, Any], records: list[Any], *, expect_key: s
             continue
         fn = anchor_verifiers.get(body.get("type"))
         if fn is None:
+            report.add(WARN, "anchor_type", f"unknown anchor type {body.get('type')!r}", a.get("seq"))
             continue
         res = fn(body, segment_hash=hashes[segment["seq"]], chain=chain, options=anchor_options)
         if res.ok is False:
             report.add(ERROR, "anchor_invalid", f"anchor receipt invalid: {res.detail}", a.get("seq"))
-        elif res.ok and res.independent:
+        elif res.ok is None:
+            report.add(INFO, "anchor_unchecked", f"anchor receipt not checked: {res.detail}", a.get("seq"))
+        elif res.independent:
             verified.add(body.get("type"))
+        anchored_any = anchored_any or res.ok is True
     for req in required:
         if req not in verified:
             report.add(ERROR, "anchor_required", f"segment has no verified {req} anchor", segment["seq"])
+    if not anchored_any:
+        report.add(WARN, "unanchored_segments", "the action's segment has no verified anchor receipt in this proof",
+                   segment["seq"])
     report.summary = {"type": "proof", "chain": chain, "keys": [pk["id"]], "action": action.get("id"),
                       "action_seq": seq, "segment_seq": segment["seq"], "anchors_independent": sorted(verified),
                       "records": len(records), "by_kind": {}, "segments": 1}

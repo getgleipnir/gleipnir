@@ -57,7 +57,9 @@ def reconcile_main(argv: list[str]) -> int:
     except (OSError, ValueError) as exc:
         p.error(str(exc))
     if not res.report.valid():
-        print("bundle does not verify; run gleipnir-verify on it first")
+        print("bundle does not verify, so it cannot be reconciled:")
+        for f in res.report.errors:
+            print(f"  [FAIL] {f.code}: {f.message}")
         return 1
     print(f"matched:                  {len(res.matched)}")
     print(f"in your system only:      {len(res.only_in_system)}  (agent may have acted without a record)")
@@ -107,6 +109,13 @@ def main(argv: list[str] | None = None) -> int:
 
     s = report.summary
     out = sys.stdout
+    if s.get("type") == "proof":
+        out.write(f"proof for:    action {s.get('action')} (seq {s.get('action_seq')}), "
+                  f"segment {s.get('segment_seq')}\n")
+        out.write(f"chain:        {s.get('chain')}\n")
+        out.write(f"signing key:  {', '.join(s.get('keys', []))}\n")
+        out.write(f"anchors:      {', '.join(s.get('anchors_independent') or []) or 'none independent'}\n")
+        s = {}
     if s:
         out.write(f"chain:        {s.get('chain')}\n")
         out.write(f"signing keys: {', '.join(s.get('keys', []))}\n")

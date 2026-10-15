@@ -60,13 +60,14 @@ def reconcile(bundle: str | Path, system_csv: str | Path, *, column: str, field_
     _, records, _ = read_bundle(bundle)
     ids: set[str] = set()
     for r in records:
-        if r.get("kind") == "action" and r.get("response", {}).get("status") == "ok":
-            ids |= external_ids(r["response"].get("body"), field_name or column)
+        resp = r.get("response") if isinstance(r, dict) else None
+        if r.get("kind") == "action" and isinstance(resp, dict) and resp.get("status") == "ok":
+            ids |= external_ids(resp.get("body"), field_name or column)
     with open(system_csv, newline="", encoding="utf-8-sig") as fh:
         reader = csv.DictReader(fh)
         if reader.fieldnames is None or column not in reader.fieldnames:
             raise ValueError(f"column {column!r} not found in {system_csv}")
-        system = {row[column].strip() for row in reader if row.get(column, "").strip()}
+        system = {(row.get(column) or "").strip() for row in reader} - {""}  # short rows are skipped
     result.matched = ids & system
     result.only_in_system = system - ids
     result.only_in_records = ids - system
