@@ -120,7 +120,8 @@ describe("approve()", () => {
     // executing something different from what was approved is caught
     rec.context({ approval }, () => refund("A1", 5000, "4111"));
     recs = rec.chain.store.readAll();
-    expect(new Set(verifyRecords(recs).errors.map((f) => f.code))).toEqual(new Set(["approval_mismatch"]));
+    // ... and so is a second use of the same approval
+    expect(new Set(verifyRecords(recs).errors.map((f) => f.code))).toEqual(new Set(["approval_mismatch", "approval_reused"]));
     if (pythonAvailable) {
       const out = await rec.export(join(rec.home, "bundle.zip"));
       const py = JSON.parse(pythonCli([out, "--json"]).out);

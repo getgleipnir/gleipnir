@@ -703,11 +703,25 @@ function checkApprovals(records: JsonDict[], report: Report, partial: boolean): 
   for (const r of records) {
     if (pyEq(dget(r, "kind"), "review")) reviews.set(dget(r, "id"), r);
   }
+  /** First action seq per approval, keyed like the reference: str/int values as dict keys, others by repr. */
+  const used = new Map<string, unknown>();
   for (const rec of records) {
     if (!pyEq(dget(rec, "kind"), "action") || !hasKey(rec, "approval")) continue;
     const seq = dget(rec, "seq");
     const approval = rec["approval"];
-    const review = reviews.get(approval);
+    const hashable = typeof approval === "string" || isPyInt(approval);
+    const key = hashable ? pyKey(approval) : pyKey(pyRepr(approval));
+    if (used.has(key)) {
+      report.add(
+        ERROR,
+        "approval_reused",
+        `approval already used by the action at seq ${pyStr(used.get(key))}; an approval covers exactly one action`,
+        seq,
+      );
+    } else {
+      used.set(key, seq);
+    }
+    const review = hashable ? reviews.get(approval) : undefined;
     if (review === undefined) {
       report.add(partial ? WARN : ERROR, "approval_missing", `action names approval ${pyRepr(approval)}, which is not in this bundle`, seq);
       continue;
@@ -885,6 +899,12 @@ function verifyProofInner(manifest: JsonDict, records: unknown[], o: ResolvedOpt
     report.add(ERROR, "unexpected_key", `chain key ${pkId} is not the expected key ${o.expectKey}`);
   }
   const chain = dget(genesis!, "chain");
+  if (!pyEq(dget(manifest, "chain"), chain)) {
+    report.add(ERROR, "manifest_chain", "manifest chain does not match records");
+  }
+  if (!isNone(dget(manifest, "key")) && !pyEq(dget(manifest, "key"), pkId)) {
+    report.add(ERROR, "manifest_key", "manifest key does not match the genesis key");
+  }
   const hashes = new PyMap<string>();
   for (const rec of records as JsonDict[]) {
     const h = recordHash(rec);
@@ -906,21 +926,36 @@ function verifyProofInner(manifest: JsonDict, records: unknown[], o: ResolvedOpt
   const count = pyIntBig(sub(s, "count"));
   const index = dget(manifest, "leaf_index");
   const size = dget(manifest, "tree_size");
-  const seq = pyNum(seqRaw, "<=");
-  const diff: PyNum = "int" in seq ? { int: seq.int - frm } : { float: seq.float - Number(frm) };
-  const inRange = !pyLt(seq, { int: frm }) && pyLt(seq, { int: frm + count });
-  if (!inRange || !pyEq(index, pyNumValue(diff)) || !pyEq(size, pyNumValue({ int: count }))) {
+  const minus = (n: PyNum): PyNum => ("int" in n ? { int: n.int - frm } : { float: n.float - Number(frm) });
+  // Evaluated left to right with Python's short-circuiting: a non-int index or size is reported
+  // without comparing the action's seq (a non-numeric seq raises only when it is compared).
+  let misplaced = !isPyInt(index) || typeof index === "boolean" || !isPyInt(size);
+  if (!misplaced) {
+    const seq = pyNum(seqRaw, "<=");
+    const inRange = !pyLt(seq, { int: frm }) && pyLt(seq, { int: frm + count });
+    misplaced = !inRange || !pyEq(index, pyNumValue(minus(seq))) || !pyEq(size, pyNumValue({ int: count }));
+  }
+  if (misplaced) {
     report.add(ERROR, "proof_position", "the action is not where the proof says it is in the segment", seqRaw);
   }
-  const path = pyIter(dget(manifest, "proof", [])).map((x) => {
-    if (typeof x !== "string") throw TypeErr(`fromhex() argument must be str, not ${pyTypeName(x)}`);
-    return hexToBytes(x);
-  });
-  const leaf = leafHash(hashToBytes(hashes.get(seqRaw)));
-  if (!proofIncludes(diff, count, leaf, path, hashToBytes(sub(s, "root")))) {
+  let included: boolean;
+  try {
+    const path = pyIter(dget(manifest, "proof", [])).map((x) => {
+      if (typeof x !== "string") throw TypeErr(`fromhex() argument must be str, not ${pyTypeName(x)}`);
+      return hexToBytes(x);
+    });
+    const diff = minus(pyNum(seqRaw, "-", "str"));
+    const leaf = leafHash(hashToBytes(hashes.get(seqRaw)));
+    included = proofIncludes(diff, count, leaf, path, hashToBytes(sub(s, "root")));
+  } catch (exc) {
+    if (!caught(exc, "TypeError", "ValueError")) throw exc;
+    included = false;
+  }
+  if (!included) {
     report.add(ERROR, "proof_invalid", "the action is not included in the segment's Merkle root", seqRaw);
   }
   const verified = new Set<string>();
+  let anchoredAny = false;
   // segment["seq"] is looked up where the reference looks it up (a missing one raises there).
   const segSeq = (): unknown => sub(segment, "seq");
   for (const a of anchors) {
@@ -932,16 +967,25 @@ function verifyProofInner(manifest: JsonDict, records: unknown[], o: ResolvedOpt
     const type = dget(body, "type");
     requireHashable(type);
     const fn = typeof type === "string" && hasKey(o.anchorVerifiers, type) ? o.anchorVerifiers[type] : undefined;
-    if (fn === undefined) continue;
+    if (fn === undefined) {
+      report.add(WARN, "anchor_type", `unknown anchor type ${pyRepr(type)}`, dget(a, "seq"));
+      continue;
+    }
     const res = fn(body as JsonDict, { segmentHash: hashes.get(segSeq())!, chain, options: o.anchorOptions });
     if (res.ok === false) {
       report.add(ERROR, "anchor_invalid", `anchor receipt invalid: ${res.detail}`, dget(a, "seq"));
-    } else if (res.ok && res.independent) {
+    } else if (res.ok === null) {
+      report.add(INFO, "anchor_unchecked", `anchor receipt not checked: ${res.detail}`, dget(a, "seq"));
+    } else if (res.independent) {
       verified.add(type as string);
     }
+    anchoredAny = anchoredAny || res.ok === true;
   }
   for (const req of o.required) {
     if (!verified.has(req)) report.add(ERROR, "anchor_required", `segment has no verified ${req} anchor`, segSeq());
+  }
+  if (!anchoredAny) {
+    report.add(WARN, "unanchored_segments", "the action's segment has no verified anchor receipt in this proof", segSeq());
   }
   report.summary = {
     type: "proof",

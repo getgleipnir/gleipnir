@@ -24,7 +24,7 @@ import {
   verifyRecords,
   verifySignature,
 } from "@getgleipnir/verify";
-import { Builder, Key, P256Key, proofFiles, proofZip, resign, rng, writeBundle, type Rec } from "./chainbuilder.js";
+import { Builder, Key, P256Key, proofFiles, proofZip, resign, rng, writeBundle, zipBundle, type Rec } from "./chainbuilder.js";
 import { normalizeReport, oracle, pythonAvailable, stripExceptionText, toTsOptions } from "./oracle.js";
 
 const d = pythonAvailable ? describe : describe.skip;
@@ -276,6 +276,34 @@ d("differential: approvals bound to actions", () => {
       b.anchor(b.segment());
       cases.push({ name: `approval ${name}`, records: b.records });
     }
+    // one approval used by several actions: approval_reused from the second on
+    b = mk();
+    id = b.approve({ order: "o1", amount: 1 });
+    b.action(1, { approval: id });
+    b.action(1, { approval: id });
+    b.action(2, { approval: id });
+    cases.push({ name: "approval reused", records: b.records });
+    // reuse with non-string approvals (repr keys; 1 and true collide like Python dict keys)
+    b = mk();
+    b.action(1, { approval: 1 });
+    b.action(1, { approval: true });
+    b.action(1, { approval: 1.0 });
+    b.action(1, { approval: ["x"] });
+    b.action(1, { approval: ["x"] });
+    b.action(1, { approval: { a: 1 } });
+    b.action(1, { approval: null });
+    b.action(1, { approval: null });
+    b.action(1, { approval: "1" });
+    cases.push({ name: "approval reused, odd types", records: b.records });
+    // reuse in a partial bundle: the approval is outside, reuse is still an error
+    b = mk();
+    id = b.approve({ order: "o1", amount: 1 });
+    const segR = b.segment();
+    b.anchor(segR);
+    b.action(1, { approval: id });
+    b.action(1, { approval: id });
+    b.anchor(b.segment());
+    cases.push({ name: "partial: approval reused", records: [b.records[0]!, ...b.records.slice(b.records.indexOf(segR) + 1)], options: { local_anchor_entries: b.anchorLog } });
     // two reviews with the same id: the later one wins in both
     b = mk();
     b.add({ kind: "review", id: "dup", review: { action_digest: actionDigest("refund", "pay", { order: "o1", amount: 1 }), decision: "approved" } });
@@ -340,7 +368,22 @@ d("differential: single-action proofs", () => {
         const m = structuredClone(base.manifest);
         const r = structuredClone(base.records);
         mut(m, r);
-        items.push([`${label} ${name}`, proofZip(b, m, r), opts]);
+        const { no_log, ...rest } = opts;
+        const { float_fields, ...rest2 } = rest as { float_fields?: string[] };
+        let zip = no_log
+          ? zipBundle({ "manifest.json": JSON.stringify(m), "records.jsonl": r.map((x) => JSON.stringify(x)).join("\n") })
+          : proofZip(b, m, r);
+        if (float_fields) {
+          // JSON float literals (3.0) that JSON.stringify cannot write: Python reads them as floats.
+          let text = JSON.stringify(m);
+          for (const f of float_fields) text = text.replace(new RegExp(`"${f}":(-?\\d+)`), `"${f}":$1.0`);
+          zip = zipBundle({
+            "manifest.json": text,
+            "records.jsonl": r.map((x) => JSON.stringify(x)).join("\n"),
+            "anchors/local-anchor-log.jsonl": b.anchorLog.map((e) => JSON.stringify(e) + "\n").join(""),
+          });
+        }
+        items.push([`${label} ${name}`, zip, rest2]);
       };
       variant("wrong expect key", () => {}, { expect_key: "k_ed25519_0000000000000000" });
       variant("require rekor", () => {}, { require_anchor: ["rekor"] });
@@ -387,6 +430,29 @@ d("differential: single-action proofs", () => {
       variant("record not object", (_m, r) => ((r as unknown[])[3] = [1, 2]));
       variant("extra unrelated record", (_m, r) => r.push(structuredClone(b.records[2]!)));
       variant("unencodable record", (_m, r) => (r[1]!["x"] = 2 ** 60));
+      variant("manifest chain differs", (m) => (m["chain"] = "ch_other"));
+      variant("manifest chain missing", (m) => delete m["chain"]);
+      variant("manifest key differs", (m) => (m["key"] = "k_ed25519_0000000000000000"));
+      variant("manifest key null", (m) => (m["key"] = null));
+      variant("leaf index string", (m) => (m["leaf_index"] = "3"));
+      variant("leaf index bool", (m) => (m["leaf_index"] = true));
+      variant("leaf index null", (m) => (m["leaf_index"] = null));
+      variant("leaf index big", (m) => (m["leaf_index"] = 2 ** 60));
+      variant("tree size float", () => {}, { float_fields: ["tree_size"] });
+      variant("leaf index float", () => {}, { float_fields: ["leaf_index"] });
+      variant("path dict", (m) => (m["proof"] = { a: 1 }));
+      variant("path null", (m) => (m["proof"] = null));
+      variant("path odd hex", (m) => (m["proof"][0] = "abc"));
+      variant("action seq string, index string", (m, r) => {
+        m["leaf_index"] = "3";
+        r[1]!["seq"] = "4";
+      });
+      variant("no anchors", (_m, r) => r.splice(3));
+      variant("two unknown anchors", (_m, r) => {
+        r[3]!["anchor"]["type"] = "x";
+        r.push(structuredClone(r[3]!));
+      });
+      variant("anchor not checked (no log)", () => {}, { no_log: true });
       variant("manifest type proof only", (m) => {
         for (const k of Object.keys(m)) if (k !== "format" && k !== "type") delete m[k];
       });
@@ -462,6 +528,9 @@ d("differential: reconcile", () => {
     ["R1", "R2", "R3"].forEach((rid, i) => b.action(i, { response: { status: "ok", body: { refund_id: rid, nested: { order_id: `O${i}` } } } }));
     b.action(9, { response: { status: "error", error: "boom" } });
     b.action(10, { response: { status: "ok", body: { refundId: "R4", refund_id: 77 } } });
+    b.action(11, { response: "ok" });
+    b.action(12, { response: ["ok"] });
+    b.action(13, { response: null });
     b.anchor(b.segment());
     const bundle = writeBundle(b);
     const bp = join(dir, "b.zip");
@@ -481,6 +550,8 @@ d("differential: reconcile", () => {
       ["header only", "refund_id\n", "refund_id", null],
       ["duplicate header", "refund_id,refund_id\nA,R1\n", "refund_id", null],
       ["quoted multiline", 'refund_id,note\nR1,"a\nb"\n', "refund_id", null],
+      ["short rows", "amount,refund_id\n10,R1\n5\n\n20\n,R2\n", "refund_id", null],
+      ["short rows only", "amount,refund_id\n10\n", "refund_id", null],
     ];
     const cases: any[] = [];
     const ts: any[] = [];

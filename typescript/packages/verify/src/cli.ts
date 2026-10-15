@@ -9,7 +9,7 @@ import type { AnchorOptions } from "./anchors.js";
 import { parseJsonBytes, pyDumps } from "./json.js";
 import { pyFloatRepr } from "./py.js";
 import { parseTime } from "./time.js";
-import { PyError } from "./py.js";
+import { PyError, pyEq } from "./py.js";
 import { reconcile, type Reconciliation } from "./reconcile.js";
 import { ERROR, INFO, WARN, badBundleReport, parseKnownHead, verifyBundle, type Report } from "./verifier.js";
 
@@ -140,16 +140,18 @@ function runReconcile(argv: string[], io: Io): number {
   if (missing.length) reconcileError(io, `the following arguments are required: ${missing.join(", ")}`);
   if (parsed.positionals.length > 2) reconcileError(io, `unrecognized arguments: ${parsed.positionals.slice(2).join(" ")}`);
   const [bundlePath, csvPath] = parsed.positionals as [string, string];
-  const notVerified = () => {
-    io.out("bundle does not verify; run gleipnir-verify on it first\n");
+  const notVerified = (report: Report) => {
+    let out = "bundle does not verify, so it cannot be reconciled:\n";
+    for (const f of report.errors) out += `  [FAIL] ${f.code}: ${f.message}\n`;
+    io.out(out);
     return 1;
   };
   let bundle: Uint8Array;
   try {
     bundle = readFileSync(bundlePath);
-  } catch {
+  } catch (exc) {
     // The reference verifies first, and an unreadable bundle is a bad_bundle report.
-    return notVerified();
+    return notVerified(badBundleReport(`cannot read bundle: ${pyOsErrorName(exc)}: ${osError(exc, bundlePath).slice(0, 300)}`));
   }
   let res: Reconciliation;
   try {
@@ -166,7 +168,7 @@ function runReconcile(argv: string[], io: Io): number {
     if (exc instanceof PyError) reconcileError(io, exc.message);
     throw exc;
   }
-  if (!res.report.valid()) return notVerified();
+  if (!res.report.valid()) return notVerified(res.report);
   const sorted = (s: Set<string>) => [...s].sort(codePoint).slice(0, 50);
   let out = "";
   out += `matched:                  ${res.matched.size}\n`;
@@ -284,8 +286,17 @@ function run(argv: string[], io: Io): number {
     return valid ? 0 : 1;
   }
 
-  const s = report.summary;
+  let s = report.summary;
   let out = "";
+  if (pyEq(s["type"], "proof")) {
+    const ind = s["anchors_independent"];
+    const indText = Array.isArray(ind) && ind.length ? ind.map(pstr).join(", ") : "none independent";
+    out += `proof for:    action ${pstr(s["action"])} (seq ${pstr(s["action_seq"])}), segment ${pstr(s["segment_seq"])}\n`;
+    out += `chain:        ${pstr(s["chain"])}\n`;
+    out += `signing key:  ${((s["keys"] as string[]) ?? []).join(", ")}\n`;
+    out += `anchors:      ${indText}\n`;
+    s = {};
+  }
   if (Object.keys(s).length > 0) {
     out += `chain:        ${pstr(s["chain"])}\n`;
     out += `signing keys: ${((s["keys"] as string[]) ?? []).join(", ")}\n`;

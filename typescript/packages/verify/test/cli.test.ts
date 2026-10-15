@@ -82,12 +82,31 @@ describe("gleipnir-verify CLI", () => {
     writeFileSync(proof, proofZip(pb, manifest, records));
     const r = cli([proof, "--expect-key", pb.key.id]);
     expect(r.code).toBe(0);
+    expect(r.out).toContain(`proof for:    action ${pb.records[3]!["id"]} (seq 3), segment 6\n`);
+    expect(r.out).toContain("anchors:      none independent\n");
     expect(r.out).toContain("result: VALID");
+    // a proof whose segment has no anchor receipt: valid, but not with --strict
+    const bare = new Builder();
+    for (let i = 0; i < 3; i++) bare.action(i);
+    bare.segment();
+    const p2 = proofFiles(bare, bare.records[2]!["id"]);
+    const unanchored = join(dir, "proof-unanchored.zip");
+    writeFileSync(unanchored, proofZip(bare, p2.manifest, p2.records));
+    expect(cli([unanchored]).out).toContain("[WARN] seq 4 unanchored_segments: ");
+    expect(cli([unanchored, "--strict"]).code).toBe(1);
     if (pythonAvailable) {
-      for (const flags of [[], ["--json"], ["--expect-key", "k_p256_0000000000000000"], ["--json", "--require-anchor", "rekor"]]) {
-        const py = pythonCli([proof, ...flags]);
-        const ts = cli([proof, ...flags]);
-        expect([ts.code, ts.out], flags.join(" ")).toEqual([py.code, py.out]);
+      for (const [path, flags] of [
+        [proof, []],
+        [proof, ["--json"]],
+        [proof, ["--expect-key", "k_p256_0000000000000000"]],
+        [proof, ["--json", "--require-anchor", "rekor"]],
+        [unanchored, []],
+        [unanchored, ["--strict"]],
+        [unanchored, ["--json"]],
+      ] as const) {
+        const py = pythonCli([path, ...flags]);
+        const ts = cli([path, ...flags]);
+        expect([ts.code, ts.out], `${path} ${flags.join(" ")}`).toEqual([py.code, py.out]);
       }
     }
   });
@@ -121,7 +140,9 @@ describe("gleipnir-verify reconcile", () => {
   });
 
   it("refuses bundles that do not verify, and bad arguments", () => {
-    expect(cli(["reconcile", tampered, same, "--column", "refund_id"]).out).toBe("bundle does not verify; run gleipnir-verify on it first\n");
+    const bad = cli(["reconcile", tampered, same, "--column", "refund_id"]);
+    expect(bad.code).toBe(1);
+    expect(bad.out).toMatch(/^bundle does not verify, so it cannot be reconciled:\n {2}\[FAIL\] bad_signature: /);
     expect(cli(["reconcile", p, same, "--column", "refund_id", "--expect-key", "k_ed25519_0000000000000000"]).code).toBe(1);
     expect(cli(["reconcile", p, same]).code).toBe(2);
     expect(cli(["reconcile", p, same, "--column", "nope"]).err).toContain("error: column 'nope' not found in");
