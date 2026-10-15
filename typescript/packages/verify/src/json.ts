@@ -177,8 +177,49 @@ export function decodeUtf8(bytes: Uint8Array): string {
   try {
     return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
   } catch {
-    throw new PyError("UnicodeDecodeError", "'utf-8' codec can't decode bytes: invalid UTF-8");
+    throw new PyError("UnicodeDecodeError", utf8ErrorMessage(bytes));
   }
+}
+
+/** CPython's message for the first invalid UTF-8 sequence ("can't decode byte 0xe9 in position 2: ..."). */
+function utf8ErrorMessage(b: Uint8Array): string {
+  const hex = (x: number) => "0x" + x.toString(16).padStart(2, "0");
+  const fail = (start: number, len: number, reason: string) =>
+    len <= 1
+      ? `'utf-8' codec can't decode byte ${hex(b[start]!)} in position ${start}: ${reason}`
+      : `'utf-8' codec can't decode bytes in position ${start}-${start + len - 1}: ${reason}`;
+  const cont = (x: number | undefined) => x !== undefined && (x & 0xc0) === 0x80;
+  let i = 0;
+  while (i < b.length) {
+    const c = b[i]!;
+    if (c < 0x80) {
+      i++;
+      continue;
+    }
+    let need: number;
+    let lo = 0x80;
+    let hi = 0xbf;
+    if (c >= 0xc2 && c <= 0xdf) need = 1;
+    else if (c >= 0xe0 && c <= 0xef) {
+      need = 2;
+      if (c === 0xe0) lo = 0xa0;
+      if (c === 0xed) hi = 0x9f;
+    } else if (c >= 0xf0 && c <= 0xf4) {
+      need = 3;
+      if (c === 0xf0) lo = 0x90;
+      if (c === 0xf4) hi = 0x8f;
+    } else return fail(i, 1, "invalid start byte");
+    // the second byte has the narrowed range; later ones are plain continuation bytes
+    let k = 1;
+    for (; k <= need; k++) {
+      const x = b[i + k];
+      if (x === undefined) return fail(i, k, "unexpected end of data");
+      const ok = k === 1 ? x >= lo && x <= hi : cont(x);
+      if (!ok) return fail(i, k, "invalid continuation byte");
+    }
+    i += need + 1;
+  }
+  return "'utf-8' codec can't decode bytes: invalid UTF-8";
 }
 
 /** Python `json.loads(bytes)` for UTF-8 input (a leading UTF-8 BOM is skipped). */

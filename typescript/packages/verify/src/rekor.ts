@@ -20,7 +20,7 @@ import { DerError } from "./der.js";
 import { parseJsonBytes } from "./json.js";
 import { leafHash, verifyInclusion } from "./merkle.js";
 import { UnsupportedAlgorithm, ecdsaVerifyDigest, parseSpki } from "./pkix.js";
-import { PyError, caught, dget, errorText, pyEq, pyIntBig, pyIter, pyRepr, splitlines, sub } from "./py.js";
+import { PyError, caught, dget, errorText, isPyInt, pyEq, pyIntBig, pyIter, pyRepr, splitlines, sub } from "./py.js";
 import { TRUSTED_ROOT } from "./data/trusted-root.js";
 
 export const ANCHOR_DOMAIN = "gleipnir/anchor/v1\n";
@@ -77,6 +77,14 @@ export interface Checkpoint {
 }
 
 /** Parse a checkpoint (signed note). Throws ValueError on malformed input. */
+/** Non-negative decimal integer as Rekor encodes it: a JSON string of ASCII digits, or an int (`_strict_uint`). */
+function strictUint(value: unknown): bigint {
+  if (typeof value === "boolean") throw new PyError("ValueError", "not an integer");
+  if (isPyInt(value) && pyIntBig(value) >= 0n) return pyIntBig(value);
+  if (typeof value === "string" && /^[0-9]+$/.test(value)) return BigInt(value);
+  throw new PyError("ValueError", `not a decimal integer: ${pyRepr(value)}`);
+}
+
 export function parseCheckpoint(envelope: unknown): Checkpoint {
   if (typeof envelope !== "string") throw new PyError("AttributeError", "checkpoint envelope is not a string");
   if (envelope.split("\n\n").length - 1 !== 1) throw new PyError("ValueError", "checkpoint must contain exactly one blank line");
@@ -148,8 +156,8 @@ export function verifyRekorReceipt(receipt: unknown, segmentHash: string, option
     }
 
     // 2. inclusion proof
-    const index = pyIntBig(sub(proof, "logIndex"));
-    const size = pyIntBig(sub(proof, "treeSize"));
+    const index = strictUint(sub(proof, "logIndex"));
+    const size = strictUint(sub(proof, "treeSize"));
     const root = b64decodeStrict(sub(proof, "rootHash"));
     const path = pyIter(sub(proof, "hashes")).map((h) => b64decodeStrict(h));
     if (!verifyInclusion(index, size, leafHash(bodyBytes), path, root)) {

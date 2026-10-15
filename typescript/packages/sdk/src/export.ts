@@ -46,6 +46,8 @@ function verifyFlags(records: Rec[], name: string, full: boolean): string[] {
   const parts = [name, "--expect-key", (records[0]!["public_key"] as Rec)["id"] as string];
   const types = new Set(records.filter((r) => r["kind"] === "anchor").map((r) => (r["anchor"] as Rec)["type"]));
   for (const t of ["rekor", "rfc3161"]) if (types.has(t)) parts.push("--require-anchor", t);
+  // fail segments timestamped more than a day after they closed
+  if (types.has("rfc3161")) parts.push("--max-anchor-delay", "86400");
   if (full) parts.push("--require-full");
   return parts;
 }
@@ -148,8 +150,11 @@ export function buildBundle(records: Rec[], name: string, opts: ExportOptions = 
  * SDK's `export_proof`.
  */
 export function buildProof(records: Rec[], actionId: string, opts: { localAnchorLog?: string | null } = {}): Uint8Array {
-  const action = records.find((r) => r["id"] === actionId);
-  if (action === undefined) throw new Error(`no record with id ${JSON.stringify(actionId)}`);
+  const matches = records.filter((r) => r["id"] === actionId);
+  const action = matches[0];
+  if (matches.length !== 1 || action === undefined || action["kind"] !== "action") {
+    throw new Error(`${JSON.stringify(actionId)} is not exactly one action record`);
+  }
   if (records.some((r) => r["kind"] === "key_rotation")) {
     throw new Error("proofs for chains with key rotations are not supported yet");
   }

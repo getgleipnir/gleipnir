@@ -10,12 +10,29 @@
  *
  * - in your system, not in the records: the agent may have acted without recording it
  * - in the records, not in your system: an action was claimed that your system does not show
+ *
+ * Only the id field at the top level of each action's response counts (`field`, default the
+ * column name), and `tools` limits it to the tools that create or change those objects.
  */
 
 import { readBundle } from "./bundle.js";
 import { decodeUtf8 } from "./json.js";
 import { BigIntLiteral, PyError, isDict, pyRepr, type JsonDict } from "./py.js";
 import { verifyBundle, type Report, type VerifyOptions } from "./verifier.js";
+
+/**
+ * `wanted` at the top level of a response body only (not inside lists or nested objects), so a
+ * list or search call that returns many objects does not count as having created them.
+ */
+export function topLevelIds(value: unknown, wanted: string): Set<string> {
+  if (isDict(value) && Object.prototype.hasOwnProperty.call(value, wanted)) {
+    const x = value[wanted];
+    if (typeof x === "string") return new Set([x]);
+    if (typeof x === "number" && Number.isInteger(x)) return new Set([String(x)]);
+    if (x instanceof BigIntLiteral) return new Set([x.value.toString()]);
+  }
+  return new Set();
+}
 
 /** Id-like values (keys `id`, `*_id`, `*Id`) in a response body, optionally only key `wanted`. */
 export function externalIds(value: unknown, wanted?: string | null): Set<string> {
@@ -141,6 +158,8 @@ export function parseCsvRows(text: string): string[][] {
     }
   };
   for (const line of lines(text)) {
+    // Python 3.10's csv module (the oldest supported) rejects NUL; newer versions accept it.
+    if (line.includes("\0")) throw new PyError("Error", "line contains NUL");
     for (const c of line) step(c);
     step(EOL);
     if (state === S.StartRecord) {
@@ -170,9 +189,24 @@ function stripPy(s: string): string {
  * `csv.DictReader` over the file. Throws a ValueError-type PyError when the column is missing.
  */
 export function csvColumn(csv: Uint8Array | string, column: string, name = "the CSV"): Set<string> {
+  let rows: string[][];
+  try {
+    rows = csvRows(csv);
+  } catch (exc) {
+    // csv.Error and UnicodeDecodeError become a ValueError ("cannot read ..."), a usage error in the CLI.
+    if (exc instanceof PyError) throw new PyError("ValueError", `cannot read ${name}: ${exc.message}`);
+    throw exc;
+  }
+  return columnValues(rows, column, name);
+}
+
+function csvRows(csv: Uint8Array | string): string[][] {
   let text = typeof csv === "string" ? csv : decodeUtf8(csv);
   if (text.startsWith("﻿")) text = text.slice(1);
-  const rows = parseCsvRows(text);
+  return parseCsvRows(text);
+}
+
+function columnValues(rows: string[][], column: string, name: string): Set<string> {
   const header = rows[0];
   if (header === undefined || !header.includes(column)) {
     throw new PyError("ValueError", `column ${pyRepr(column)} not found in ${name}`);
@@ -181,8 +215,7 @@ export function csvColumn(csv: Uint8Array | string, column: string, name = "the 
   const out = new Set<string>();
   for (const row of rows.slice(1)) {
     if (row.length === 0) continue;
-    // A short row has no value for the column. (The reference crashes on this with an
-    // AttributeError on None.strip(); here it simply contributes no id.)
+    // A short row has no value for the column and is skipped.
     const v = row[idx];
     if (v === undefined) continue;
     const t = stripPy(v);
@@ -207,17 +240,24 @@ export interface ReconcileOptions extends VerifyOptions {
   field?: string | null;
   /** Name of the CSV for error messages. */
   csvName?: string;
+  /** Only count actions of these tools (by tool name), e.g. ["issue_refund"]. */
+  tools?: readonly string[] | null;
 }
 
-/** Ids in the `ok` action responses of a bundle's records. */
-export function recordIds(records: unknown[], field: string): Set<string> {
+/** `field` at the top level of the response body of each `ok` action (of `tools`, when given). */
+export function recordIds(records: unknown[], field: string, tools?: readonly string[] | null): Set<string> {
   const ids = new Set<string>();
   for (const r of records) {
-    if (!isDict(r) || r["kind"] !== "action") continue;
+    if (!isDict(r)) continue;
+    if (tools && tools.length) {
+      const t = r["tool"];
+      const name = isDict(t) ? t["name"] : undefined;
+      if (typeof name !== "string" || !tools.includes(name)) continue;
+    }
+    if (r["kind"] !== "action") continue;
     const resp = r["response"];
-    // The reference assumes response is an object (it raises AttributeError otherwise).
     if (!isDict(resp) || resp["status"] !== "ok") continue;
-    for (const id of externalIds((resp as JsonDict)["body"] ?? null, field)) ids.add(id);
+    for (const id of topLevelIds((resp as JsonDict)["body"] ?? null, field)) ids.add(id);
   }
   return ids;
 }
@@ -231,12 +271,12 @@ export function reconcile(
   systemCsv: Uint8Array | string | (() => Uint8Array | string),
   opts: ReconcileOptions,
 ): Reconciliation {
-  const { column, field, csvName, ...verifyOptions } = opts;
+  const { column, field, csvName, tools, ...verifyOptions } = opts;
   const report = verifyBundle(bundle, verifyOptions);
   const result: Reconciliation = { report, matched: new Set(), onlyInSystem: new Set(), onlyInRecords: new Set(), ok: false };
   if (!report.valid()) return result;
   const [, records] = readBundle(bundle);
-  const ids = recordIds(records, field || column);
+  const ids = recordIds(records, field || column, tools);
   const system = csvColumn(typeof systemCsv === "function" ? systemCsv() : systemCsv, column, csvName);
   for (const x of ids) (system.has(x) ? result.matched : result.onlyInRecords).add(x);
   for (const x of system) if (!ids.has(x)) result.onlyInSystem.add(x);
