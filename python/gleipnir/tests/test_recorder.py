@@ -384,3 +384,82 @@ def test_huge_integers_are_recorded_not_raised(rec):
     a = actions(rec)[0]
     assert a["args"]["n"] == {"int": str(2**70)}
     assert a["response"]["body"] == {"int": str(2**71)}
+
+
+def test_approval_bound_to_action(rec, tmp_path):
+    from gleipnir_verify import verify_records
+
+    @rec.tool(system="payments", redact=["card"])
+    def refund(order, amount, card):
+        return {"ok": True}
+
+    approval = rec.approve(refund, {"order": "A1", "amount": 500, "card": "4111"}, approver="ops:anna",
+                           rule="amount>100")
+    with rec.context(approval=approval):
+        refund("A1", 500, "4111")
+    recs = rec.chain.store.read_all()
+    assert verify_records(recs).valid()
+    # executing something different from what was approved is caught
+    with rec.context(approval=approval):
+        refund("A1", 5000, "4111")
+    codes = {f.code for f in verify_records(rec.chain.store.read_all()).errors}
+    assert codes == {"approval_mismatch"}
+
+
+def test_approval_must_precede_action(rec):
+    from gleipnir_verify import verify_records
+    from gleipnir_verify.verifier import action_digest
+
+    @rec.tool(system="payments")
+    def refund(order):
+        return {"ok": True}
+
+    with rec.context(approval="rev_later"):
+        refund("A1")
+    rec.chain.append("review", {"id": "rev_later", "review": {
+        "action_digest": action_digest("refund", "payments", {"order": "A1"}), "decision": "approved",
+        "reviewer": "x"}})
+    codes = {f.code for f in verify_records(rec.chain.store.read_all()).errors}
+    assert "approval_after_action" in codes
+
+
+def test_approval_needs_tool_and_system(rec):
+    import pytest
+
+    with pytest.raises(ValueError):
+        rec.approve("refund", {}, approver="x")
+
+
+def test_single_action_proof(rec, tmp_path, clock):
+    import json
+    import zipfile
+
+    from gleipnir_verify import cli as vcli
+
+    @rec.tool(system="payments")
+    def refund(order):
+        return {"refund_id": "R-" + order}
+
+    for i in range(7):
+        clock.advance(1)
+        refund(f"o{i}")
+    target = actions(rec)[3]["id"]
+    path = rec.prove(target, tmp_path / "proof.zip")
+    rep = verify_bundle(path, expect_key=rec.key_id)
+    assert rep.valid(), [f.as_dict() for f in rep.findings]
+    assert rep.summary["action"] == target
+    assert vcli.main([str(path)]) == 0
+    # tamper with the action inside the proof
+    with zipfile.ZipFile(path) as zf:
+        files = {n: zf.read(n) for n in zf.namelist()}
+    lines = files["records.jsonl"].decode().split("\n")
+    a = json.loads(lines[1])
+    a["args"]["order"] = "other"
+    lines[1] = json.dumps(a)
+    files["records.jsonl"] = "\n".join(lines).encode()
+    bad = tmp_path / "bad.zip"
+    with zipfile.ZipFile(bad, "w") as zf:
+        for n, d in files.items():
+            zf.writestr(n, d)
+    codes = {f.code for f in verify_bundle(bad).errors}
+    assert "bad_signature" in codes and "proof_invalid" in codes
