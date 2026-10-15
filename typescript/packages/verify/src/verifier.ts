@@ -694,7 +694,8 @@ function summarize(
 ): void {
   const kinds = new Map<string, [unknown, number]>();
   for (const r of records) {
-    const k = dget(r, "kind", "?");
+    const raw = dget(r, "kind", "?");
+    const k = typeof raw === "string" ? raw : "?"; // non-string kinds are counted as "?" in every implementation
     const pk = pyKey(k);
     const cur = kinds.get(pk);
     kinds.set(pk, [cur ? cur[0] : k, (cur ? cur[1] : 0) + 1]);

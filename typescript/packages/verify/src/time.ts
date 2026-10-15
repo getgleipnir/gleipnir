@@ -1,14 +1,9 @@
 /**
- * Timestamps with microsecond precision, parsed like the reference verifier's `parse_time`
- * (a trailing `Z` becomes `+00:00`, then Python's `datetime.fromisoformat`, timezone required).
- *
- * The accepted grammar is that of CPython 3.10's `fromisoformat`, the strictest of the Python
- * versions the reference supports:
- *   YYYY-MM-DD <any one character> HH[:MM[:SS[.fff|.ffffff]]] (+|-)HH:MM[:SS[.ffffff]]
+ * Timestamps with microsecond precision. The grammar is strict RFC 3339 (see `parseTime`).
  * Times are kept as bigint microseconds since the Unix epoch, in UTC.
  */
 
-import { PyError, isWellFormed, pyRepr, pyTypeName } from "./py.js";
+import { PyError, pyRepr } from "./py.js";
 
 export type Micros = bigint;
 
@@ -49,139 +44,26 @@ function invalid(text: string): PyError {
   return new PyError("ValueError", `Invalid isoformat string: ${pyRepr(text)}`);
 }
 
-/*
- * A literal port of CPython 3.10's C `datetime.fromisoformat` (Modules/_datetimemodule.c:
- * parse_isoformat_date, parse_hh_mm_ss_ff, parse_isoformat_time), over the UTF-8 bytes of the
- * string followed by a NUL, including its quirks, so both verifiers accept the same timestamps.
+const RFC3339 = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,6}))?(Z|[+-]\d{2}:\d{2})$/;
+
+/**
+ * Microseconds since the Unix epoch (UTC) for a strict RFC 3339 timestamp:
+ * `YYYY-MM-DDTHH:MM:SS[.ffffff](Z|+HH:MM|-HH:MM)`. Same grammar and errors as the Python
+ * reference's `parse_time`, so validity never depends on the implementation.
  */
-const NUL = 0;
-
-function parseDigits(b: Uint8Array, p: number, n: number): [number, number] | null {
-  let v = 0;
-  for (let i = 0; i < n; i++) {
-    const c = b[p + i] ?? NUL;
-    if (c < 0x30 || c > 0x39) return null;
-    v = v * 10 + (c - 0x30);
-  }
-  return [p + n, v];
-}
-
-/** Returns [rv, h, m, s, us]; rv < 0 is an error, rv 1 means "not the end of the string". */
-function parseHhMmSsFf(b: Uint8Array, start: number, end: number): [number, number[], number] {
-  const vals = [0, 0, 0];
-  let p = start;
-  let us = 0;
-  let broke = false;
-  for (let i = 0; i < 3; i++) {
-    const r = parseDigits(b, p, 2);
-    if (r === null) return [-3, vals, us];
-    p = r[0];
-    vals[i] = r[1];
-    const c = b[p] ?? NUL;
-    p += 1;
-    if (p >= end) return [c !== NUL ? 1 : 0, vals, us];
-    if (c === 0x3a) continue;
-    if (c === 0x2e) {
-      broke = true;
-      break;
-    }
-    return [-4, vals, us];
-  }
-  void broke;
-  const remains = end - p;
-  if (!(remains === 6 || remains === 3)) return [-3, vals, us];
-  const r = parseDigits(b, p, remains);
-  if (r === null) return [-3, vals, us];
-  p = r[0];
-  us = remains === 3 ? r[1] * 1000 : r[1];
-  return [(b[p] ?? NUL) !== NUL ? 1 : 0, vals, us];
-}
-
-/** Microseconds since the Unix epoch (UTC) for an ISO 8601 string with a timezone. */
 export function parseTime(text: unknown): Micros {
-  if (typeof text !== "string") {
-    throw new PyError("AttributeError", `'${pyTypeName(text)}' object has no attribute 'endswith'`);
-  }
-  let s = text;
-  if (s.endsWith("Z")) s = s.slice(0, -1) + "+00:00";
-  const reported = s;
-  // _sanitize_isoformat_str: a surrogate is tolerated only as the separator (code point 10).
-  const cps = Array.from(s);
-  if (cps.length > 10 && /^[\ud800-\udfff]$/u.test(cps[10]!)) {
-    cps[10] = "T";
-    s = cps.join("");
-  }
-  if (!isWellFormed(s)) throw invalid(reported);
-  const enc = new TextEncoder().encode(s);
-  const b = new Uint8Array(enc.length + 1);
-  b.set(enc);
-  const len = enc.length;
-
-  // parse_isoformat_date
-  let rv = 0;
-  let year = 0;
-  let month = 0;
-  let day = 0;
-  let p = 0;
-  const y = parseDigits(b, p, 4);
-  if (y === null) rv = -1;
-  else {
-    [p, year] = y;
-    if (b[p++] !== 0x2d) rv = -2;
-    else {
-      const m = parseDigits(b, p, 2);
-      if (m === null) rv = -1;
-      else {
-        [p, month] = m;
-        if (b[p++] !== 0x2d) rv = -2;
-        else {
-          const d = parseDigits(b, p, 2);
-          if (d === null) rv = -1;
-          else day = d[1];
-        }
-      }
-    }
-  }
-
-  let hour = 0;
-  let minute = 0;
-  let second = 0;
-  let micro = 0;
-  let tzoffset = 0;
-  let tzusec = 0;
-  if (rv === 0 && len > 10) {
-    const sep = b[10]!;
-    let t = (sep & 0x80) === 0 ? 11 : (sep & 0xf0) === 0xe0 ? 13 : (sep & 0xf0) === 0xf0 ? 14 : 12;
-    const end = len;
-    // parse_isoformat_time(b[t..end])
-    let tzPos = t;
-    do {
-      const c = b[tzPos] ?? NUL;
-      if (c === 0x2b || c === 0x2d) break;
-    } while (++tzPos < end);
-    const [r1, v1, us1] = parseHhMmSsFf(b, t, tzPos);
-    [hour, minute, second] = v1 as [number, number, number];
-    micro = us1;
-    if (r1 < 0) rv = r1;
-    else if (tzPos === end) rv = r1 === 1 ? -5 : 0;
-    else {
-      const tzlen = end - tzPos;
-      if (!(tzlen === 6 || tzlen === 9 || tzlen === 16)) rv = -5;
-      else {
-        const sign = b[tzPos] === 0x2d ? -1 : 1;
-        t = tzPos + 1;
-        const [r2, v2, us2] = parseHhMmSsFf(b, t, end);
-        tzoffset = sign * (v2[0]! * 3600 + v2[1]! * 60 + v2[2]!);
-        tzusec = us2 * sign;
-        rv = r2 !== 0 ? -5 : 1;
-      }
-    }
-  }
-  if (rv < 0) throw invalid(reported);
-
-  // tzinfo_from_isoformat_results, then the datetime constructor's range checks
-  if (rv === 1) {
-    const off = BigInt(tzoffset) * US + BigInt(tzusec);
+  if (typeof text !== "string") throw new PyError("ValueError", "timestamp must be a string");
+  const m = RFC3339.exec(text);
+  if (m === null) throw new PyError("ValueError", `Invalid RFC 3339 timestamp: ${pyRepr(text)}`);
+  const [year, month, day, hour, minute, second] = m.slice(1, 7).map((x) => Number(x)) as [
+    number, number, number, number, number, number,
+  ];
+  const micro = Number((m[7] ?? "").padEnd(6, "0") || "0");
+  const tz = m[8]!;
+  let off = 0n;
+  if (tz !== "Z") {
+    const sign = tz[0] === "-" ? -1n : 1n;
+    off = sign * (BigInt(Number(tz.slice(1, 3))) * 3600n + BigInt(Number(tz.slice(4, 6))) * 60n) * US;
     if (off <= -DAY_US || off >= DAY_US) {
       throw new PyError(
         "ValueError",
@@ -195,12 +77,11 @@ export function parseTime(text: unknown): Micros {
   if (hour > 23) throw new PyError("ValueError", "hour must be in 0..23");
   if (minute > 59) throw new PyError("ValueError", "minute must be in 0..59");
   if (second > 59) throw new PyError("ValueError", "second must be in 0..59");
-  if (rv !== 1) throw new PyError("ValueError", "timestamp without timezone");
   const local =
     daysFromCivil(year, month, day) * DAY_US +
     (BigInt(hour) * 3600n + BigInt(minute) * 60n + BigInt(second)) * US +
     BigInt(micro);
-  const utc = local - (BigInt(tzoffset) * US + BigInt(tzusec));
+  const utc = local - off;
   if (utc < MIN_US || utc > MAX_US) throw new PyError("OverflowError", "date value out of range");
   return utc;
 }
