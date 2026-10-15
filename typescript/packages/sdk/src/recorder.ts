@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { hmac } from "@noble/hashes/hmac.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { actionDigest, bytesToHex, canonicalize, hasDropped } from "@getgleipnir/verify";
-import { LocalFileAnchor, type Anchor } from "./anchor.js";
+import { LocalFileAnchor, RekorAnchor, TimestampAnchor, type Anchor } from "./anchor.js";
 import { ChainWriter } from "./chain.js";
 import { exportBundle, exportProof, type ExportOptions } from "./export.js";
 import { loadOrCreateSecret, loadOrCreateSigner, type Signer } from "./keys.js";
@@ -186,8 +186,11 @@ export interface RecorderOptions {
   chain?: string;
   signer?: Signer;
   store?: Store;
-  /** "local" (test anchor, default), an Anchor, a list of Anchors, or null. */
-  anchor?: "local" | Anchor | Anchor[] | null;
+  /**
+   * "local" (test anchor, default), "rekor" (Sigstore Rekor v2 log + RFC 3161 trusted timestamp
+   * from Sigstore's TSA), an Anchor, a list of Anchors, or null.
+   */
+  anchor?: "local" | "rekor" | Anchor | Anchor[] | null;
   segmentMaxRecords?: number;
   heartbeatSeconds?: number;
   background?: boolean;
@@ -292,8 +295,9 @@ export class Recorder {
 
   private resolveAnchor(anchor: RecorderOptions["anchor"]): Anchor | Anchor[] | null {
     if (anchor === "local") return new LocalFileAnchor(join(this.home, "anchors", "local-anchor-log.jsonl"), this.clock);
+    if (anchor === "rekor") return [new RekorAnchor(this.home, { clock: this.clock }), new TimestampAnchor(undefined, { clock: this.clock })];
     if (typeof anchor === "string") {
-      throw new Error(`unknown anchor ${JSON.stringify(anchor)}; use "local" or pass Anchor instances`);
+      throw new Error(`unknown anchor ${JSON.stringify(anchor)}; use "local", "rekor" or pass Anchor instances`);
     }
     return anchor ?? null;
   }
