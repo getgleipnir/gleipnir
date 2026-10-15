@@ -65,6 +65,16 @@ def capabilities_from_records(records: list[dict[str, Any]], anchor_options: dic
         if n:
             caps.add(cap)
             why[cap] = f"{n} of {len(actions)} {label}"
+    configs = [r.get("config", {}) for r in records if r.get("kind") == "config"]
+    if configs:
+        latest = configs[-1]
+        if latest.get("retention", {}).get("days"):
+            caps.add("retention_policy")
+            why["retention_policy"] = f"retention {latest['retention']['days']} days declared in the chain"
+        buyer = [s for s in latest.get("sinks", []) if s.get("role") == "buyer"]
+        if buyer:
+            caps.add("buyer_copy")
+            why["buyer_copy"] = "buyer copy: " + ", ".join(f"{s.get('type')} {s.get('target')}" for s in buyer)
     reviews = sum(1 for r in records if r.get("kind") == "review")
     if reviews:
         caps.add("review_record")
@@ -111,8 +121,8 @@ HINTS = {
     "redaction": "add redact= to tools that handle personal or card data",
     "external_anchor": "use anchor='rekor' (public Sigstore log) instead of the local test anchor",
     "review_record": "call rec.review(action_id, reviewer=..., decision=...) where your buyer's oversight rules apply",
-    "buyer_copy": "not supported yet: deliver bundles to the buyer on a schedule",
-    "retention_policy": "not supported yet: document your retention for agent records",
+    "buyer_copy": "add a sink with role='buyer' (S3ObjectLockSink, DirectorySink or WebhookSink)",
+    "retention_policy": "pass retention_days= to the Recorder",
     "signed_records": "chain does not verify; run gleipnir-verify on an export",
     "hash_chain": "chain does not verify; run gleipnir-verify on an export",
     "action_record": "wrap tools with @rec.tool",

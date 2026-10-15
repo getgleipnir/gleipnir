@@ -7,6 +7,7 @@ import logging
 import queue
 import threading
 from datetime import timedelta
+from pathlib import Path
 from typing import Any
 
 from gleipnir_verify import merkle
@@ -39,6 +40,8 @@ class ChainWriter:
         heartbeat_seconds: int = 600,
         background: bool = True,
         genesis_extra: dict[str, Any] | None = None,
+        sinks: list[Any] | None = None,
+        state_dir: Any = None,
     ):
         if segment_max_records < 1:
             raise ValueError("segment_max_records must be >= 1")
@@ -60,7 +63,13 @@ class ChainWriter:
         self._stop = threading.Event()
         self._threads: list[threading.Thread] = []
         self.background = background
+        self.sinks = list(sinks or [])
+        self._state_path = (Path(state_dir) / "sinks-state.json") if state_dir else None
+        self._sink_lock = threading.Lock()
+        self._recent: list[dict[str, Any]] = []
+        self._delivered: dict[str, int] = {}
         self._recover(genesis_extra or {})
+        self._init_sinks()
         if background:
             self._start_background()
 
@@ -134,6 +143,8 @@ class ChainWriter:
             h = record_hash(rec)
             rec["sig"] = self.signer.sign(record_message(h))
             self.store.append(rec)
+            if self.sinks:
+                self._recent.append(rec)
             self.seq = rec["seq"]
             self.last_hash = h
             if rec["kind"] not in ("genesis", "segment"):
@@ -149,6 +160,7 @@ class ChainWriter:
                 self.close_segment()
                 if not self.background:
                     self.anchor_pending()
+                    self.deliver()
             return rec
 
     def close_segment(self, heartbeat: bool = False) -> dict[str, Any]:
@@ -232,6 +244,56 @@ class ChainWriter:
             self.pending_anchor.pop(seg["seq"], None)
         return all_ok
 
+    # -- sinks ------------------------------------------------------------------------
+    @staticmethod
+    def sink_key(sink: Any) -> str:
+        d = sink.describe()
+        return f"{d.get('type')}:{d.get('target')}"
+
+    def _init_sinks(self) -> None:
+        if not self.sinks:
+            return
+        state: dict[str, int] = {}
+        if self._state_path is not None and self._state_path.exists():
+            try:
+                state = json.loads(self._state_path.read_text())
+            except (OSError, ValueError):
+                state = {}
+        for sink in self.sinks:
+            self._delivered[self.sink_key(sink)] = int(state.get(self.sink_key(sink), -1))
+        lowest = min(self._delivered.values())
+        self._recent = [r for r in self.store.read_all() if r["seq"] > lowest] if lowest < self.seq else []
+
+    def deliver(self) -> int:
+        """Send records not yet delivered to each sink. Returns how many sinks are fully up to date."""
+        if not self.sinks:
+            return 0
+        with self._sink_lock:
+            with self._lock:
+                recent = list(self._recent)
+            current = 0
+            for sink in self.sinks:
+                key = self.sink_key(sink)
+                batch = [r for r in recent if r["seq"] > self._delivered[key]]
+                if not batch:
+                    current += 1
+                    continue
+                try:
+                    sink.write(self.chain_id, batch)
+                except Exception as exc:  # noqa: BLE001 - delivery must never break the agent
+                    log.warning("gleipnir: delivery to %s failed, will retry: %s", key, exc)
+                    continue
+                self._delivered[key] = batch[-1]["seq"]
+                current += 1
+            lowest = min(self._delivered.values())
+            with self._lock:
+                self._recent = [r for r in self._recent if r["seq"] > lowest]
+            if self._state_path is not None:
+                tmp = self._state_path.with_suffix(".tmp")
+                tmp.write_text(json.dumps(self._delivered, sort_keys=True))
+                tmp.replace(self._state_path)
+            return current
+
     # -- background -------------------------------------------------------------------
     def _start_background(self) -> None:
         def loop() -> None:
@@ -240,6 +302,7 @@ class ChainWriter:
                 try:
                     self.maybe_heartbeat()
                     self.anchor_pending()
+                    self.deliver()
                 except Exception as exc:  # noqa: BLE001
                     log.warning("gleipnir: background task failed: %s", exc)
 
@@ -253,6 +316,7 @@ class ChainWriter:
             if self.open_members:
                 self.close_segment()
         self.anchor_pending()
+        self.deliver()
 
     def close(self) -> None:
         self._stop.set()
