@@ -12,6 +12,9 @@ Reads a JSON list of cases from stdin. Each case is {"kind": ..., ...}:
   - {"kind": "ids", "text": <JSON>, "wanted": str|None}   -> {"ids": [...]}
   - {"kind": "csv", "text": str}                          -> {"rows": [[...]]} or {"error": name}
   - {"kind": "reconcile", "bundle": path, "csv": path, "column": str, "field": str|None} -> sets
+  - {"kind": "approval_sig", "body": {...}, "approvers": [...]|None, "origins": [...]|None, "require": bool}
+                                                          -> {"findings": [[level, code, message]]} or {"error": name}
+  - {"kind": "registry", "text": <JSON>}                  -> {"ids": [...]} or {"error": name, "message": str}
 Writes a JSON list of results to stdout. Run with: uv run python typescript/scripts/py_oracle.py
 """
 
@@ -45,6 +48,12 @@ def opts(o: dict) -> dict:
         kw["manifest"] = o["manifest"]
     if o.get("local_anchor_entries") is not None:
         kw["anchor_options"] = {"local_anchor_entries": o["local_anchor_entries"]}
+    if o.get("approvers") is not None:
+        kw["approvers"] = o["approvers"]
+    if o.get("webauthn_origins") is not None:
+        kw["webauthn_origins"] = o["webauthn_origins"]
+    if o.get("require_signed_approvals"):
+        kw["require_signed_approvals"] = True
     return kw
 
 
@@ -103,6 +112,20 @@ def one(case: dict) -> dict:
             return {"error": type(exc).__name__}
         return {"valid": res.report.valid(), "matched": sorted(res.matched), "only_in_system": sorted(res.only_in_system),
                 "only_in_records": sorted(res.only_in_records), "ok": res.ok}
+    if k == "approval_sig":
+        from gleipnir_verify.approvals import check_signature, load_approvers
+        try:
+            reg = load_approvers(case["approvers"]) if case.get("approvers") is not None else None
+            return {"findings": [list(f) for f in check_signature(case["body"], reg, case.get("origins"),
+                                                                   bool(case.get("require")))]}
+        except Exception as exc:  # noqa: BLE001
+            return {"error": type(exc).__name__, "message": str(exc)}
+    if k == "registry":
+        from gleipnir_verify.approvals import load_approvers
+        try:
+            return {"ids": sorted(load_approvers(json.loads(case["text"])))}
+        except Exception as exc:  # noqa: BLE001
+            return {"error": type(exc).__name__, "message": str(exc)}
     if k == "version":
         return {"version": list(sys.version_info[:2])}
     raise ValueError(k)

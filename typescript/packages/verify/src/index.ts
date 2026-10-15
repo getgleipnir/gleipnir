@@ -24,6 +24,16 @@ export {
   type VerifyOptions,
 } from "./verifier.js";
 export {
+  APPROVAL_DOMAIN,
+  approvalChallenge,
+  approvalMessage,
+  checkSignature,
+  loadApprovers,
+  webauthnProblem,
+  type Approver,
+  type ApproverRegistry,
+} from "./approvals.js";
+export {
   anchorResult,
   checkLocalLog,
   localLogEntryHash,

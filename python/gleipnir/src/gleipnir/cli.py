@@ -1,4 +1,4 @@
-"""gleipnir command line: init, status, export, check, pack, prove, report, mcp-proxy."""
+"""gleipnir command line: init, status, export, check, pack, prove, report, approve, mcp-proxy."""
 
 from __future__ import annotations
 
@@ -137,6 +137,12 @@ def cmd_mcp_proxy(args: argparse.Namespace) -> int:
     return run_from_args(args, args.server_cmd, Path(home).expanduser() if home else None)
 
 
+def cmd_approve(args: argparse.Namespace) -> int:
+    from .approve_cli import run
+
+    return run(args, args.approve_parser)
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="gleipnir", description="Verifiable action records for AI agents")
     p.add_argument("--home", default=".gleipnir", help="data directory (default: .gleipnir)")
@@ -171,6 +177,11 @@ def build_parser() -> argparse.ArgumentParser:
     rp.add_argument("--limit", type=int, default=1000, help="most recent tool calls to list (default 1000)")
     rp.add_argument("--open", action="store_true", help="open the page in a browser")
     rp.set_defaults(fn=cmd_report)
+    from .approve_cli import add_subcommands
+
+    ap = sub.add_parser("approve", help="signed approvals: print the digest to approve, sign it, check a signature")
+    add_subcommands(ap)
+    ap.set_defaults(fn=cmd_approve, approve_parser=ap)
     from .mcp_proxy import add_arguments
 
     m = sub.add_parser("mcp-proxy", help="run an MCP server behind a recording stdio proxy",

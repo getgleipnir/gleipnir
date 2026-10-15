@@ -16,6 +16,7 @@
  */
 
 import { verifyLocal, type AnchorOptions, type AnchorResult, type AnchorVerifier } from "./anchors.js";
+import { checkSignature, loadApprovers, type ApproverRegistry } from "./approvals.js";
 import { canonicalize, hashToBytes, recordHash, sha256Tagged } from "./canon.js";
 import { decodePublicKey, keyId, recordMessage, verifySignature, type RecordPublicKey } from "./crypto.js";
 import { leafHash, merkleRoot, verifyInclusion } from "./merkle.js";
@@ -124,6 +125,15 @@ export interface VerifyOptions {
   /** Verifiers by anchor type (defaults: local, rekor, rfc3161). */
   anchorVerifiers?: Record<string, AnchorVerifier>;
   anchorOptions?: AnchorOptions;
+  /**
+   * The buyer's approver registry: who may approve actions, with their keys or passkeys. A parsed
+   * JSON list (validated up front; a malformed one throws) or the result of `loadApprovers`.
+   */
+  approvers?: ApproverRegistry | unknown[] | null;
+  /** Origins allowed in passkey approvals (default: `https://<rp_id>`). */
+  webauthnOrigins?: readonly string[] | null;
+  /** Fail unless every approval is signed by a known approver. */
+  requireSignedApprovals?: boolean;
 }
 
 export function defaultVerifiers(): Record<string, AnchorVerifier> {
@@ -160,6 +170,9 @@ interface ResolvedOptions {
   requireFull: boolean;
   anchorVerifiers: Record<string, AnchorVerifier>;
   anchorOptions: AnchorOptions;
+  approvers: ApproverRegistry | null;
+  webauthnOrigins: string[] | null;
+  requireSignedApprovals: boolean;
 }
 
 function resolve(opts: VerifyOptions): ResolvedOptions {
@@ -192,6 +205,9 @@ function resolve(opts: VerifyOptions): ResolvedOptions {
     anchorVerifiers: opts.anchorVerifiers ?? defaultVerifiers(),
     // A fresh options object per verification: it carries a per-run cache.
     anchorOptions: { ...(opts.anchorOptions ?? {}), _localCache: undefined },
+    approvers: isNone(opts.approvers) ? null : opts.approvers instanceof Map ? opts.approvers : loadApprovers(opts.approvers),
+    webauthnOrigins: opts.webauthnOrigins ? [...opts.webauthnOrigins] : null,
+    requireSignedApprovals: opts.requireSignedApprovals ?? false,
   };
 }
 
@@ -634,7 +650,7 @@ function verifyRecordsInner(records: unknown[], o: ResolvedOptions): Report {
   }
 
   // ---- approvals bound to actions ------------------------------------------------------
-  checkApprovals(recs, report, !(isNone(firstBodySeq) || pyEq(firstBodySeq, 1)));
+  checkApprovals(recs, report, !(isNone(firstBodySeq) || pyEq(firstBodySeq, 1)), o);
 
   // ---- bundle expectations ---------------------------------------------------------
   if (o.requireFull && body.length > 0 && !pyEq(body[0], 1)) {
@@ -725,8 +741,11 @@ export function hasDropped(value: unknown, depth = 0): boolean {
   return false;
 }
 
-/** Every action that names an approval must point to an earlier, matching `approved` review. */
-function checkApprovals(records: JsonDict[], report: Report, partial: boolean): void {
+/**
+ * Every action that names an approval must point to an earlier, matching `approved` review, signed by
+ * the approver (checked against the buyer's approver registry when one is given).
+ */
+function checkApprovals(records: JsonDict[], report: Report, partial: boolean, o: ResolvedOptions): void {
   const reviews = new PyMap<JsonDict>();
   for (const r of records) {
     if (pyEq(dget(r, "kind"), "review")) reviews.set(dget(r, "id"), r);
@@ -781,6 +800,9 @@ function checkApprovals(records: JsonDict[], report: Report, partial: boolean): 
         "an argument of the approved action was dropped by redaction, so the approval cannot show what was approved (use hmac redaction)",
         seq,
       );
+    }
+    for (const [level, code, message] of checkSignature(body, o.approvers, o.webauthnOrigins, o.requireSignedApprovals)) {
+      report.add(level, code, message, seq);
     }
   }
 }
@@ -839,6 +861,10 @@ function firstBodySeqOf(records: unknown[]): unknown {
 
 /** Verify a bundle (the bytes of its zip file). Never throws on malformed input; problems become findings. */
 export function verifyBundle(zipBytes: Uint8Array, options: VerifyOptions = {}): Report {
+  // A malformed approver registry is the caller's input, not the bundle's: it throws, before anything is read.
+  if (!isNone(options.approvers) && !(options.approvers instanceof Map)) {
+    options = { ...options, approvers: loadApprovers(options.approvers) };
+  }
   let manifest: unknown;
   let records: unknown;
   let localLog: unknown[] | null;

@@ -13,6 +13,7 @@ export {
   type RekorAnchorOptions,
   type TimestampAnchorOptions,
 } from "./anchor.js";
+export { ApproverKey, approvalDigest, approvalMessage } from "./approvals.js";
 export { ChainWriter, type ChainWriterOptions } from "./chain.js";
 export { buildBundle, buildProof, exportBundle, exportProof, selectRecords, verifyCommand, type ExportOptions } from "./export.js";
 export {

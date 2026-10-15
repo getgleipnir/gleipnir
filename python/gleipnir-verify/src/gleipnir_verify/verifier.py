@@ -25,6 +25,7 @@ from typing import Any
 
 from . import anchors as anchor_mod
 from . import merkle
+from .approvals import Approver, Registry, check_signature, load_approvers
 from .canon import canonicalize, hash_to_bytes, record_hash, sha256_tagged
 from .crypto import decode_public_key, key_id, record_message, verify_signature
 
@@ -101,7 +102,12 @@ def parse_time(text: str) -> datetime:
 
 
 def verify_records(records: list[dict[str, Any]], **kwargs: Any) -> Report:
-    """Verify a list of records. Never raises on malformed input; problems become findings."""
+    """Verify a list of records. Never raises on malformed input; problems become findings.
+
+    ``approvers`` (the buyer's approver registry, a parsed JSON list or :func:`load_approvers` result) is
+    checked up front: a malformed registry raises ValueError, since it is the caller's input, not the vendor's.
+    """
+    _load_registry(kwargs)
     try:
         return _verify_records(records, **kwargs)
     except Exception as exc:  # noqa: BLE001 - adversarial input must not crash the verifier
@@ -122,6 +128,9 @@ def _verify_records(
     require_full: bool = False,
     anchor_verifiers: dict[str, Callable[..., anchor_mod.AnchorResult]] | None = None,
     anchor_options: dict[str, Any] | None = None,
+    approvers: dict[str, Approver] | None = None,
+    webauthn_origins: list[str] | None = None,
+    require_signed_approvals: bool = False,
 ) -> Report:
     report = Report()
     anchor_verifiers = anchor_verifiers or anchor_mod.default_verifiers()
@@ -380,7 +389,8 @@ def _verify_records(
         report.add(WARN, "anchors_unchecked", f"{unchecked} segments have anchor receipts that could not be checked")
 
     # ---- approvals bound to actions ------------------------------------------------------
-    check_approvals(records, by_seq, report, partial=first_body_seq not in (None, 1))
+    check_approvals(records, by_seq, report, partial=first_body_seq not in (None, 1), approvers=approvers,
+                    webauthn_origins=webauthn_origins, require_signed=require_signed_approvals)
 
     # ---- bundle expectations ---------------------------------------------------------
     if require_full and body and body[0] != 1:
@@ -441,8 +451,10 @@ def _has_dropped(value: Any, depth: int = 0) -> bool:
 
 
 def check_approvals(records: list[dict[str, Any]], by_seq: dict[int, dict[str, Any]], report: Report,
-                    partial: bool) -> None:
-    """Every action that names an approval must point to an earlier, matching ``approved`` review."""
+                    partial: bool, approvers: dict[str, Approver] | None = None,
+                    webauthn_origins: list[str] | None = None, require_signed: bool = False) -> None:
+    """Every action that names an approval must point to an earlier, matching ``approved`` review,
+    signed by the approver (checked against the buyer's approver registry when one is given)."""
     reviews = {r.get("id"): r for r in records if isinstance(r, dict) and r.get("kind") == "review"}
     used: dict[Any, Any] = {}
     for rec in records:
@@ -476,6 +488,8 @@ def check_approvals(records: list[dict[str, Any]], by_seq: dict[int, dict[str, A
         if _has_dropped(rec.get("args")):
             report.add(ERROR, "approval_unbound_field", "an argument of the approved action was dropped by "
                        "redaction, so the approval cannot show what was approved (use hmac redaction)", seq)
+        for level, code, message in check_signature(body, approvers, webauthn_origins, require_signed):
+            report.add(level, code, message, seq)
 
 
 def _summarize(report: Report, records: list[dict[str, Any]], genesis: dict[str, Any], keys: dict[str, Any],
@@ -521,8 +535,18 @@ def read_bundle(path: str | Path) -> tuple[dict[str, Any], list[dict[str, Any]],
     return manifest, records, local_log
 
 
+def _load_registry(kwargs: dict[str, Any]) -> None:
+    """Parse ``approvers`` in place unless it is already a :func:`load_approvers` result (raises ValueError)."""
+    reg = kwargs.get("approvers")
+    if reg is not None and not isinstance(reg, Registry):
+        kwargs["approvers"] = load_approvers(reg)
+
+
 def verify_bundle(path: str | Path, **kwargs: Any) -> Report:
-    """Verify a bundle file. Never raises on malformed input; problems become findings."""
+    """Verify a bundle file. Never raises on malformed input; problems become findings.
+
+    A malformed ``approvers`` registry raises ValueError (it is the caller's input, not the bundle's)."""
+    _load_registry(kwargs)
     try:
         manifest, records, local_log = read_bundle(path)
     except Exception as exc:  # noqa: BLE001 - zip, UTF-8, JSON, recursion and int-size errors alike
