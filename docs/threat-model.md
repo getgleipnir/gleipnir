@@ -30,7 +30,9 @@ Who relies on Gleipnir records: the **buyer** of an AI agent (security, risk, au
 | Vendor with the signing key and the anchor key, rewriting everything | Rebuild history and anchor and timestamp it again | New timestamps are later than the segments claim: `--max-anchor-delay` fails them; `--known-head` too. A rewrite done within the allowed delay is not detected |
 | Vendor dropping early records | Export a bundle that starts later in the chain | `--require-full` (without it: a warning, and the summary marks the bundle partial) |
 | Vendor dropping recent records | Truncate the tail | Manifest range, `--known-head`; `--expect-until` only beyond one heartbeat |
-| Vendor not recording some actions | Omit | Buyer reconciliation against its own systems |
+| Vendor not recording some actions | Omit | `gleipnir-verify reconcile` against the buyer's own system export |
+| Vendor claiming an approval that did not happen first | Write the approval after the action, or reuse one approval | `approval_after_action`, `approval_reused`, `approval_mismatch` |
+| Someone stealing the signing key from the agent host | Sign forged records | Use a KMS/HSM signer (AWS, Google Cloud, Azure): the key cannot be copied |
 | Malicious bundle aimed at the verifier | Invalid UTF-8, malformed or deeply nested JSON, huge numbers, bad zip, bad arguments | Verifier reports findings or a usage error instead of a traceback (regression-tested) |
 
 ## Keys

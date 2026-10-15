@@ -43,15 +43,30 @@ See [docs/mcp-proxy.md](docs/mcp-proxy.md).
 
 ## What's in the box
 
+**Recording (vendor side)**
+
 | | |
 |---|---|
-| `gleipnir-sdk` (`import gleipnir`) | `Recorder.tool` decorator (sync and async), outcome checks, field redaction, context (identity, scope, model, prompt versions), review records, `export`, `pack`, `check` |
+| `gleipnir-sdk` (`import gleipnir`) | `Recorder.tool` decorator (sync and async), outcome read-back checks, field redaction, context (identity, scope, model, prompt versions) |
 | Adapters | MCP client middleware, OpenTelemetry span exporter (GenAI semantic conventions), OpenAI Agents SDK, Claude Agent SDK hooks, LangChain/LangGraph callback handler |
-| TypeScript | `@getgleipnir/verify` (also runs in the browser) and `@getgleipnir/sdk`, byte-for-byte compatible with Python, see [typescript/](typescript/) |
-| `gleipnir-verify` | Small offline verifier the buyer runs: signatures, hash chain, Merkle roots, Rekor inclusion proofs and checkpoints, truncation checks |
-| Records | RFC 8785 canonical JSON, Ed25519 signatures, hash chain, segments with RFC 6962 Merkle roots, anchored in Sigstore Rekor v2 with RFC 3161 trusted timestamps. See [spec/format.md](spec/format.md) |
-| `gleipnir-mcp` | Transparent stdio MCP proxy that records every `tools/call`, plus `gleipnir report` (HTML of what the agent did) |
-| `gleipnir check` | Which items of the open [agent security review checklist](https://github.com/getgleipnir/agent-security-review) your records evidence |
+| `gleipnir-mcp` | Zero-code stdio MCP proxy that records every `tools/call`, plus `gleipnir report` |
+| Approvals | `rec.approve(...)` binds a human approval to one exact action; the verifier checks it came first and matches |
+| Keys | Ed25519 by default; AWS KMS, Google Cloud KMS and Azure Key Vault signers (Ed25519 or ECDSA P-256), so the key never sits in the agent process |
+| Anchoring | Segment hashes in Sigstore Rekor v2 plus RFC 3161 trusted timestamps; only hashes leave your infrastructure |
+| Copies and retention | Sinks for a buyer-held copy, S3 Object Lock (WORM), webhooks and Splunk HEC; OCSF export for SIEMs; retention declared in a signed config record |
+
+**Checking (buyer, auditor, insurer side)**
+
+| | |
+|---|---|
+| `gleipnir-verify` | Small offline verifier: signatures, hash chain, Merkle roots, Rekor inclusion proofs and checkpoints, trusted timestamps, truncation and late re-anchoring checks, approvals |
+| Browser verifier | [site/verify](site/verify): drop a bundle, verified entirely in the page; nothing is uploaded |
+| `pack` | Security Review Pack: summary.html with checklist coverage and control references, actions.csv, bundle |
+| `prove` | A single action with its Merkle proof and anchors, for disputes, without sharing the whole bundle |
+| `reconcile` | `gleipnir-verify reconcile bundle.zip your_export.csv --column refund_id` finds actions in your system with no record, and claims with no object |
+| `check` | Which items of the open [agent security review checklist](https://github.com/getgleipnir/agent-security-review) your records evidence |
+
+Python and TypeScript (`@getgleipnir/verify`, `@getgleipnir/sdk`) produce and accept the same bytes; CI checks it on every commit. Format: [spec/format.md](spec/format.md).
 
 Docs: [design](docs/design.md), [threat model](docs/threat-model.md) (what a valid result proves, and what it doesn't).
 
