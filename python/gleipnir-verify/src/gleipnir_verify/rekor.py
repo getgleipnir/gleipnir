@@ -48,6 +48,17 @@ def load_trusted_root(options: dict[str, Any]) -> dict[str, Any]:
     return _embedded_trusted_root()
 
 
+def _strict_uint(value: Any) -> int:
+    """Non-negative decimal integer as Rekor encodes it (a JSON string of ASCII digits, or an int)."""
+    if isinstance(value, bool):
+        raise ValueError("not an integer")
+    if isinstance(value, int) and value >= 0:
+        return value
+    if isinstance(value, str) and value.isascii() and value.isdigit():
+        return int(value)
+    raise ValueError(f"not a decimal integer: {value!r}")
+
+
 def _b64(text: str) -> bytes:
     return base64.b64decode(text, validate=True)
 
@@ -122,7 +133,7 @@ def verify_rekor_receipt(receipt: dict[str, Any], *, segment_hash: str, options:
             return AnchorResult(False, "anchor signature in the log entry does not verify")
 
         # 2. inclusion proof
-        index, size = int(proof["logIndex"]), int(proof["treeSize"])
+        index, size = _strict_uint(proof["logIndex"]), _strict_uint(proof["treeSize"])
         root = _b64(proof["rootHash"])
         path = [_b64(h) for h in proof["hashes"]]
         if not merkle.verify_inclusion(index, size, merkle.leaf_hash(body_bytes), path, root):

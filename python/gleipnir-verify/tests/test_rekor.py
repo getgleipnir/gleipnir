@@ -82,3 +82,10 @@ def test_parse_checkpoint_errors():
         parse_checkpoint("no blank line")
     with pytest.raises(ValueError):
         parse_checkpoint("a\n\n— x AAAA\n")
+
+
+@pytest.mark.parametrize("bad", ["+152640350", " 152640350 ", "152_640_350", "١٥٢", 152640350.0, True])
+def test_log_index_must_be_plain_decimal(bad):
+    a = anchor()
+    a["receipt"]["entry"]["inclusionProof"]["logIndex"] = bad
+    assert verify_rekor_receipt(a, segment_hash=SEG, options={}).ok is False

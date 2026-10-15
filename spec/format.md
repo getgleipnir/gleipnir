@@ -41,6 +41,10 @@ Redacted values are replaced before hashing by `{"redacted": "dropped"}` or `{"r
 
 **note**: `note: {text, ...}`.
 
+**review**: `review: {reviewer, decision, rule?, before_execution?, reason?, changes?, action?}` for reviews, overrides and reversals. An *approval* of one exact action is a review with `decision: "approved"`, `tool`, `system` and `action_digest = sha256:hex(SHA-256(JCS({"tool", "system", "args"})))` over the action's (redacted) arguments. The approved action carries `approval: <review id>`. Verifiers require the review to come earlier in the chain, to match the digest, to be used by only one action, and the action's arguments to contain no dropped fields. `reviewer` is asserted by the vendor; binding it to the approver's own key is future work.
+
+**config**: `config: {sinks: [{type, role, target, ...}], retention?: {days, note?}}`. The data-handling setup, written when it changes. `role: "buyer"` marks a copy the buyer controls.
+
 **key_rotation**: `new_key: {id, public}`. Signed by the current key; every later record is signed by the new key.
 
 **segment**: `segment: {from, count, root, opened_at, closed_at, heartbeat, prev_segment?}`.
@@ -56,12 +60,18 @@ Redacted values are replaced before hashing by `{"redacted": "dropped"}` or `{"r
 - `type: "rekor"`: `receipt: {log_url, entry, anchor_key: {alg: "ecdsa-p256-sha256", public}, observed_at}`. `entry` is the Sigstore Rekor v2 `TransparencyLogEntry` exactly as returned. The log entry is a `hashedrekord` (v0.0.2) whose digest is SHA-256 of `"gleipnir/anchor/v1\n" || segment_hash`, signed with ECDSA P-256 by the anchor key (Rekor v2 does not accept pure Ed25519 entries). Verification: the body's digest and signature match the segment and anchor key; the RFC 6962 inclusion proof for SHA-256(0x00 || canonicalizedBody) verifies against the proof root; the checkpoint (signed note) has the log's origin, the same size and root, and a signature by the log key pinned in the Sigstore trusted root. `observed_at` is the vendor's clock, not trusted time.
 - `type: "rfc3161"`: `receipt: {tsa_url, response, observed_at}`. `response` is the base64 DER RFC 3161 `TimeStampResp` for SHA-256 of `"gleipnir/timestamp/v1\n" || segment_hash`, verified against a timestamp authority in the Sigstore trusted root. Its `genTime` is trusted time: the segment existed no later than that. Verifiers compare it with the segment's `closed_at` and can fail segments timestamped too long after they closed (`--max-anchor-delay`).
 
+Record ids are unique within a chain.
+
+## Proof bundle
+
+A single-action proof is a zip with `manifest.json` = `{format: 1, type: "proof", chain, key, action, action_seq, segment_seq, leaf_index, tree_size, proof: [hex, ...]}` and `records.jsonl` = genesis, the action, its segment, and the segment's anchor records. It verifies when every record is signed by the genesis key, the proven record is an action, it sits at `leaf_index` of a segment of `tree_size` members, the RFC 6962 inclusion proof leads to the segment's root, and the anchor receipts match the segment.
+
 ## Bundle
 
 A zip file containing:
 
 - `manifest.json`: `{format: 1, chain, from_seq, to_seq, exported_at, key, tool, since?, until?}`.
-- `records.jsonl`: the genesis record, then records in seq order. A bundle that does not start at seq 1 must start at the first member of a segment.
+- `records.jsonl`: the genesis record, then records in seq order, one JSON value per line. Lines are split on `\n`; a line that is empty or holds only JSON whitespace (space, tab, CR) is skipped, and any other line must be exactly one JSON value with only JSON whitespace around it. A bundle that does not start at seq 1 must start at the first member of a segment.
 - `anchors/local-anchor-log.jsonl` (optional).
 - `VERIFY.md`: instructions for the recipient.
 

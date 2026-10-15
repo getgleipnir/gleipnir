@@ -338,7 +338,13 @@ class Recorder:
         if not isinstance(name, str) or not system:
             raise ValueError("pass a @rec.tool function, or a tool name together with system=")
         rules = self.redactor.rules(redact if redact is not None else getattr(tool, "gleipnir_redact", None))
-        digest = action_digest(name, system, self.redactor.apply(to_jsonable(dict(args)), rules))
+        bound = self.redactor.apply(to_jsonable(dict(args)), rules)
+        from gleipnir_verify.verifier import _has_dropped
+
+        if _has_dropped(bound):
+            raise ValueError("an approved argument would be dropped by redaction, so the approval could not show "
+                             "what was approved; use 'hmac' redaction for approved tools (needs a redaction key)")
+        digest = action_digest(name, system, bound)
         body: dict[str, Any] = {"action_digest": digest, "tool": name, "system": system, "reviewer": approver,
                                 "decision": "approved", "before_execution": True}
         if rule:

@@ -29,6 +29,7 @@ from .canon import canonicalize, hash_to_bytes, record_hash, sha256_tagged
 from .crypto import decode_public_key, key_id, record_message, verify_signature
 
 FORMAT_VERSION = 1
+JSON_WS = " \t\r"  # lines holding only JSON whitespace are skipped; anything else must be one JSON value
 ERROR, WARN, INFO = "error", "warn", "info"
 
 
@@ -167,6 +168,7 @@ def _verify_records(
     prev_hash: str | None = None
     first_body_seq: int | None = None
     current_key = genesis_key
+    seen_ids: set[str] = set()
 
     for idx, rec in enumerate(records):
         if not isinstance(rec, dict):
@@ -188,6 +190,11 @@ def _verify_records(
             continue
         if seq in by_seq:
             report.add(ERROR, "duplicate_seq", "sequence number appears twice", seq)
+        rid = rec.get("id")
+        if isinstance(rid, str):
+            if rid in seen_ids:
+                report.add(ERROR, "duplicate_id", f"record id {rid!r} is used twice", seq)
+            seen_ids.add(rid)
         hashes[seq] = h
         by_seq[seq] = rec
 
@@ -355,6 +362,9 @@ def _verify_records(
             unchecked += 1
         if seg_independent:
             independent += 1
+        if max_anchor_delay is not None and "rfc3161" not in verified_types:
+            report.add(ERROR, "no_trusted_time", "--max-anchor-delay needs a verified RFC 3161 timestamp on every "
+                       "segment, and this one has none", sseq)
         for req in required:
             if req not in verified_types:
                 report.add(ERROR, "anchor_required", f"segment has no verified {req} anchor (receipt missing, "
@@ -418,6 +428,18 @@ def action_digest(tool: Any, system: Any, args: Any) -> str:
     return sha256_tagged(canonicalize({"tool": tool, "system": system, "args": args}))
 
 
+def _has_dropped(value: Any, depth: int = 0) -> bool:
+    if depth > 100:
+        return True
+    if isinstance(value, dict):
+        if value.get("redacted") == "dropped" and len(value) == 1:
+            return True
+        return any(_has_dropped(v, depth + 1) for v in value.values())
+    if isinstance(value, list):
+        return any(_has_dropped(v, depth + 1) for v in value)
+    return False
+
+
 def check_approvals(records: list[dict[str, Any]], by_seq: dict[int, dict[str, Any]], report: Report,
                     partial: bool) -> None:
     """Every action that names an approval must point to an earlier, matching ``approved`` review."""
@@ -451,6 +473,9 @@ def check_approvals(records: list[dict[str, Any]], by_seq: dict[int, dict[str, A
         if body.get("action_digest") != digest:
             report.add(ERROR, "approval_mismatch", "the action differs from what was approved (tool, system or "
                        "arguments)", seq)
+        if _has_dropped(rec.get("args")):
+            report.add(ERROR, "approval_unbound_field", "an argument of the approved action was dropped by "
+                       "redaction, so the approval cannot show what was approved (use hmac redaction)", seq)
 
 
 def _summarize(report: Report, records: list[dict[str, Any]], genesis: dict[str, Any], keys: dict[str, Any],
@@ -491,8 +516,8 @@ def read_bundle(path: str | Path) -> tuple[dict[str, Any], list[dict[str, Any]],
         local_log = None
         if "anchors/local-anchor-log.jsonl" in zf.namelist():
             raw = zf.read("anchors/local-anchor-log.jsonl").decode("utf-8").split("\n")
-            local_log = [json.loads(line) for line in raw if line.strip()]
-    records = [json.loads(line) for line in lines if line.strip()]
+            local_log = [json.loads(line) for line in raw if line.strip(JSON_WS)]
+    records = [json.loads(line) for line in lines if line.strip(JSON_WS)]
     return manifest, records, local_log
 
 
@@ -564,6 +589,9 @@ def _verify_proof(manifest: dict[str, Any], records: list[Any], *, expect_key: s
         if rec.get("key") != pk["id"] or not verify_signature(pub, record_message(h), rec.get("sig", "")):
             report.add(ERROR, "bad_signature", "signature does not match record content (record altered?)",
                        rec.get("seq"))
+    if action.get("kind") != "action":
+        report.add(ERROR, "proof_not_action", f"the proven record is a {action.get('kind')!r} record, not an action",
+                   action.get("seq"))
     if action.get("id") != manifest.get("action") or segment.get("kind") != "segment":
         report.add(ERROR, "malformed", "proof does not contain the named action and a segment")
         return report

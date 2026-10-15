@@ -4,7 +4,7 @@ Who relies on Gleipnir records: the **buyer** of an AI agent (security, risk, au
 
 ## What a VALID verification proves
 
-1. **Integrity.** No record in the bundle was edited, deleted, reordered or inserted after it was signed. Every record is Ed25519-signed and commits to the previous one (hash chain); segments commit to their records (Merkle root) and to the previous segment.
+1. **Integrity.** No record in the bundle was edited, deleted, reordered or inserted after it was signed. Every record is signed (Ed25519, or ECDSA P-256 for KMS/HSM keys without Ed25519) and commits to the previous one (hash chain); segments commit to their records (Merkle root) and to the previous segment.
 2. **Origin.** The records were signed by the holder of the vendor's key. With `--expect-key`, it is the key the vendor publishes (for example in its trust center).
 3. **Existence no later than anchoring.** For a segment with a Rekor receipt, the segment hash was included in Sigstore's public append-only log, outside the vendor's control. Rewriting such a segment afterwards would require a different hash, which the existing receipt does not match.
 4. **Outcome agreement, where checked.** For actions with `verify_outcome`, the vendor read the external system back after the action and recorded whether it matched (`match` / `mismatch`), together with the raw response.
@@ -18,6 +18,9 @@ Who relies on Gleipnir records: the **buyer** of an AI agent (security, risk, au
 - **Trusted time is bounded, not exact.** With `anchor="rekor"` each segment also gets an RFC 3161 timestamp from an independent authority, so the segment provably existed no later than that time. Record times inside a segment are still the vendor's clock; the timestamp only bounds them from above.
 - **Records after the last anchor.** The unanchored tail is reported explicitly. Truncation inside the last heartbeat interval is detectable only with `--known-head`.
 - **Records before genesis or outside the bundle.** A partial bundle proves its own range.
+
+- **Who approved.** An approval proves that a review record naming this exact action was written before the action. The `reviewer` field is the vendor's statement; it is not signed by the approver's own key yet.
+- **`--max-anchor-delay` needs timestamps.** It only works on segments with an RFC 3161 receipt, and fails segments that have none.
 
 ## Attacker capabilities considered
 
@@ -37,7 +40,7 @@ Who relies on Gleipnir records: the **buyer** of an AI agent (security, risk, au
 
 ## Keys
 
-- **Record signing key** (Ed25519): auto-generated locally for development, with a warning. Production should use a KMS/HSM-backed `Signer`. Rotation is supported with a signed `key_rotation` record.
+- **Record signing key** (Ed25519 by default, ECDSA P-256 allowed): auto-generated locally for development, with a warning. Production should use a KMS/HSM-backed `Signer`. Rotation is supported with a signed `key_rotation` record.
 - **Anchor key** (ECDSA P-256): only signs anchor entries in Rekor. Its compromise lets someone publish entries but not forge records.
 - **Redaction HMAC key**: lets the vendor (and a buyer who is given the value) match redacted fields without storing the value. Losing it does not affect verification.
 

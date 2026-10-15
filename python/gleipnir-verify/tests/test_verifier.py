@@ -471,3 +471,44 @@ def test_non_string_kind_does_not_crash_json_output(tmp_path, capsys):
     assert cli.main([str(p), "--json"]) == 1
     out = json.loads(capsys.readouterr().out)
     assert out["summary"]["by_kind"].get("?") == 1
+
+
+# ---- regressions from the second independent review -------------------------------------
+
+def test_duplicate_record_ids_rejected():
+    b = Builder()
+    b.action(1)
+    b.action(2)
+    b.records[2]["id"] = b.records[1]["id"]
+    resign(b.records, b.key, start=2)
+    assert "duplicate_id" in codes(verify_records(b.records))
+
+
+def test_approval_over_dropped_field_is_not_binding():
+    from gleipnir_verify.verifier import action_digest
+    b = Builder()
+    args = {"order": "o1", "amount": {"redacted": "dropped"}}
+    b._add({"kind": "review", "id": "rev1", "review": {"action_digest": action_digest("refund", "pay", args),
+                                                      "decision": "approved", "reviewer": "x"}})
+    b.tick()
+    b._add({"kind": "action", "approval": "rev1", "tool": {"name": "refund", "system": "pay"}, "args": args,
+            "response": {"status": "ok"}, "t": {"start": "2026-10-01T09:00:02.000Z",
+                                                "end": "2026-10-01T09:00:02.000Z"}})
+    assert "approval_unbound_field" in codes(verify_records(b.records))
+
+
+def test_max_anchor_delay_without_timestamps_fails():
+    b = Builder().standard()
+    r = verify_records(b.records, anchor_options={"local_anchor_entries": b.anchor_log}, max_anchor_delay=0)
+    assert "no_trusted_time" in codes(r)
+
+
+@pytest.mark.parametrize("suffix", ["\x0b", "\x0c", "\x1c", "\u0085", " "])
+def test_trailing_non_json_whitespace_is_rejected(tmp_path, suffix):
+    b = Builder().standard()
+    p = tmp_path / "ws.zip"
+    with zipfile.ZipFile(p, "w") as zf:
+        zf.writestr("manifest.json", json.dumps({"format": 1, "chain": b.chain, "from_seq": 1,
+                                                  "to_seq": b.records[-1]["seq"]}))
+        zf.writestr("records.jsonl", "".join(json.dumps(r) + suffix + "\n" for r in b.records))
+    assert not verify_bundle(p).valid()
