@@ -1,0 +1,1040 @@
+{
+  "description": "signed approvals: approval message, WebAuthn challenge, key and passkey signatures, and the findings (level, code) each case produces without a registry, with the registry, and with --require-signed-approvals; allowed origin https://approve.example.com",
+  "tool": "issue_refund",
+  "system": "payments-api",
+  "args": {
+    "order_id": "A-1001",
+    "amount": "500.00",
+    "currency": "EUR"
+  },
+  "action_digest": "sha256:8c18b6d9e898d686e9c10f8aa74ae6a607f3f36b042434d9e6a7346496edcb17",
+  "approval_message": "gleipnir/approval/v1\nsha256:8c18b6d9e898d686e9c10f8aa74ae6a607f3f36b042434d9e6a7346496edcb17",
+  "webauthn_challenge": "jBi22eiY1obpwQ-Kp0rmpgfz82sEJDTZ5qc0ZJbtyxc",
+  "approver_keys": {
+    "ops:anna": {
+      "ed25519_seed_hex": "404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f"
+    },
+    "ops:jonas": {
+      "p256_scalar_hex": "606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f"
+    },
+    "ops:li": {
+      "p256_scalar_hex": "808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f",
+      "rp_id": "approve.example.com",
+      "origin": "https://approve.example.com",
+      "credential_id": "AAECAwQFBgcICQoLDA0ODw",
+      "authenticator_data_hex": "fe980bb874053c9785b3e03e1f7c42abf45f63cec7c3b6b72f7c782ebeeb10a90500000007",
+      "client_data_json": "{\"type\":\"webauthn.get\",\"challenge\":\"jBi22eiY1obpwQ-Kp0rmpgfz82sEJDTZ5qc0ZJbtyxc\",\"origin\":\"https://approve.example.com\",\"crossOrigin\":false}"
+    }
+  },
+  "registry": [
+    {
+      "id": "ops:anna",
+      "name": "Anna Berger",
+      "public_key": "ed25519:JUO5L_EJVRFHatyDadtt3JM2ZaEZeN2hQE7hBmypVZ0",
+      "roles": [
+        "refunds"
+      ]
+    },
+    {
+      "id": "ops:jonas",
+      "name": "Jonas Weber",
+      "public_key": "ecdsa-p256:MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEv5fQ7hhmqsb4CCbrrcQvPYHhtrjymPXT6-dUK3y0g6fejxTd3pqi52Wy5g7OYM-hsJVoOo9vYq-LrO5_TfoY6g"
+    },
+    {
+      "id": "ops:li",
+      "name": "Li Wei",
+      "webauthn": {
+        "public_key": "ecdsa-p256:MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEE1AziUNsOMjLGjgVadctywG7O5nRBdgf-9sOKhX3Gg2xX8LWzhyuPzTlvyFrqyGgSCpnTzE3I7TboHb8jgHJkg",
+        "rp_id": "approve.example.com",
+        "credential_id": "AAECAwQFBgcICQoLDA0ODw"
+      }
+    }
+  ],
+  "allowed_origins": [
+    "https://approve.example.com"
+  ],
+  "cases": [
+    {
+      "description": "key signature, Ed25519",
+      "review": {
+        "action_digest": "sha256:8c18b6d9e898d686e9c10f8aa74ae6a607f3f36b042434d9e6a7346496edcb17",
+        "tool": "issue_refund",
+        "system": "payments-api",
+        "reviewer": "ops:anna",
+        "decision": "approved",
+        "before_execution": true,
+        "signature": {
+          "type": "key",
+          "approver_id": "ops:anna",
+          "public_key": "ed25519:JUO5L_EJVRFHatyDadtt3JM2ZaEZeN2hQE7hBmypVZ0",
+          "sig": "ed25519:HOhdfWavcwrK1HSHgeB5iSVTXreHJLTqrjOKqvhJr3G-v9--UhBgMPhofeP0LOOAW8-JmzPECxDdATZ8a4D9Ag"
+        }
+      },
+      "expected": {
+        "no_registry": [
+          [
+            "warn",
+            "approval_unknown_approver"
+          ]
+        ],
+        "registry": [
+          [
+            "info",
+            "approval_verified"
+          ]
+        ],
+        "require": [
+          [
+            "info",
+            "approval_verified"
+          ]
+        ]
+      }
+    },
+    {
+      "description": "key signature, ECDSA P-256 (RFC 6979)",
+      "review": {
+        "action_digest": "sha256:8c18b6d9e898d686e9c10f8aa74ae6a607f3f36b042434d9e6a7346496edcb17",
+        "tool": "issue_refund",
+        "system": "payments-api",
+        "reviewer": "ops:jonas",
+        "decision": "approved",
+        "before_execution": true,
+        "signature": {
+          "type": "key",
+          "approver_id": "ops:jonas",
+          "public_key": "ecdsa-p256:MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEv5fQ7hhmqsb4CCbrrcQvPYHhtrjymPXT6-dUK3y0g6fejxTd3pqi52Wy5g7OYM-hsJVoOo9vYq-LrO5_TfoY6g",
+          "sig": "ecdsa-p256:MEQCIDgIqVRWMQ7080qwEavu9i22hLkJDdBzz5HQLsc0dPj9AiAYNJxzMCmBskytsbNs5Ax6rri-RFAZc0is8Obyx1-CmQ"
+        }
+      },
+      "expected": {
+        "no_registry": [
+          [
+            "warn",
+            "approval_unknown_approver"
+          ]
+        ],
+        "registry": [
+          [
+            "info",
+            "approval_verified"
+          ]
+        ],
+        "require": [
+          [
+            "info",
+            "approval_verified"
+          ]
+        ]
+      }
+    },
+    {
+      "description": "WebAuthn assertion (ES256), UP and UV set",
+      "review": {
+        "action_digest": "sha256:8c18b6d9e898d686e9c10f8aa74ae6a607f3f36b042434d9e6a7346496edcb17",
+        "tool": "issue_refund",
+        "system": "payments-api",
+        "reviewer": "ops:li",
+        "decision": "approved",
+        "before_execution": true,
+        "signature": {
+          "type": "webauthn",
+          "approver_id": "ops:li",
+          "public_key": "ecdsa-p256:MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEE1AziUNsOMjLGjgVadctywG7O5nRBdgf-9sOKhX3Gg2xX8LWzhyuPzTlvyFrqyGgSCpnTzE3I7TboHb8jgHJkg",
+          "rp_id": "approve.example.com",
+          "credential_id": "AAECAwQFBgcICQoLDA0ODw",
+          "authenticator_data": "_pgLuHQFPJeFs-A-H3xCq_RfY87Hw7a3L3x4Lr7rEKkFAAAABw",
+          "client_data_json": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoiakJpMjJlaVkxb2Jwd1EtS3Awcm1wZ2Z6ODJzRUpEVFo1cWMwWkpidHl4YyIsIm9yaWdpbiI6Imh0dHBzOi8vYXBwcm92ZS5leGFtcGxlLmNvbSIsImNyb3NzT3JpZ2luIjpmYWxzZX0",
+          "signature": "MEQCIER5nbvTX6gyiaw04ZGgjYNMGW_xfqyMemDu2kEIYpVhAiAQp1mum3dOoYhEZxYpyOqejyyCw0k5s3jyH7p-Oyz56A"
+        }
+      },
+      "expected": {
+        "no_registry": [
+          [
+            "warn",
+            "approval_unknown_approver"
+          ]
+        ],
+        "registry": [
+          [
+            "info",
+            "approval_verified"
+          ]
+        ],
+        "require": [
+          [
+            "info",
+            "approval_verified"
+          ]
+        ]
+      }
+    },
+    {
+      "description": "WebAuthn assertion with backup flags BE and BS",
+      "review": {
+        "action_digest": "sha256:8c18b6d9e898d686e9c10f8aa74ae6a607f3f36b042434d9e6a7346496edcb17",
+        "tool": "issue_refund",
+        "system": "payments-api",
+        "reviewer": "ops:li",
+        "decision": "approved",
+        "before_execution": true,
+        "signature": {
+          "type": "webauthn",
+          "approver_id": "ops:li",
+          "public_key": "ecdsa-p256:MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEE1AziUNsOMjLGjgVadctywG7O5nRBdgf-9sOKhX3Gg2xX8LWzhyuPzTlvyFrqyGgSCpnTzE3I7TboHb8jgHJkg",
+          "rp_id": "approve.example.com",
+          "credential_id": "AAECAwQFBgcICQoLDA0ODw",
+          "authenticator_data": "_pgLuHQFPJeFs-A-H3xCq_RfY87Hw7a3L3x4Lr7rEKkdAAAABw",
+          "client_data_json": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoiakJpMjJlaVkxb2Jwd1EtS3Awcm1wZ2Z6ODJzRUpEVFo1cWMwWkpidHl4YyIsIm9yaWdpbiI6Imh0dHBzOi8vYXBwcm92ZS5leGFtcGxlLmNvbSIsImNyb3NzT3JpZ2luIjpmYWxzZX0",
+          "signature": "MEYCIQC03-F3u264LRmlOUjWL-QEQaK5sRqJFl84oW-0DEgPowIhAOxZ-TBwykjCEfN-lK4wdGaK91Ca_JJ0BEraqBcuiWYR"
+        }
+      },
+      "expected": {
+        "no_registry": [
+          [
+            "warn",
+            "approval_unknown_approver"
+          ]
+        ],
+        "registry": [
+          [
+            "info",
+            "approval_verified"
+          ]
+        ],
+        "require": [
+          [
+            "info",
+            "approval_verified"
+          ]
+        ]
+      }
+    },
+    {
+      "description": "unsigned approval",
+      "review": {
+        "action_digest": "sha256:8c18b6d9e898d686e9c10f8aa74ae6a607f3f36b042434d9e6a7346496edcb17",
+        "tool": "issue_refund",
+        "system": "payments-api",
+        "reviewer": "ops:anna",
+        "decision": "approved",
+        "before_execution": true
+      },
+      "expected": {
+        "no_registry": [
+          [
+            "warn",
+            "approval_unsigned"
+          ]
+        ],
+        "registry": [
+          [
+            "error",
+            "approval_unsigned"
+          ]
+        ],
+        "require": [
+          [
+            "error",
+            "approval_unsigned"
+          ]
+        ]
+      }
+    },
+    {
+      "description": "Ed25519 signature with one bit flipped",
+      "review": {
+        "action_digest": "sha256:8c18b6d9e898d686e9c10f8aa74ae6a607f3f36b042434d9e6a7346496edcb17",
+        "tool": "issue_refund",
+        "system": "payments-api",
+        "reviewer": "ops:anna",
+        "decision": "approved",
+        "before_execution": true,
+        "signature": {
+          "type": "key",
+          "approver_id": "ops:anna",
+          "public_key": "ed25519:JUO5L_EJVRFHatyDadtt3JM2ZaEZeN2hQE7hBmypVZ0",
+          "sig": "ed25519:HehdfWavcwrK1HSHgeB5iSVTXreHJLTqrjOKqvhJr3G-v9--UhBgMPhofeP0LOOAW8-JmzPECxDdATZ8a4D9Ag"
+        }
+      },
+      "expected": {
+        "no_registry": [
+          [
+            "error",
+            "approval_bad_signature"
+          ]
+        ],
+        "registry": [
+          [
+            "error",
+            "approval_bad_signature"
+          ]
+        ],
+        "require": [
+          [
+            "error",
+            "approval_bad_signature"
+          ]
+        ]
+      }
+    },
+    {
+      "description": "signature over the record domain instead of the approval domain",
+      "review": {
+        "action_digest": "sha256:8c18b6d9e898d686e9c10f8aa74ae6a607f3f36b042434d9e6a7346496edcb17",
+        "tool": "issue_refund",
+        "system": "payments-api",
+        "reviewer": "ops:anna",
+        "decision": "approved",
+        "before_execution": true,
+        "signature": {
+          "type": "key",
+          "approver_id": "ops:anna",
+          "public_key": "ed25519:JUO5L_EJVRFHatyDadtt3JM2ZaEZeN2hQE7hBmypVZ0",
+          "sig": "ed25519:Ud9pPPp_nDDrFd3POE9G8vjYOXuVK3at2tK5IhI7_G79clRjuyjqDKUlxIu7ZpHuryxwTNa3bYzkKN9HYKdrDQ"
+        }
+      },
+      "expected": {
+        "no_registry": [
+          [
+            "error",
+            "approval_bad_signature"
+          ]
+        ],
+        "registry": [
+          [
+            "error",
+            "approval_bad_signature"
+          ]
+        ],
+        "require": [
+          [
+            "error",
+            "approval_bad_signature"
+          ]
+        ]
+      }
+    },
+    {
+      "description": "signed by a key that is not registered for this approver",
+      "review": {
+        "action_digest": "sha256:8c18b6d9e898d686e9c10f8aa74ae6a607f3f36b042434d9e6a7346496edcb17",
+        "tool": "issue_refund",
+        "system": "payments-api",
+        "reviewer": "ops:anna",
+        "decision": "approved",
+        "before_execution": true,
+        "signature": {
+          "type": "key",
+          "approver_id": "ops:anna",
+          "public_key": "ed25519:T9CZzNR9eJPf6ewkQU7LDZtUICMqrTDZHEZb4zy-ZcQ",
+          "sig": "ed25519:l3j3Nmz8q0ORV0u3KHRWWJujBr4vNs6LEIObAptGuAcFs2O3JQUTaM5GfDoZieyK2xF96s9dl-5q_T7JM44OCg"
+        }
+      },
+      "expected": {
+        "no_registry": [
+          [
+            "warn",
+            "approval_unknown_approver"
+          ]
+        ],
+        "registry": [
+          [
+            "error",
+            "approval_unknown_approver"
+          ]
+        ],
+        "require": [
+          [
+            "error",
+            "approval_unknown_approver"
+          ]
+        ]
+      }
+    },
+    {
+      "description": "approver not in the registry",
+      "review": {
+        "action_digest": "sha256:8c18b6d9e898d686e9c10f8aa74ae6a607f3f36b042434d9e6a7346496edcb17",
+        "tool": "issue_refund",
+        "system": "payments-api",
+        "reviewer": "ops:eve",
+        "decision": "approved",
+        "before_execution": true,
+        "signature": {
+          "type": "key",
+          "approver_id": "ops:eve",
+          "public_key": "ed25519:T9CZzNR9eJPf6ewkQU7LDZtUICMqrTDZHEZb4zy-ZcQ",
+          "sig": "ed25519:l3j3Nmz8q0ORV0u3KHRWWJujBr4vNs6LEIObAptGuAcFs2O3JQUTaM5GfDoZieyK2xF96s9dl-5q_T7JM44OCg"
+        }
+      },
+      "expected": {
+        "no_registry": [
+          [
+            "warn",
+            "approval_unknown_approver"
+          ]
+        ],
+        "registry": [
+          [
+            "error",
+            "approval_unknown_approver"
+          ]
+        ],
+        "require": [
+          [
+            "error",
+            "approval_unknown_approver"
+          ]
+        ]
+      }
+    },
+    {
+      "description": "unknown signature type",
+      "review": {
+        "action_digest": "sha256:8c18b6d9e898d686e9c10f8aa74ae6a607f3f36b042434d9e6a7346496edcb17",
+        "tool": "issue_refund",
+        "system": "payments-api",
+        "reviewer": "ops:anna",
+        "decision": "approved",
+        "before_execution": true,
+        "signature": {
+          "type": "pgp",
+          "approver_id": "ops:anna",
+          "public_key": "ed25519:JUO5L_EJVRFHatyDadtt3JM2ZaEZeN2hQE7hBmypVZ0",
+          "sig": "ed25519:HOhdfWavcwrK1HSHgeB5iSVTXreHJLTqrjOKqvhJr3G-v9--UhBgMPhofeP0LOOAW8-JmzPECxDdATZ8a4D9Ag"
+        }
+      },
+      "expected": {
+        "no_registry": [
+          [
+            "error",
+            "approval_bad_signature"
+          ]
+        ],
+        "registry": [
+          [
+            "error",
+            "approval_bad_signature"
+          ]
+        ],
+        "require": [
+          [
+            "error",
+            "approval_bad_signature"
+          ]
+        ]
+      }
+    },
+    {
+      "description": "WebAuthn: origin not allowed",
+      "review": {
+        "action_digest": "sha256:8c18b6d9e898d686e9c10f8aa74ae6a607f3f36b042434d9e6a7346496edcb17",
+        "tool": "issue_refund",
+        "system": "payments-api",
+        "reviewer": "ops:li",
+        "decision": "approved",
+        "before_execution": true,
+        "signature": {
+          "type": "webauthn",
+          "approver_id": "ops:li",
+          "public_key": "ecdsa-p256:MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEE1AziUNsOMjLGjgVadctywG7O5nRBdgf-9sOKhX3Gg2xX8LWzhyuPzTlvyFrqyGgSCpnTzE3I7TboHb8jgHJkg",
+          "rp_id": "approve.example.com",
+          "credential_id": "AAECAwQFBgcICQoLDA0ODw",
+          "authenticator_data": "_pgLuHQFPJeFs-A-H3xCq_RfY87Hw7a3L3x4Lr7rEKkFAAAABw",
+          "client_data_json": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoiakJpMjJlaVkxb2Jwd1EtS3Awcm1wZ2Z6ODJzRUpEVFo1cWMwWkpidHl4YyIsIm9yaWdpbiI6Imh0dHBzOi8vZXZpbC5leGFtcGxlIiwiY3Jvc3NPcmlnaW4iOmZhbHNlfQ",
+          "signature": "MEQCIF1gpMdNR1_Od06QeiogGzLk8TZle5UDsWlAMp-s86j0AiBIKFFDD_9tH8pQSH0nFpZueb-03jMlPkJI6dJuazIRJw"
+        }
+      },
+      "expected": {
+        "no_registry": [
+          [
+            "error",
+            "approval_webauthn_invalid"
+          ]
+        ],
+        "registry": [
+          [
+            "error",
+            "approval_webauthn_invalid"
+          ]
+        ],
+        "require": [
+          [
+            "error",
+            "approval_webauthn_invalid"
+          ]
+        ]
+      }
+    },
+    {
+      "description": "WebAuthn: challenge is another digest",
+      "review": {
+        "action_digest": "sha256:8c18b6d9e898d686e9c10f8aa74ae6a607f3f36b042434d9e6a7346496edcb17",
+        "tool": "issue_refund",
+        "system": "payments-api",
+        "reviewer": "ops:li",
+        "decision": "approved",
+        "before_execution": true,
+        "signature": {
+          "type": "webauthn",
+          "approver_id": "ops:li",
+          "public_key": "ecdsa-p256:MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEE1AziUNsOMjLGjgVadctywG7O5nRBdgf-9sOKhX3Gg2xX8LWzhyuPzTlvyFrqyGgSCpnTzE3I7TboHb8jgHJkg",
+          "rp_id": "approve.example.com",
+          "credential_id": "AAECAwQFBgcICQoLDA0ODw",
+          "authenticator_data": "_pgLuHQFPJeFs-A-H3xCq_RfY87Hw7a3L3x4Lr7rEKkFAAAABw",
+          "client_data_json": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoiMlNtS0VOR3djMWczM0V2WVhheGtHdzg4N3lla2ZsMVRwVTh2UDFzdnpfbyIsIm9yaWdpbiI6Imh0dHBzOi8vYXBwcm92ZS5leGFtcGxlLmNvbSIsImNyb3NzT3JpZ2luIjpmYWxzZX0",
+          "signature": "MEUCIQC5VJ1r7qa0k20qS_JQr07AVjxjXB2fHDDG2p_dkApTTgIgeNwek-91sZG-k2cw-UJViGvrAIWS31C9G3e0uYoGeK4"
+        }
+      },
+      "expected": {
+        "no_registry": [
+          [
+            "error",
+            "approval_webauthn_invalid"
+          ]
+        ],
+        "registry": [
+          [
+            "error",
+            "approval_webauthn_invalid"
+          ]
+        ],
+        "require": [
+          [
+            "error",
+            "approval_webauthn_invalid"
+          ]
+        ]
+      }
+    },
+    {
+      "description": "WebAuthn: type webauthn.create",
+      "review": {
+        "action_digest": "sha256:8c18b6d9e898d686e9c10f8aa74ae6a607f3f36b042434d9e6a7346496edcb17",
+        "tool": "issue_refund",
+        "system": "payments-api",
+        "reviewer": "ops:li",
+        "decision": "approved",
+        "before_execution": true,
+        "signature": {
+          "type": "webauthn",
+          "approver_id": "ops:li",
+          "public_key": "ecdsa-p256:MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEE1AziUNsOMjLGjgVadctywG7O5nRBdgf-9sOKhX3Gg2xX8LWzhyuPzTlvyFrqyGgSCpnTzE3I7TboHb8jgHJkg",
+          "rp_id": "approve.example.com",
+          "credential_id": "AAECAwQFBgcICQoLDA0ODw",
+          "authenticator_data": "_pgLuHQFPJeFs-A-H3xCq_RfY87Hw7a3L3x4Lr7rEKkFAAAABw",
+          "client_data_json": "eyJ0eXBlIjoid2ViYXV0aG4uY3JlYXRlIiwiY2hhbGxlbmdlIjoiakJpMjJlaVkxb2Jwd1EtS3Awcm1wZ2Z6ODJzRUpEVFo1cWMwWkpidHl4YyIsIm9yaWdpbiI6Imh0dHBzOi8vYXBwcm92ZS5leGFtcGxlLmNvbSIsImNyb3NzT3JpZ2luIjpmYWxzZX0",
+          "signature": "MEUCIQC9Bn2SGJPU3nMMIEKy1UKFztOQOe1msOJZ7y39_QBvXgIgHjpMb1I03f0JuCyydwkCc19HkIZbKOu9LVgRSM0Mats"
+        }
+      },
+      "expected": {
+        "no_registry": [
+          [
+            "error",
+            "approval_webauthn_invalid"
+          ]
+        ],
+        "registry": [
+          [
+            "error",
+            "approval_webauthn_invalid"
+          ]
+        ],
+        "require": [
+          [
+            "error",
+            "approval_webauthn_invalid"
+          ]
+        ]
+      }
+    },
+    {
+      "description": "WebAuthn: cross-origin frame",
+      "review": {
+        "action_digest": "sha256:8c18b6d9e898d686e9c10f8aa74ae6a607f3f36b042434d9e6a7346496edcb17",
+        "tool": "issue_refund",
+        "system": "payments-api",
+        "reviewer": "ops:li",
+        "decision": "approved",
+        "before_execution": true,
+        "signature": {
+          "type": "webauthn",
+          "approver_id": "ops:li",
+          "public_key": "ecdsa-p256:MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEE1AziUNsOMjLGjgVadctywG7O5nRBdgf-9sOKhX3Gg2xX8LWzhyuPzTlvyFrqyGgSCpnTzE3I7TboHb8jgHJkg",
+          "rp_id": "approve.example.com",
+          "credential_id": "AAECAwQFBgcICQoLDA0ODw",
+          "authenticator_data": "_pgLuHQFPJeFs-A-H3xCq_RfY87Hw7a3L3x4Lr7rEKkFAAAABw",
+          "client_data_json": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoiakJpMjJlaVkxb2Jwd1EtS3Awcm1wZ2Z6ODJzRUpEVFo1cWMwWkpidHl4YyIsIm9yaWdpbiI6Imh0dHBzOi8vYXBwcm92ZS5leGFtcGxlLmNvbSIsImNyb3NzT3JpZ2luIjp0cnVlfQ",
+          "signature": "MEYCIQD7GUppUpTiUDyYOflzVFCKE_knvpqV8ApYHB3bCD0l7gIhAIf-95d_UXi9q8ueOpaMP0KksfHHT0NyqVjZAUrKxEpZ"
+        }
+      },
+      "expected": {
+        "no_registry": [
+          [
+            "error",
+            "approval_webauthn_invalid"
+          ]
+        ],
+        "registry": [
+          [
+            "error",
+            "approval_webauthn_invalid"
+          ]
+        ],
+        "require": [
+          [
+            "error",
+            "approval_webauthn_invalid"
+          ]
+        ]
+      }
+    },
+    {
+      "description": "WebAuthn: rpIdHash of another relying party",
+      "review": {
+        "action_digest": "sha256:8c18b6d9e898d686e9c10f8aa74ae6a607f3f36b042434d9e6a7346496edcb17",
+        "tool": "issue_refund",
+        "system": "payments-api",
+        "reviewer": "ops:li",
+        "decision": "approved",
+        "before_execution": true,
+        "signature": {
+          "type": "webauthn",
+          "approver_id": "ops:li",
+          "public_key": "ecdsa-p256:MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEE1AziUNsOMjLGjgVadctywG7O5nRBdgf-9sOKhX3Gg2xX8LWzhyuPzTlvyFrqyGgSCpnTzE3I7TboHb8jgHJkg",
+          "rp_id": "approve.example.com",
+          "credential_id": "AAECAwQFBgcICQoLDA0ODw",
+          "authenticator_data": "nBgN4M1pnueIl8R8_bPn7h11kG4xt3RqR0fepTaQmDcFAAAABw",
+          "client_data_json": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoiakJpMjJlaVkxb2Jwd1EtS3Awcm1wZ2Z6ODJzRUpEVFo1cWMwWkpidHl4YyIsIm9yaWdpbiI6Imh0dHBzOi8vYXBwcm92ZS5leGFtcGxlLmNvbSIsImNyb3NzT3JpZ2luIjpmYWxzZX0",
+          "signature": "MEUCIQC743Q_EI4CmV5RbmSHbWWix6Z1LkiCAI0afIP6stlbOwIgAVuEvfMy_dn2kKt5v-lAPLqWm5wjxHLPk1H5cj2IEz8"
+        }
+      },
+      "expected": {
+        "no_registry": [
+          [
+            "error",
+            "approval_webauthn_invalid"
+          ]
+        ],
+        "registry": [
+          [
+            "error",
+            "approval_webauthn_invalid"
+          ]
+        ],
+        "require": [
+          [
+            "error",
+            "approval_webauthn_invalid"
+          ]
+        ]
+      }
+    },
+    {
+      "description": "WebAuthn: user verification (UV) not set",
+      "review": {
+        "action_digest": "sha256:8c18b6d9e898d686e9c10f8aa74ae6a607f3f36b042434d9e6a7346496edcb17",
+        "tool": "issue_refund",
+        "system": "payments-api",
+        "reviewer": "ops:li",
+        "decision": "approved",
+        "before_execution": true,
+        "signature": {
+          "type": "webauthn",
+          "approver_id": "ops:li",
+          "public_key": "ecdsa-p256:MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEE1AziUNsOMjLGjgVadctywG7O5nRBdgf-9sOKhX3Gg2xX8LWzhyuPzTlvyFrqyGgSCpnTzE3I7TboHb8jgHJkg",
+          "rp_id": "approve.example.com",
+          "credential_id": "AAECAwQFBgcICQoLDA0ODw",
+          "authenticator_data": "_pgLuHQFPJeFs-A-H3xCq_RfY87Hw7a3L3x4Lr7rEKkBAAAABw",
+          "client_data_json": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoiakJpMjJlaVkxb2Jwd1EtS3Awcm1wZ2Z6ODJzRUpEVFo1cWMwWkpidHl4YyIsIm9yaWdpbiI6Imh0dHBzOi8vYXBwcm92ZS5leGFtcGxlLmNvbSIsImNyb3NzT3JpZ2luIjpmYWxzZX0",
+          "signature": "MEQCIDwUYd6rNf9K2WvAnh5HyJ6SoapPNXsKB6W0bNtIQUlEAiAV9oa4rVNx_r1oq_FfcWOSVcHdCImuugowUYmNrlpGOw"
+        }
+      },
+      "expected": {
+        "no_registry": [
+          [
+            "error",
+            "approval_webauthn_invalid"
+          ]
+        ],
+        "registry": [
+          [
+            "error",
+            "approval_webauthn_invalid"
+          ]
+        ],
+        "require": [
+          [
+            "error",
+            "approval_webauthn_invalid"
+          ]
+        ]
+      }
+    },
+    {
+      "description": "WebAuthn: user presence (UP) not set",
+      "review": {
+        "action_digest": "sha256:8c18b6d9e898d686e9c10f8aa74ae6a607f3f36b042434d9e6a7346496edcb17",
+        "tool": "issue_refund",
+        "system": "payments-api",
+        "reviewer": "ops:li",
+        "decision": "approved",
+        "before_execution": true,
+        "signature": {
+          "type": "webauthn",
+          "approver_id": "ops:li",
+          "public_key": "ecdsa-p256:MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEE1AziUNsOMjLGjgVadctywG7O5nRBdgf-9sOKhX3Gg2xX8LWzhyuPzTlvyFrqyGgSCpnTzE3I7TboHb8jgHJkg",
+          "rp_id": "approve.example.com",
+          "credential_id": "AAECAwQFBgcICQoLDA0ODw",
+          "authenticator_data": "_pgLuHQFPJeFs-A-H3xCq_RfY87Hw7a3L3x4Lr7rEKkEAAAABw",
+          "client_data_json": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoiakJpMjJlaVkxb2Jwd1EtS3Awcm1wZ2Z6ODJzRUpEVFo1cWMwWkpidHl4YyIsIm9yaWdpbiI6Imh0dHBzOi8vYXBwcm92ZS5leGFtcGxlLmNvbSIsImNyb3NzT3JpZ2luIjpmYWxzZX0",
+          "signature": "MEUCIQDnXsyDFwWXfcdO5I_8W8dELzcpLxOMQB_Ag1Ypkvz7ygIgXhTAC82wG3D7nFigT8Gn_Q7uF1wk5qb6xFZPltOsDcQ"
+        }
+      },
+      "expected": {
+        "no_registry": [
+          [
+            "error",
+            "approval_webauthn_invalid"
+          ]
+        ],
+        "registry": [
+          [
+            "error",
+            "approval_webauthn_invalid"
+          ]
+        ],
+        "require": [
+          [
+            "error",
+            "approval_webauthn_invalid"
+          ]
+        ]
+      }
+    },
+    {
+      "description": "WebAuthn: attested credential data (AT) set",
+      "review": {
+        "action_digest": "sha256:8c18b6d9e898d686e9c10f8aa74ae6a607f3f36b042434d9e6a7346496edcb17",
+        "tool": "issue_refund",
+        "system": "payments-api",
+        "reviewer": "ops:li",
+        "decision": "approved",
+        "before_execution": true,
+        "signature": {
+          "type": "webauthn",
+          "approver_id": "ops:li",
+          "public_key": "ecdsa-p256:MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEE1AziUNsOMjLGjgVadctywG7O5nRBdgf-9sOKhX3Gg2xX8LWzhyuPzTlvyFrqyGgSCpnTzE3I7TboHb8jgHJkg",
+          "rp_id": "approve.example.com",
+          "credential_id": "AAECAwQFBgcICQoLDA0ODw",
+          "authenticator_data": "_pgLuHQFPJeFs-A-H3xCq_RfY87Hw7a3L3x4Lr7rEKlFAAAABw",
+          "client_data_json": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoiakJpMjJlaVkxb2Jwd1EtS3Awcm1wZ2Z6ODJzRUpEVFo1cWMwWkpidHl4YyIsIm9yaWdpbiI6Imh0dHBzOi8vYXBwcm92ZS5leGFtcGxlLmNvbSIsImNyb3NzT3JpZ2luIjpmYWxzZX0",
+          "signature": "MEUCIQDWz1dopm34xBTXuWmZXrJQWGOzvpIUQJWc_kQjwHvXgAIgJ2aKR563oQzR3o-RAf5W8zocGnu1Wgqs-ScSfJbTlX4"
+        }
+      },
+      "expected": {
+        "no_registry": [
+          [
+            "error",
+            "approval_webauthn_invalid"
+          ]
+        ],
+        "registry": [
+          [
+            "error",
+            "approval_webauthn_invalid"
+          ]
+        ],
+        "require": [
+          [
+            "error",
+            "approval_webauthn_invalid"
+          ]
+        ]
+      }
+    },
+    {
+      "description": "WebAuthn: another credential id",
+      "review": {
+        "action_digest": "sha256:8c18b6d9e898d686e9c10f8aa74ae6a607f3f36b042434d9e6a7346496edcb17",
+        "tool": "issue_refund",
+        "system": "payments-api",
+        "reviewer": "ops:li",
+        "decision": "approved",
+        "before_execution": true,
+        "signature": {
+          "type": "webauthn",
+          "approver_id": "ops:li",
+          "public_key": "ecdsa-p256:MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEE1AziUNsOMjLGjgVadctywG7O5nRBdgf-9sOKhX3Gg2xX8LWzhyuPzTlvyFrqyGgSCpnTzE3I7TboHb8jgHJkg",
+          "rp_id": "approve.example.com",
+          "credential_id": "AAAAAAAAAAAAAAAAAAAAAA",
+          "authenticator_data": "_pgLuHQFPJeFs-A-H3xCq_RfY87Hw7a3L3x4Lr7rEKkFAAAABw",
+          "client_data_json": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoiakJpMjJlaVkxb2Jwd1EtS3Awcm1wZ2Z6ODJzRUpEVFo1cWMwWkpidHl4YyIsIm9yaWdpbiI6Imh0dHBzOi8vYXBwcm92ZS5leGFtcGxlLmNvbSIsImNyb3NzT3JpZ2luIjpmYWxzZX0",
+          "signature": "MEQCIER5nbvTX6gyiaw04ZGgjYNMGW_xfqyMemDu2kEIYpVhAiAQp1mum3dOoYhEZxYpyOqejyyCw0k5s3jyH7p-Oyz56A"
+        }
+      },
+      "expected": {
+        "no_registry": [
+          [
+            "warn",
+            "approval_unknown_approver"
+          ]
+        ],
+        "registry": [
+          [
+            "error",
+            "approval_webauthn_invalid"
+          ]
+        ],
+        "require": [
+          [
+            "error",
+            "approval_webauthn_invalid"
+          ]
+        ]
+      }
+    },
+    {
+      "description": "WebAuthn: client data changed after signing",
+      "review": {
+        "action_digest": "sha256:8c18b6d9e898d686e9c10f8aa74ae6a607f3f36b042434d9e6a7346496edcb17",
+        "tool": "issue_refund",
+        "system": "payments-api",
+        "reviewer": "ops:li",
+        "decision": "approved",
+        "before_execution": true,
+        "signature": {
+          "type": "webauthn",
+          "approver_id": "ops:li",
+          "public_key": "ecdsa-p256:MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEE1AziUNsOMjLGjgVadctywG7O5nRBdgf-9sOKhX3Gg2xX8LWzhyuPzTlvyFrqyGgSCpnTzE3I7TboHb8jgHJkg",
+          "rp_id": "approve.example.com",
+          "credential_id": "AAECAwQFBgcICQoLDA0ODw",
+          "authenticator_data": "_pgLuHQFPJeFs-A-H3xCq_RfY87Hw7a3L3x4Lr7rEKkFAAAABw",
+          "client_data_json": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoiakJpMjJlaVkxb2Jwd1EtS3Awcm1wZ2Z6ODJzRUpEVFo1cWMwWkpidHl4YyIsIm9yaWdpbiI6Imh0dHBzOi8vYXBwcm92ZS5leGFtcGxlLmNvbS8iLCJjcm9zc09yaWdpbiI6ZmFsc2V9",
+          "signature": "MEQCIER5nbvTX6gyiaw04ZGgjYNMGW_xfqyMemDu2kEIYpVhAiAQp1mum3dOoYhEZxYpyOqejyyCw0k5s3jyH7p-Oyz56A"
+        }
+      },
+      "expected": {
+        "no_registry": [
+          [
+            "error",
+            "approval_webauthn_invalid"
+          ]
+        ],
+        "registry": [
+          [
+            "error",
+            "approval_webauthn_invalid"
+          ]
+        ],
+        "require": [
+          [
+            "error",
+            "approval_webauthn_invalid"
+          ]
+        ]
+      }
+    },
+    {
+      "description": "WebAuthn assertion presented as type key",
+      "review": {
+        "action_digest": "sha256:8c18b6d9e898d686e9c10f8aa74ae6a607f3f36b042434d9e6a7346496edcb17",
+        "tool": "issue_refund",
+        "system": "payments-api",
+        "reviewer": "ops:li",
+        "decision": "approved",
+        "before_execution": true,
+        "signature": {
+          "type": "key",
+          "approver_id": "ops:li",
+          "public_key": "ecdsa-p256:MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEE1AziUNsOMjLGjgVadctywG7O5nRBdgf-9sOKhX3Gg2xX8LWzhyuPzTlvyFrqyGgSCpnTzE3I7TboHb8jgHJkg",
+          "rp_id": "approve.example.com",
+          "credential_id": "AAECAwQFBgcICQoLDA0ODw",
+          "authenticator_data": "_pgLuHQFPJeFs-A-H3xCq_RfY87Hw7a3L3x4Lr7rEKkFAAAABw",
+          "client_data_json": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoiakJpMjJlaVkxb2Jwd1EtS3Awcm1wZ2Z6ODJzRUpEVFo1cWMwWkpidHl4YyIsIm9yaWdpbiI6Imh0dHBzOi8vYXBwcm92ZS5leGFtcGxlLmNvbSIsImNyb3NzT3JpZ2luIjpmYWxzZX0",
+          "signature": "MEQCIER5nbvTX6gyiaw04ZGgjYNMGW_xfqyMemDu2kEIYpVhAiAQp1mum3dOoYhEZxYpyOqejyyCw0k5s3jyH7p-Oyz56A"
+        }
+      },
+      "expected": {
+        "no_registry": [
+          [
+            "error",
+            "approval_bad_signature"
+          ]
+        ],
+        "registry": [
+          [
+            "error",
+            "approval_unknown_approver"
+          ]
+        ],
+        "require": [
+          [
+            "error",
+            "approval_unknown_approver"
+          ]
+        ]
+      }
+    }
+  ],
+  "chain": {
+    "records": [
+      {
+        "v": 1,
+        "chain": "ch_vector_approval",
+        "seq": 0,
+        "id": "r0",
+        "time": "2026-10-14T09:00:00.000Z",
+        "key": "k_ed25519_56475aa75463474c",
+        "kind": "genesis",
+        "public_key": {
+          "id": "k_ed25519_56475aa75463474c",
+          "public": "ed25519:A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
+        },
+        "config": {
+          "heartbeat_seconds": 600,
+          "segment_max_records": 1000
+        },
+        "sig": "ed25519:JB2sXgICEHUf1hniVOVpAfOyyWX2gPrN3niAZdJ29qFND5cDms49Arxa2EjRT3wAZW41XyuYSLqbPaUxVYiCAw"
+      },
+      {
+        "v": 1,
+        "chain": "ch_vector_approval",
+        "seq": 1,
+        "id": "r1",
+        "time": "2026-10-14T09:00:01.000Z",
+        "key": "k_ed25519_56475aa75463474c",
+        "kind": "review",
+        "review": {
+          "action_digest": "sha256:8c18b6d9e898d686e9c10f8aa74ae6a607f3f36b042434d9e6a7346496edcb17",
+          "tool": "issue_refund",
+          "system": "payments-api",
+          "reviewer": "ops:li",
+          "decision": "approved",
+          "before_execution": true,
+          "signature": {
+            "type": "webauthn",
+            "approver_id": "ops:li",
+            "public_key": "ecdsa-p256:MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEE1AziUNsOMjLGjgVadctywG7O5nRBdgf-9sOKhX3Gg2xX8LWzhyuPzTlvyFrqyGgSCpnTzE3I7TboHb8jgHJkg",
+            "rp_id": "approve.example.com",
+            "credential_id": "AAECAwQFBgcICQoLDA0ODw",
+            "authenticator_data": "_pgLuHQFPJeFs-A-H3xCq_RfY87Hw7a3L3x4Lr7rEKkFAAAABw",
+            "client_data_json": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoiakJpMjJlaVkxb2Jwd1EtS3Awcm1wZ2Z6ODJzRUpEVFo1cWMwWkpidHl4YyIsIm9yaWdpbiI6Imh0dHBzOi8vYXBwcm92ZS5leGFtcGxlLmNvbSIsImNyb3NzT3JpZ2luIjpmYWxzZX0",
+            "signature": "MEQCIER5nbvTX6gyiaw04ZGgjYNMGW_xfqyMemDu2kEIYpVhAiAQp1mum3dOoYhEZxYpyOqejyyCw0k5s3jyH7p-Oyz56A"
+          }
+        },
+        "prev": "sha256:b37514c5dbc9f855ec6468ecbe08ca7ace91c067b06d9edaf12ebc5ea1fc2872",
+        "sig": "ed25519:WgFxDitR17BZhBZzo7HJ4dRBEy2lzi3mY94UvqgGCgg69msFh5oy-yB7r3pwdV_JYbuaCWqotRPuQX7b7fKhAA"
+      },
+      {
+        "v": 1,
+        "chain": "ch_vector_approval",
+        "seq": 2,
+        "id": "r2",
+        "time": "2026-10-14T09:00:02.000Z",
+        "key": "k_ed25519_56475aa75463474c",
+        "kind": "action",
+        "agent": {
+          "id": "support-agent",
+          "version": "3.2.4"
+        },
+        "tool": {
+          "name": "issue_refund",
+          "system": "payments-api"
+        },
+        "args": {
+          "order_id": "A-1001",
+          "amount": "500.00",
+          "currency": "EUR"
+        },
+        "approval": "r1",
+        "response": {
+          "status": "ok",
+          "body": {
+            "refund_id": "R-9"
+          }
+        },
+        "t": {
+          "start": "2026-10-14T09:00:02.000Z",
+          "end": "2026-10-14T09:00:02.000Z"
+        },
+        "prev": "sha256:df2d2dd313da96d6cd5b1f5a2a0d78fed3c87698d80f80a25f15a4f6ed02fa09",
+        "sig": "ed25519:pT_pqz292LQBp7E6ADQXEZWiLCXqYcMFgZFe2PKsFuVk86ZNCqV8XgG6tSFFvqjBY13fWQ2-UWMHhkLK5KkGDw"
+      },
+      {
+        "v": 1,
+        "chain": "ch_vector_approval",
+        "seq": 3,
+        "id": "r3",
+        "time": "2026-10-14T09:00:03.000Z",
+        "key": "k_ed25519_56475aa75463474c",
+        "kind": "segment",
+        "segment": {
+          "from": 1,
+          "count": 2,
+          "root": "sha256:13a4c037f224a82e72a2620c0df6d9bf9baa832e84ad23a200879233563199d3",
+          "opened_at": "2026-10-14T09:00:00.000Z",
+          "closed_at": "2026-10-14T09:00:03.000Z",
+          "heartbeat": false
+        },
+        "prev": "sha256:365f018c5e4ee0e3530757fc1b3cf7042fc9ff56f9f87b6a863bb3a42b54aef2",
+        "sig": "ed25519:I6oSZ0Vk0tlzLhEfERy80i5NoKPI65KorNbQGjOTnj08tvUro3emLLBt-DM6_LSu9zXgWLtd65_pPKWh8lFuCg"
+      }
+    ],
+    "expected": {
+      "no_registry": {
+        "valid": true,
+        "findings": [
+          [
+            "warn",
+            "unanchored_segments"
+          ],
+          [
+            "warn",
+            "approval_unknown_approver"
+          ]
+        ]
+      },
+      "registry": {
+        "valid": true,
+        "findings": [
+          [
+            "warn",
+            "unanchored_segments"
+          ],
+          [
+            "info",
+            "approval_verified"
+          ]
+        ]
+      },
+      "registry_other_origin": {
+        "valid": false,
+        "findings": [
+          [
+            "warn",
+            "unanchored_segments"
+          ],
+          [
+            "error",
+            "approval_webauthn_invalid"
+          ]
+        ]
+      },
+      "require": {
+        "valid": true,
+        "findings": [
+          [
+            "warn",
+            "unanchored_segments"
+          ],
+          [
+            "info",
+            "approval_verified"
+          ]
+        ]
+      }
+    }
+  }
+}

@@ -35,6 +35,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--trusted-root", metavar="PATH",
                    help="Sigstore trusted_root.json to use instead of the embedded one (for newer log shards)")
     p.add_argument("--local-anchor-log", metavar="PATH", help="local anchor log to check local receipts against")
+    p.add_argument("--approvers", metavar="FILE",
+                   help="JSON list of the people who may approve actions, with their keys or passkeys; approvals "
+                        "must be signed by one of them")
+    p.add_argument("--require-signed-approvals", action="store_true",
+                   help="fail unless every approval is signed by an approver from --approvers")
+    p.add_argument("--webauthn-origin", metavar="ORIGIN", action="append",
+                   help="origin allowed in passkey approvals (default: https://<rp_id>); repeatable")
     p.add_argument("--strict", action="store_true", help="treat warnings as failures")
     p.add_argument("--version", action="version", version=f"gleipnir-verify {__version__}")
     return p
@@ -98,10 +105,29 @@ def main(argv: list[str] | None = None) -> int:
         if not sep or not seq_text.isdigit() or not hash_text.startswith("sha256:"):
             parser.error("--known-head must look like 12:sha256:<64 hex>")
         known_head = (int(seq_text), hash_text)
+    approvers = None
+    if args.approvers:
+        from .approvals import load_approvers
+
+        try:
+            with open(args.approvers, "rb") as fh:
+                data = json.loads(fh.read())
+        except OSError as exc:
+            parser.error(f"--approvers: {exc}")
+        except ValueError:  # JSON, UTF-8 and int-size errors alike
+            parser.error("--approvers: the file is not valid JSON")
+        try:
+            approvers = load_approvers(data)
+        except ValueError as exc:
+            parser.error(f"--approvers: {exc}")
+    if args.require_signed_approvals and approvers is None:
+        parser.error("--require-signed-approvals needs --approvers (who may approve is your decision)")
     report = verify_bundle(args.bundle, expect_key=args.expect_key, expect_until=expect_until,
                            known_head=known_head, require_anchor=args.require_anchor,
                            max_anchor_delay=args.max_anchor_delay,
-                           require_full=args.require_full, anchor_options=options)
+                           require_full=args.require_full, anchor_options=options, approvers=approvers,
+                           webauthn_origins=args.webauthn_origin,
+                           require_signed_approvals=args.require_signed_approvals)
     valid = report.valid(strict=args.strict)
 
     if args.json:
