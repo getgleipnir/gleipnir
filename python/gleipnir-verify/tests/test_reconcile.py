@@ -80,6 +80,6 @@ def test_nul_in_csv_is_a_usage_error(tmp_path, capsys):
         code = cli.main(["reconcile", str(p), str(csv_path), "--column", "refund_id"])
     except SystemExit as exc:
         code = exc.code
-    assert code in (1, 2)
+    assert code == 2
     del pytest
     capsys.readouterr()
