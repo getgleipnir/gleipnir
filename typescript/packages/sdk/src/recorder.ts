@@ -4,7 +4,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { join } from "node:path";
 import { hmac } from "@noble/hashes/hmac.js";
 import { sha256 } from "@noble/hashes/sha2.js";
-import { actionDigest, bytesToHex, canonicalize, hasDropped } from "@getgleipnir/verify";
+import { actionDigest, bytesToHex, canonicalize, checkSignature, hasDropped, parseJson } from "@getgleipnir/verify";
 import { LocalFileAnchor, type Anchor } from "./anchor.js";
 import { ChainWriter } from "./chain.js";
 import { exportBundle, exportProof, type ExportOptions } from "./export.js";
@@ -225,8 +225,15 @@ export interface WrappedTool {
 }
 
 export interface ApproveOptions {
-  /** Who approved, e.g. "ops:anna". */
-  approver: string;
+  /** Who approved, e.g. "ops:anna". Defaults to the signature's `approver_id`; required without a signature. */
+  approver?: string;
+  /**
+   * The approver's own signature over the approval (`review.signature`): from `ApproverKey.sign`,
+   * `gleipnir approve sign` or the passkey page; an object or its JSON text. Checked before it is recorded.
+   */
+  signature?: Record<string, unknown> | string;
+  /** Origins allowed when checking a passkey signature (default: `https://<rp_id>`). */
+  webauthnOrigins?: readonly string[];
   /** The oversight rule that required the approval, e.g. "amount>100". */
   rule?: string;
   /** The tool's system; required when `tool` is a name rather than a wrapped tool. */
@@ -380,6 +387,50 @@ export class Recorder {
    * pass `system`). `args` are the arguments as the action will record them (before redaction).
    */
   approve(tool: WrappedTool | ((...a: never[]) => unknown) | string, args: Record<string, unknown>, o: ApproveOptions): string {
+    const [name, system, digest] = this.approvalTarget(tool, args, o);
+    let sig: Rec | null = null;
+    let approver = o.approver;
+    if (o.signature !== undefined) {
+      let parsed: unknown = o.signature;
+      if (typeof parsed === "string") {
+        try {
+          parsed = parseJson(parsed);
+        } catch {
+          throw new Error("the approval signature is not valid JSON");
+        }
+      }
+      if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("the approval signature must be a JSON object");
+      sig = toJsonable({ ...(parsed as Rec) }) as Rec;
+      for (const [level, code, message] of checkSignature({ action_digest: digest, signature: sig }, null, o.webauthnOrigins ?? null, false)) {
+        if (level === "error") throw new Error(`${code}: ${message}`);
+      }
+      if (approver !== undefined && approver !== sig["approver_id"]) {
+        throw new Error(`approver '${approver}' differs from the signature's approver_id '${String(sig["approver_id"])}'`);
+      }
+      approver = sig["approver_id"] as string;
+    }
+    if (!approver) throw new Error("pass approver (who approved) or signature (the approver's signature)");
+    const body: Rec = { action_digest: digest, tool: name, system, reviewer: approver, decision: "approved", before_execution: true };
+    if (o.rule) body["rule"] = o.rule;
+    if (o.reason) body["reason"] = o.reason;
+    if (sig !== null) body["signature"] = sig;
+    return this.chain.append("review", { review: body })["id"] as string;
+  }
+
+  /**
+   * The action digest an approver signs for `tool(args)`, with this recorder's redaction applied.
+   * Show it to the approver (`gleipnir approve`, or the passkey page site/approve/), who signs it on
+   * their own device; pass the result to {@link Recorder.approve} as `signature`.
+   */
+  approvalDigest(tool: WrappedTool | ((...a: never[]) => unknown) | string, args: Record<string, unknown>, o: { system?: string; redact?: RedactSpec } = {}): string {
+    return this.approvalTarget(tool, args, o)[2];
+  }
+
+  private approvalTarget(
+    tool: WrappedTool | ((...a: never[]) => unknown) | string,
+    args: Record<string, unknown>,
+    o: { system?: string; redact?: RedactSpec },
+  ): [string, string, string] {
     const meta = (typeof tool === "function" ? tool : null) as Partial<WrappedTool> | null;
     const name = typeof tool === "string" ? tool : meta?.gleipnirTool;
     const system = o.system || meta?.gleipnirSystem;
@@ -392,11 +443,7 @@ export class Recorder {
           "use 'hmac' redaction for approved tools (needs a redaction key)",
       );
     }
-    const digest = actionDigest(name, system, bound);
-    const body: Rec = { action_digest: digest, tool: name, system, reviewer: o.approver, decision: "approved", before_execution: true };
-    if (o.rule) body["rule"] = o.rule;
-    if (o.reason) body["reason"] = o.reason;
-    return this.chain.append("review", { review: body })["id"] as string;
+    return [name, system, actionDigest(name, system, bound)];
   }
 
   note(text: string, data: Record<string, unknown> = {}): Rec {
