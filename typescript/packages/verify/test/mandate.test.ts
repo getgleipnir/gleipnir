@@ -10,10 +10,14 @@ import {
   parseAmount,
   periodKey,
   publicKeyOf,
+  combine,
+  cosign,
+  delegate,
   revoke,
   seedFromHex,
   signMandate,
   verifyDecision,
+  verifyReceipt,
   type AuthorityResult,
 } from "@getgleipnir/verify/mandate";
 
@@ -23,11 +27,12 @@ interface Vector {
   mandate: unknown;
   payments: unknown[];
   now: string[];
-  authority: { company: string; signer: string; source: string; keys: string[]; may_sign: boolean }[];
+  authority: { company: string; signer: string; source: string; keys: string[]; may_sign: boolean; joint?: number }[];
   revocations: unknown[];
   status: string | null;
   ledger: boolean;
   expect: J[];
+  receipt: J;
 }
 
 const DATA = JSON.parse(
@@ -41,7 +46,7 @@ async function run(c: Vector): Promise<J[]> {
     seed: seedFromHex(DATA.bank.seed_hex),
     authority: (company, signerId) => {
       const row = c.authority.find((r) => r.company === company.name && r.signer === signerId);
-      return row ? { source: row.source, keys: row.keys, maySign: row.may_sign } : null;
+      return row ? { source: row.source, keys: row.keys, maySign: row.may_sign, joint: row.joint ?? 1 } : null;
     },
     ledger: c.ledger ? new InMemoryLedger() : null,
     revocations: c.revocations,
@@ -77,6 +82,9 @@ describe("mandate conformance vectors (shared with the Python reference)", () =>
     const decisions = await run(c);
     expect(expected(decisions)).toEqual(c.expect);
     for (const d of decisions) expect(verifyDecision(d, [DATA.bank.public_key])).toBe(true);
+    const receipt: J = { ...verifyReceipt(c.mandate, c.payments[0], decisions[0], [DATA.bank.public_key]) };
+    delete receipt.checked_at;
+    expect(receipt).toEqual(c.receipt);
   });
 
   it("verifies decisions signed by the Python reference, and rejects edits and unknown keys", () => {
@@ -131,6 +139,42 @@ describe("mandate flow in TypeScript", () => {
       expect((await ok.check(m, junk)).outcome).toBe("block");
     }
     expect((await ok.check(undefined, p)).reasons).toEqual(["mandate_malformed"]);
+  });
+
+  it("two signers, a delegation chain and a second bank via vLEI", async () => {
+    const hoferSeed = newSeed(), ceoSeed = newSeed();
+    const berger = { id: "kberger@nordhafen.at", public_key: publicKeyOf(signerSeed) };
+    const hofer = { id: "mhofer@nordhafen.at", public_key: publicKeyOf(hoferSeed) };
+    const company = { name: "Nordhafen Logistik GmbH", country: "AT" };
+    const scope = { rails: ["sepa"], currency: "EUR", max_per_payment: "25000.00", payees: [brenner] };
+    let joint = issue({ id: "m_joint", company, agent: { id: "ap-agent", public_key: publicKeyOf(agentSeed) },
+      signers: { threshold: 2, of: [berger, hofer] }, scope, validUntil: "2099-01-01T00:00:00.000Z" });
+    joint = cosign(cosign(joint, signerSeed, berger.id), hoferSeed, hofer.id);
+    const kyb = (_c: Record<string, unknown>, id: string): AuthorityResult | null =>
+      id === berger.id ? { source: "bank_kyb", keys: [berger.public_key] }
+        : id === hofer.id ? { source: "bank_kyb", keys: [hofer.public_key] } : null;
+    const bank = new Checker({ id: "bank:ts", seed: bankSeed, authority: kyb });
+    const p = attach(joint, { id: "p_j", rail: "sepa", amount: "100.00", currency: "EUR", payee: brenner, agentSeed });
+    const d = await bank.check(joint, p);
+    expect(d.checks).toContain("signatures:2/2");
+    expect(verifyReceipt(joint, p, d, [bank.publicKey]).signed_by).toEqual([berger.id, hofer.id]);
+
+    const ceo = { id: "ceo@nordhafen.at", public_key: publicKeyOf(ceoSeed) };
+    const link = delegate({ id: "g1", company, from: ceo, to: berger, seed: ceoSeed,
+      scope: { ...scope, max_per_payment: "50000.00" }, validUntil: "2099-06-01T00:00:00.000Z" });
+    const viaChain = signMandate(issue({ id: "m_chain", company, agent: { id: "ap-agent" }, signer: berger,
+      delegation: [link], scope, validUntil: "2099-01-01T00:00:00.000Z" }), signerSeed);
+    const people = combine(
+      (_c, id) => (id === ceo.id ? { source: "bank_kyb", keys: [ceo.public_key] } : null),
+      async (_c, id) => (id === berger.id ? { source: "vlei", keys: [berger.public_key], maySign: false } : null),
+    );
+    const second = new Checker({ id: "bank:second", seed: bankSeed, authority: people });
+    const pc = attach(viaChain, { id: "p_c", rail: "sepa", amount: "100.00", currency: "EUR", payee: brenner });
+    expect((await second.check(viaChain, pc)).checks).toContain("delegation:1");
+    second.revocations.push(revoke(link, { signer: ceo, seed: ceoSeed, id: "r_g1", revokedAt: "2000-01-01T00:00:00.000Z" }));
+    const pc2 = attach(viaChain, { id: "p_c2", rail: "sepa", amount: "100.00", currency: "EUR", payee: brenner });
+    expect((await second.check(viaChain, pc2)).reasons).toEqual(["delegation_revoked"]);
+    expect(() => delegate({ id: "g", company, from: ceo, to: berger, seed: ceoSeed, scope: {}, validUntil: "x" })).toThrow();
   });
 
   it("amounts are exact minor units", () => {

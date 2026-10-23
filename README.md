@@ -2,7 +2,7 @@
 
 Know Your Agent (KYA) for bank payments. Gleipnir lets a bank verify that an AI agent is authorized by a company before it executes the agent's transfer (SEPA, SEPA Instant, ACH, wire).
 
-A company signatory signs a **mandate** for the agent: which rails, currency, per-payment and per-period limits, which payees. The agent attaches the mandate to each payment it starts. The bank checks the payment against the mandate and against its own KYB records (who may sign for the company), and signs a **decision**: allow, block or escalate. Registers, LEI and vLEI are optional extra proof; the base is the KYB the bank already has. Spec: [spec/mandate.md](spec/mandate.md) (v0.1 draft).
+A company signatory signs a **mandate** for the agent: which rails, currency, per-payment and per-period limits, which payees. The agent attaches the mandate to each payment it starts. The bank checks the payment against the mandate and against its own KYB records (who may sign for the company), and signs a **decision**: allow, block or escalate. Registers, LEI and vLEI are optional extra proof; the base is the KYB the bank already has. Spec: [spec/mandate.md](spec/mandate.md) (v0.2 draft): enrollment (how a signer key is bound to a person by the bank, a register or vLEI; Gleipnir does not verify identity), multi-signature mandates (Gesamtprokura, "2 of Berger, Hofer"), signed delegation chains (CEO → CFO → mandate), and a threat model per link of the chain of trust. Every one of the 21 use cases has a named test in [test_mandate_usecases.py](python/gleipnir-verify/tests/test_mandate_usecases.py).
 
 ## Quickstart: from nothing to a signed decision
 

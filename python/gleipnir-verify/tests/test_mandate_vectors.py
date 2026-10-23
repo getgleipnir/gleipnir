@@ -14,7 +14,10 @@ DATA = json.loads(V.OUT.read_text(encoding="utf-8"))
 
 @pytest.mark.parametrize("c", DATA["cases"], ids=[c["name"] for c in DATA["cases"]])
 def test_vector(c):
-    assert V.expected(V.run(c)) == c["expect"]
+    decisions = V.run(c)
+    assert V.expected(decisions) == c["expect"]
+    receipt = M.verify_receipt(c["mandate"], c["payments"][0], decisions[0], [DATA["bank"]["public_key"]])
+    assert {k: v for k, v in receipt.items() if k != "checked_at"} == c["receipt"]
 
 
 def test_fixture_is_current():
