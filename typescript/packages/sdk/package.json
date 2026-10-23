@@ -11,6 +11,10 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./mandate-mcp": {
+      "types": "./dist/mandate-mcp.d.ts",
+      "import": "./dist/mandate-mcp.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
@@ -28,5 +32,8 @@
     "@noble/curves": "2.4.0",
     "@noble/hashes": "2.4.0",
     "fflate": "0.8.3"
+  },
+  "bin": {
+    "gleipnir-mandate-mcp": "./dist/mandate-mcp.js"
   }
 }

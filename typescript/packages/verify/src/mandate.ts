@@ -143,6 +143,44 @@ export function normAccount(acc: JsonDict): string {
   return JSON.stringify(keys.map((k) => [k, pyStr(acc[k]).replaceAll(" ", "")]));
 }
 
+// ---------- parsing ----------
+
+/** The first key that appears twice in one JSON object of a valid JSON text, or null. */
+export function duplicateKey(text: string): string | null {
+  const stack: (Set<string> | null)[] = []; // one Set per open object, null for arrays
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (c === "{") stack.push(new Set());
+    else if (c === "[") stack.push(null);
+    else if (c === "}" || c === "]") stack.pop();
+    else if (c === '"') {
+      let j = i + 1;
+      while (text[j] !== '"') j += text[j] === "\\" ? 2 : 1;
+      let k = j + 1;
+      while (k < text.length && " \t\n\r".includes(text[k]!)) k++;
+      const top = stack[stack.length - 1];
+      if (text[k] === ":" && top) {
+        const key = JSON.parse(text.slice(i, j + 1)) as string;
+        if (top.has(key)) return key;
+        top.add(key);
+      }
+      i = j;
+    }
+  }
+  return null;
+}
+
+/**
+ * Parse JSON from the wire as spec section 13 requires: no duplicate keys (two parsers could read
+ * different objects behind one hash), no NaN or Infinity. Throws on violation.
+ */
+export function parseStrict(text: string): unknown {
+  const value = JSON.parse(text) as unknown;
+  const dup = duplicateKey(text);
+  if (dup !== null) throw new Error(`duplicate JSON key ${JSON.stringify(dup)}`);
+  return value;
+}
+
 // ---------- issuing ----------
 
 export interface IssueOptions {
