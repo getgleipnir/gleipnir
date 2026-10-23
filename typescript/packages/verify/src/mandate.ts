@@ -850,7 +850,7 @@ export class Checker {
     return sign(this.seed, "decision", d);
   }
 
-  /** Steps 7-8a: every signer through authority separately, then threshold and joint. Throws Stop. */
+  /** Steps 8-10: every signer through authority separately, then threshold and joint. Throws Stop. */
   private async signersOk(m: JsonDict, sigs: Signed[], threshold: number, checks: string[]): Promise<void> {
     const counted: Accepted[] = [];
     let unknown = false;
@@ -927,7 +927,7 @@ export class Checker {
       }
       checks.push("agent_signed");
     }
-    // Authentic from here on: only now may the payment id be claimed (spec 7, step 7c).
+    // Authentic from here on: only now may the payment id be claimed (spec 7, step 13).
     let claimed: boolean;
     try {
       claimed = await this.payments.register(key, pHash);
@@ -968,7 +968,7 @@ export class Checker {
   }
 
   /**
-   * Step 17: reserve the amount against the mandate's period limit and against every delegation link's own
+   * Step 21: reserve the amount against the mandate's period limit and against every delegation link's own
    * period limit (a link's limit is shared by all mandates under it), all or nothing.
    */
   private async reserve(m: JsonDict, mh: string, chain: JsonDict[], amt: bigint, at: Micros, checks: string[]): Promise<string | null> {

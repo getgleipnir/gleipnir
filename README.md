@@ -1,8 +1,45 @@
 # Gleipnir
 
-Know Your Agent (KYA) for bank payments. Gleipnir lets a bank verify that an AI agent is authorized by a company before it executes the agent's transfer (SEPA, SEPA Instant, ACH, wire).
+**Know Your Agent for bank transfers.** A power of attorney for AI agents that any bank can check.
 
-A company signatory signs a **mandate** for the agent: which rails, currency, per-payment and per-period limits, which payees. The agent attaches the mandate to each payment it starts. The bank checks the payment against the mandate and against its own KYB records (who may sign for the company), and signs a **decision**: allow, block or escalate. Registers, LEI and vLEI are optional extra proof; the base is the KYB the bank already has. Spec: [spec/mandate.md](spec/mandate.md) (v0.2 draft): enrollment (how a signer key is bound to a person by the bank, a register or vLEI; Gleipnir does not verify identity), multi-signature mandates (Gesamtprokura, "2 of Berger, Hofer"), signed delegation chains (CEO → CFO → mandate), and a threat model per link of the chain of trust. Every one of the 21 use cases has a named test in [test_mandate_usecases.py](python/gleipnir-verify/tests/test_mandate_usecases.py).
+AI agents are starting to pay supplier invoices by SEPA, ACH and wire. Gleipnir lets the bank verify, before it executes, that a person who may sign for the company actually allowed this agent to make this payment: to this payee, up to this amount, until this date. Open spec, Python and TypeScript, Apache-2.0.
+
+```mermaid
+flowchart LR
+    S["Signatory<br/>(known to the bank)"] -- "mandate, signed with a passkey<br/>payees · limits · rails · expiry" --> A["AI agent"]
+    A -- "payment, signed by the agent<br/>+ the mandate" --> B["Bank / PSP<br/>checker"]
+    K[("bank's own KYB:<br/>who may sign,<br/>enrolled keys")] -.-> B
+    B -- "signed decision" --> D{"allow · block · escalate"}
+```
+
+## Why
+
+- **Cards have KYA, transfers don't.** Card networks are building agent checks for card payments. For bank transfers there are per-platform limits, but no shared check a bank can run on "was this agent authorized by the company?".
+- **The scam agents fall for first is "we changed our bank details".** A payee list on the mandate blocks it: a changed IBAN is a different payee.
+- **Someone will ask "prove it" months later.** Mandate + payment + signed decision is a receipt anyone can verify offline, without the bank or us.
+
+## How it works
+
+1. **Mandate.** A person who may sign for the company (alone, or two together for Gesamtprokura; or on the strength of a signed CEO → CFO delegation) signs what one agent may pay. They sign in their bank's app or on a static passkey page.
+2. **Payment.** The agent signs every payment with its own key and attaches the mandate.
+3. **Check.** Before executing, the bank checks the signatures, that the signer may sign for the company and with that key, **from its own KYB records, never from the mandate**, that nothing is revoked or expired, that the payee, rail and amounts are covered, and that it is not a replay. 21 steps, deterministic ([spec §7](spec/mandate.md#7-check)).
+4. **Decision.** Allow, block, or send to a person. The bank signs the decision, which becomes the receipt.
+
+Gleipnir does not move money and does not verify identities: the bank (KYB) or a vLEI issuer does that once, and everything after is a signature. See the [chain of trust and threat model](spec/mandate.md#11-threat-model).
+
+## What's in the repo
+
+| | |
+|---|---|
+| **Spec** | [spec/mandate.md](spec/mandate.md), v0.2 draft: enrollment, multi-signature, delegation, revocation, receipts, threat model, reason codes, conformance |
+| **Reference checker** | Python `gleipnir_verify.mandate` |
+| **TypeScript port** | `@getgleipnir/verify/mandate` (Node and browsers), same results on every test vector |
+| **Test vectors** | [76 shared cases](typescript/packages/verify/test/fixtures/mandate-vectors.json): both implementations run them and verify each other's decisions |
+| **CLI** | `gleipnir mandate keygen · issue · sign · delegate · pay · check · revoke · verify · serve · mcp` |
+| **Bank side** | `gleipnir mandate serve`: reference `POST /check` server |
+| **Agent side** | MCP server (Python, or `npx gleipnir-mandate-mcp`) for Claude, Cursor and any MCP client |
+| **Signatory side** | [site/mandate](site/mandate/index.html): review a mandate and sign it with a passkey; no network |
+| **Use cases** | all [21 scenarios](python/gleipnir-verify/tests/test_mandate_usecases.py) as named tests, from issuing to a dispute three months later |
 
 ## Quickstart: from nothing to a signed decision
 
@@ -19,19 +56,43 @@ g check mandate.json p1.json --authority kyb.json --bank-key bank.pem -o decisio
 
 Change the IBAN in `pay` and `check` blocks it (`payee_not_on_mandate`, exit 1). Go over 25 000.00 and it escalates (`over_payment_limit`, exit 3). Resend `p_1` and you get the same decision back, booked once. `g revoke mandate.json --key signer.pem --id r_1 -o rev.json`, then `check ... --revocation rev.json` blocks with `mandate_revoked`. `g verify decision.json --bank-pub bank.pem` checks the bank's signature; an edited decision is INVALID.
 
-The same flow in Python: [examples/mandate_demo.py](examples/mandate_demo.py) (`uv run python examples/mandate_demo.py`). Library: `gleipnir_verify.mandate` (`issue`, `sign_mandate`, `attach`, `revoke`, `Checker`, `verify_decision`).
+## Two signers and delegation
 
-TypeScript, for PSP and bank backends (Node and browsers): `@getgleipnir/verify/mandate`, same API in camelCase with an async `Checker.check` and amounts as bigint minor units. Parse wire input with `parseStrict`, not `JSON.parse`: once parsed, JavaScript cannot tell `2.0` from `2`, and the spec refuses floats. Both implementations run the same conformance vectors ([typescript/packages/verify/test/fixtures/mandate-vectors.json](typescript/packages/verify/test/fixtures/mandate-vectors.json), generated by `python/gleipnir-verify/tests/mandate_vectors.py`), so they give the same hashes, reason codes and checks, and each verifies the other's decisions.
+```bash
+g keygen -o hofer.pem
+g issue ... --cosigner mhofer@nordhafen.at=hofer.pem --threshold 2 -o joint.json   # Gesamtprokura
+g sign joint.json --key signer.pem && g sign joint.json --key hofer.pem           # each with their own key
 
-```ts
-import { Checker, verifyDecision } from "@getgleipnir/verify/mandate";
-const bank = new Checker({ id: "bank:ATXX", seed, authority: kybLookup, ledger, payments });
-const decision = await bank.check(mandate, payment);   // { outcome: "allow" | "block" | "escalate", reasons, sig, ... }
+g delegate --id g1 --company "Nordhafen Logistik GmbH" --from-id ceo@nordhafen.at --key ceo.pem \
+  --to cfo@nordhafen.at=cfo.pem --currency EUR --max-per-payment 50000.00 --max-per-period 200000.00/P1M -o g1.json
+g issue ... --signer-id cfo@nordhafen.at --signer-key cfo.pem --delegation g1.json -o cfo.json
+g revoke g1.json --key ceo.pem --id r_g1 -o r_g1.json                              # cuts everything below
 ```
 
-The CLI keeps period totals and seen payment ids in `.gleipnir/mandate-state/` so repeated runs act like one bank. That file is for development; a bank plugs in its own ledger and payment log (`Ledger.reserve`, `PaymentLog.seen`).
+A delegate can never grant more than they received, and a link's monthly limit is shared by every mandate under it.
 
-## For agents: MCP. For signatories: a passkey page. For banks: `POST /check`
+## Libraries
+
+Python: [examples/mandate_demo.py](examples/mandate_demo.py) walks through allow, a changed IBAN, an amount over the limit, a resend, a forged decision, a CFO who leaves, and a second bank with and without vLEI (`uv run python examples/mandate_demo.py`).
+
+```python
+from gleipnir_verify import mandate as m
+bank = m.Checker(id="bank:ATXX", sk=bank_key, authority=kyb_lookup, ledger=ledger, payments=payment_log)
+decision = bank.check(mandate, payment)          # {"outcome": "allow" | "block" | "escalate", "reasons": [...], "sig": ...}
+m.verify_receipt(mandate, payment, decision, bank_public_keys)   # offline, months later
+```
+
+TypeScript: the same API in camelCase, with an async `check` and amounts as bigint minor units. Parse wire input with `parseStrict`, not `JSON.parse`: once parsed, JavaScript cannot tell `2.0` from `2`, and the spec refuses floats.
+
+```ts
+import { Checker, parseStrict, verifyDecision } from "@getgleipnir/verify/mandate";
+const bank = new Checker({ id: "bank:ATXX", seed, authority: kybLookup, ledger, payments });
+const decision = await bank.check(parseStrict(mandateText), parseStrict(paymentText));
+```
+
+A bank plugs in its own authority source (`authority(company, person_id)`), payment log (`lookup`, `register`, `remember`, `forget`) and period ledger (`reserve`, `release`). The CLI's `.gleipnir/mandate-state/` file is a development stand-in for both.
+
+## For agents, signatories and banks
 
 **Agents.** An MCP server any MCP client can run (Claude Desktop, Cursor, Claude Code), in Python or as an npm binary:
 
@@ -46,17 +107,24 @@ Four tools and one resource: `mandate_scope` (what may I pay), `request_mandate`
 
 **Signatories.** [site/mandate](site/mandate/index.html) is a single static page: paste or open a draft, read what the agent may pay (payees, limits, validity, delegation), sign with a passkey, alone or as one of several co-signers. It makes no network requests. The passkey signs `SHA-256("gleipnir/mandate/v0.2\n" || mandate_hash)`, so the signature is valid for this mandate and nothing else.
 
-**Banks.** A reference HTTP checker (no auth; put it behind your own gateway):
+**Banks.** A reference HTTP checker (JSON only, Origin allow-list, no auth: put it behind your own gateway):
 
 ```bash
 g serve --authority kyb.json --bank-key bank.pem --port 8787   # POST /check, GET /keys, POST /revoke
 ```
 
-**Two signers, delegation.** `g issue ... --cosigner mhofer@nordhafen.at=hofer.pem --threshold 2` makes a Gesamtprokura mandate; each signer runs `g sign` with their own key. `g delegate --from-id ceo@... --key ceo.pem --to cfo@...=cfo.pem ...` writes a signed delegation, and `g issue ... --delegation g1.json` a mandate the CFO signs on the strength of it; `g revoke g1.json --key ceo.pem ...` cuts everything below.
+## Status and security
 
-## Action records for AI agents
+- **Draft 0.2.** The format may still change; feedback from payment, fraud and compliance people is very welcome.
+- **Audited twice on 23.10.2026** by independent reviewers who wrote every attack as a test: [first audit](docs/audit-2026-10-23.md), [second audit and re-verification](docs/audit-2026-10-23-evening.md). Every finding is fixed and has a regression test.
+- **Not solved by design:** a fake invoice from a real payee within the limits, collusion between real signatories, a compromised signer phone within the signed scope. They are bounded and visible in the receipt; see [residual risks](spec/mandate.md#11-threat-model).
+- **Open:** IBAN checksum and wider normalization, a standard revocation-list format, joint signing inside delegation links, real vLEI (ACDC/KERI) credential verification (today vLEI is an authority source).
 
-The earlier part of this repo: signed, anchored records of what an agent did, verifiable by a third party.
+---
+
+## Earlier work: action records for AI agents
+
+Before KYA, this repo started as signed, anchored records of what an agent did, verifiable by a third party. That code is unchanged and still tested.
 
 AI agent vendors get stuck in their buyers' security reviews because they can't prove what their agent did: their logs are self-written, so the buyer can't verify them. Gleipnir records each agent action together with the real outcome in the external system, signs it, anchors it outside the vendor, and lets the buyer, auditor or insurer verify it independently.
 
@@ -82,7 +150,7 @@ The buyer checks the bundle offline, with no account and no access to the vendor
 pipx run gleipnir-verify bundle.zip --expect-key k_ed25519_... --require-anchor rekor --require-full
 ```
 
-## Zero-code: any MCP client
+### Zero-code: any MCP client
 
 Put `gleipnir-mcp` in front of a local MCP server in Claude Desktop, Cursor or Claude Code and every tool call through it gets a signed record, with no code changes:
 
@@ -93,7 +161,7 @@ gleipnir report --open      # what my agent did
 
 See [docs/mcp-proxy.md](docs/mcp-proxy.md).
 
-## Try it in one minute
+### Try it in one minute
 
 ```bash
 git clone https://github.com/getgleipnir/gleipnir && cd gleipnir
@@ -111,7 +179,7 @@ A support agent issues refunds through a payments API with a hidden bug. The age
 
 No API keys, no network. The same agent as readable code, step by step: [examples/refund-agent](examples/refund-agent).
 
-## What's in the box
+### What's in the box
 
 **Recording (vendor side)**
 
@@ -141,7 +209,7 @@ Python and TypeScript (`@getgleipnir/verify`, `@getgleipnir/sdk`) produce and ac
 
 Docs: [design](docs/design.md), [adapters](docs/adapters.md), [threat model](docs/threat-model.md) (what a valid result proves, and what it doesn't).
 
-## Status
+### Status
 
 Pre-release (0.1.0.dev0), not yet on PyPI or npm.
 

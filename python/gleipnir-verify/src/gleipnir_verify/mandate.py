@@ -716,7 +716,7 @@ class Checker:
         return _sign(self.sk, "decision", d)
 
     def _signers_ok(self, m: dict, sigs: list[tuple[dict, Any]], threshold: int, checks: list[str]) -> None:
-        """Steps 7-8a: every signer through authority separately, then threshold and joint. Raises _Stop."""
+        """Steps 8-10: every signer through authority separately, then threshold and joint. Raises _Stop."""
         counted: list[AuthorityResult] = []
         unknown = False
         seen_keys: set[str] = set()
@@ -789,7 +789,7 @@ class Checker:
             if not _verify("payment", p_hash, p.get("agent_sig"), m["agent"]["public_key"], self.webauthn):
                 return "agent_bad_signature"
             checks.append("agent_signed")
-        # Authentic from here on: only now may the payment id be claimed (spec 7, step 7c).
+        # Authentic from here on: only now may the payment id be claimed (spec 7, step 13).
         try:
             claimed = self.payments.register(key, p_hash)
         except Exception:  # noqa: BLE001
@@ -833,7 +833,7 @@ class Checker:
 
     def _reserve(self, m: dict, mh: str, chain: list[dict], amt: Decimal, at: datetime,
                  checks: list[str]) -> str | None:
-        """Step 17: reserve the amount against the mandate's period limit and against every delegation link's
+        """Step 21: reserve the amount against the mandate's period limit and against every delegation link's
         own period limit (a link's limit is shared by all mandates under it), all or nothing."""
         wanted = [(f"mandate:{mh}", m["scope"])] if "max_per_period" in m["scope"] else []
         wanted += [(f"delegation:{delegation_hash(d)}", d["scope"]) for d in chain if "max_per_period" in d["scope"]]
