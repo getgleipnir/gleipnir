@@ -142,3 +142,16 @@ describe("gleipnir-mandate-mcp (TypeScript)", () => {
     expect(verifyDecision(r.decision, [bank])).toBe(true);
   });
 });
+
+
+describe("second audit: the MCP KYB loader fails closed (F10)", () => {
+  it.each([{ may_sign: null }, { joint: "2" }])("%j", async (bad) => {
+    const signer = seedFromPem(readFileSync(join(dir, "signer.pem"), "utf8"));
+    const path = join(dir, `kyb-${JSON.stringify(bad).replace(/\W/g, "")}.json`);
+    writeFileSync(path, JSON.stringify({ source: "bank_kyb", signers: [{ company: "Nordhafen Logistik GmbH",
+      signer: "kberger@nordhafen.at", keys: [publicKeyOf(signer)], may_sign: true, ...bad }] }));
+    const t = tools({ authority: path });
+    const p = (await call(t, "attach_mandate", { payment_id: `INV-${path.length}`, amount: "1.00", payee: PAYEE })).structuredContent as J;
+    expect(((await call(t, "check_payment", p)).structuredContent as J).reasons).toEqual(["checker_unavailable"]);
+  });
+});

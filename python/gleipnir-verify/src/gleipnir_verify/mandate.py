@@ -43,6 +43,11 @@ _AMOUNT_RE = {0: re.compile(r"(0|[1-9][0-9]*)"), 2: re.compile(r"(0|[1-9][0-9]*)
 ESCALATE = {"signer_unknown", "status_unavailable", "over_payment_limit", "over_period_limit", "ledger_missing",
             "checker_unavailable"}
 MANDATE_SIG_FIELDS = ("sig", "sigs")
+# Outcomes the payment log never caches: a retry once the dependency is back gets a fresh check.
+TRANSIENT = {"checker_unavailable", "status_unavailable", "ledger_missing"}
+_COUNTRY_RE = re.compile(r"[A-Z]{2}")
+_IBAN_RE = re.compile(r"[A-Za-z0-9 ]+")
+_MAX_INT = 2 ** 53 - 1
 MAX_DELEGATION_DEPTH = 5
 
 
@@ -120,9 +125,20 @@ def parse_amount(text: Any, currency: Any) -> Decimal:
 
 
 def norm_account(acc: dict[str, Any]) -> dict[str, Any]:
+    """Account fields are strings (checked by _account_problem); IBANs ASCII, uppercased without spaces."""
     if "iban" in acc:
-        return {"iban": str(acc["iban"]).replace(" ", "").upper()}
-    return {k: str(v).replace(" ", "") for k, v in sorted(acc.items())}
+        return {"iban": acc["iban"].replace(" ", "").upper()}
+    return {k: v.replace(" ", "") for k, v in sorted(acc.items())}
+
+
+def _account_problem(acc: Any) -> str | None:
+    if not isinstance(acc, dict) or not acc:
+        return "every payee needs an account object"
+    if not all(isinstance(v, str) and v for v in acc.values()):
+        return "account fields must be non-empty strings"
+    if "iban" in acc and not _IBAN_RE.fullmatch(acc["iban"]):
+        return "IBAN must be ASCII letters, digits and spaces"
+    return None
 
 
 # ---------- issuing ----------
@@ -237,11 +253,29 @@ def _str_fields(obj: Any, paths: Iterable[str]) -> str | None:
     return None
 
 
+def _numbers_ok(obj: Any) -> bool:
+    """I-JSON as spec 13 profiles it: no floats, integers within +-(2^53 - 1)."""
+    if isinstance(obj, bool) or obj is None or isinstance(obj, str):
+        return True
+    if isinstance(obj, int):
+        return -_MAX_INT <= obj <= _MAX_INT
+    if isinstance(obj, float):
+        return False
+    if isinstance(obj, list):
+        return all(_numbers_ok(x) for x in obj)
+    if isinstance(obj, dict):
+        return all(_numbers_ok(x) for x in obj.values())
+    return False
+
+
 def _jcs_ok(obj: Any) -> bool:
     try:
         canonicalize(obj)
-        return True
     except Exception:  # noqa: BLE001 - any value JCS cannot encode
+        return False
+    try:
+        return _numbers_ok(obj)
+    except RecursionError:
         return False
 
 
@@ -268,9 +302,12 @@ def _scope_problem(sc: dict) -> str | None:
     if set(rails) - RAILS:
         return f"unknown rails: {sorted(set(rails) - RAILS)}"
     payees = sc.get("payees", [])
-    if not isinstance(payees, list) or not all(isinstance(x, dict) and isinstance(x.get("account"), dict)
-                                               and x["account"] for x in payees):
+    if not isinstance(payees, list) or not all(isinstance(x, dict) for x in payees):
         return "every payee needs an account object"
+    for x in payees:
+        bad = _account_problem(x.get("account"))
+        if bad:
+            return bad
     return None
 
 
@@ -307,6 +344,8 @@ def _signers_problem(m: dict) -> str | None:
         ids.append(p["id"])
     if len(set(ids)) != len(ids):
         return "duplicate signer id"
+    if len({p["public_key"] for p in ss["of"]}) != len(ss["of"]):
+        return "duplicate signer key: one person cannot count twice"
     sigs = m.get("sigs", [])
     if not isinstance(sigs, list) or not all(isinstance(s, dict) and s.get("signer") in ids
                                              and isinstance(s.get("sig"), (str, dict)) for s in sigs):
@@ -326,6 +365,8 @@ def mandate_problem(m: Any) -> str | None:
         return bad
     if not _jcs_ok(m):
         return "mandate is not valid I-JSON"
+    if not _COUNTRY_RE.fullmatch(m["company"]["country"]):
+        return "company.country must be an ISO 3166-1 alpha-2 code"
     bad = _signers_problem(m) or _scope_problem(m["scope"]) or _validity_problem(m)
     if bad:
         return bad
@@ -368,6 +409,11 @@ def payment_problem(p: Any) -> str | None:
         return "missing payee.account"
     if not _jcs_ok(p):
         return "payment is not valid I-JSON"
+    if p["rail"] not in RAILS:
+        return f"unknown rail: {p['rail']!r}"
+    bad = _account_problem(p["payee"]["account"])
+    if bad:
+        return bad
     try:
         parse_amount(p.get("amount"), p["currency"])
         _ts(p["requested_at"])
@@ -415,16 +461,23 @@ def _same_person(a: dict, b: dict) -> bool:
     return (a["id"], a["public_key"]) == (b["id"], b["public_key"])
 
 
+def _same_company(link: dict, mandate: dict) -> bool:
+    """A link names the mandate's company: same name, and the same country and ids where the link gives them."""
+    return link.get("name") == mandate["name"] and all(
+        link[k] == mandate.get(k) for k in ("country", "ids") if k in link)
+
+
 def _chain_problem(m: dict, chain: list[dict], webauthn: dict) -> str | None:
     """Linkage and signatures of a delegation chain (spec section 5, steps 1-2), or None."""
     for i, d in enumerate(chain):
-        if d["company"].get("name") != m["company"]["name"]:
+        if not _same_company(d["company"], m["company"]):
             return "delegation_broken"
         if i == 0:
             if "parent" in d:
                 return "delegation_broken"
         elif not _same_person(d["from"], chain[i - 1]["to"]) \
-                or d.get("parent", {}).get("hash") != delegation_hash(chain[i - 1]):
+                or d.get("parent", {}).get("hash") != delegation_hash(chain[i - 1]) \
+                or d.get("parent", {}).get("id") != chain[i - 1]["id"]:
             return "delegation_broken"
     if not _same_person(m["signer"], chain[-1]["to"]):
         return "delegation_broken"
@@ -487,17 +540,34 @@ def combine(*sources: Authority) -> Authority:
 
 
 class PaymentLog(Protocol):
-    def seen(self, payment_id: str, payment_hash: str) -> dict | str | None:
-        """Atomically register a payment id. None: new (now registered). A decision dict: this id and hash
-        were decided before. "duplicate": the id is known with another hash, or is still being checked."""
+    """Idempotency per payer (spec 7). ``key`` is payment_key(company, payment id)."""
 
-    def remember(self, payment_id: str, decision: dict) -> None:
-        """Store the decision for a registered payment id."""
+    def lookup(self, key: str, payment_hash: str) -> dict | None:
+        """The earlier final decision for this key and this exact payment, or None."""
+
+    def register(self, key: str, payment_hash: str) -> bool:
+        """Atomically claim the key. False if it is already claimed (by any payment)."""
+
+    def remember(self, key: str, decision: dict) -> None:
+        """Store the final decision for a claimed key."""
+
+    def forget(self, key: str) -> None:
+        """Release a claim without a decision (a transient failure), so a retry is checked afresh."""
 
 
 class Ledger(Protocol):
-    def reserve(self, mandate_id: str, period: str, amount: Decimal, limit: Decimal, at: datetime) -> bool:
+    """Period totals (spec 7). ``key`` is "mandate:<hash>" or "delegation:<hash>"; ``at`` picks the period."""
+
+    def reserve(self, key: str, period: str, amount: Decimal, limit: Decimal, at: datetime) -> bool:
         """Atomically add amount to the period total if the total stays within limit."""
+
+    def release(self, key: str, period: str, amount: Decimal, at: datetime) -> None:
+        """Give back a reservation (a later step failed, or the bank did not execute)."""
+
+
+def payment_key(company: dict, payment_id: str) -> str:
+    """The payment log key: payment ids are unique per payer, so the payer is part of the key."""
+    return f"{company.get('country')}|{company.get('name')}|{payment_id}"
 
 
 class InMemoryPaymentLog:
@@ -507,17 +577,25 @@ class InMemoryPaymentLog:
         self._lock = threading.Lock()
         self._items: dict[str, tuple[str, dict | None]] = {}
 
-    def seen(self, payment_id: str, payment_hash: str) -> dict | str | None:
+    def lookup(self, key: str, payment_hash: str) -> dict | None:
         with self._lock:
-            if payment_id not in self._items:
-                self._items[payment_id] = (payment_hash, None)
-                return None
-            h, decision = self._items[payment_id]
-            return decision if h == payment_hash and decision is not None else "duplicate"
+            entry = self._items.get(key)
+            return entry[1] if entry and entry[0] == payment_hash else None
 
-    def remember(self, payment_id: str, decision: dict) -> None:
+    def register(self, key: str, payment_hash: str) -> bool:
         with self._lock:
-            self._items[payment_id] = (self._items[payment_id][0], decision)
+            if key in self._items:
+                return False
+            self._items[key] = (payment_hash, None)
+            return True
+
+    def remember(self, key: str, decision: dict) -> None:
+        with self._lock:
+            self._items[key] = (self._items[key][0], decision)
+
+    def forget(self, key: str) -> None:
+        with self._lock:
+            self._items.pop(key, None)
 
 
 def period_key(period: str, at: datetime) -> str:
@@ -539,19 +617,19 @@ class InMemoryLedger:
         self._lock = threading.Lock()
         self.totals: dict[tuple[str, str], Decimal] = {}
 
-    def reserve(self, mandate_id: str, period: str, amount: Decimal, limit: Decimal, at: datetime) -> bool:
-        key = (mandate_id, period_key(period, at))
+    def reserve(self, key: str, period: str, amount: Decimal, limit: Decimal, at: datetime) -> bool:
+        k = (key, period_key(period, at))
         with self._lock:
-            total = self.totals.get(key, Decimal(0)) + amount
+            total = self.totals.get(k, Decimal(0)) + amount
             if total > limit:
                 return False
-            self.totals[key] = total
+            self.totals[k] = total
             return True
 
-    def release(self, mandate_id: str, period: str, amount: Decimal, at: datetime) -> None:
-        key = (mandate_id, period_key(period, at))
+    def release(self, key: str, period: str, amount: Decimal, at: datetime) -> None:
+        k = (key, period_key(period, at))
         with self._lock:
-            self.totals[key] = max(Decimal(0), self.totals.get(key, Decimal(0)) - amount)
+            self.totals[k] = max(Decimal(0), self.totals.get(k, Decimal(0)) - amount)
 
 
 class _Stop(Exception):
@@ -583,7 +661,8 @@ class Checker:
             raise _Stop("checker_unavailable") from e
         if res is None:
             raise _Stop("signer_unknown")
-        if not isinstance(res, AuthorityResult) or type(res.joint) is not int or res.joint < 1:
+        if not isinstance(res, AuthorityResult) or type(res.joint) is not int or res.joint < 1 \
+                or type(res.may_sign) is not bool or not isinstance(res.keys, (tuple, list)):
             raise _Stop("checker_unavailable")
         if person.get("public_key") not in res.keys or (need_power and not res.may_sign):
             raise _Stop("signer_not_authorized")
@@ -593,10 +672,13 @@ class Checker:
         """Check one payment against one mandate. Never raises on input; always returns a signed decision."""
         at = self.clock()
         checks: list[str] = []
-        state: dict[str, bool] = {}
+        state: dict[str, Any] = {}
         p_hash = None
-        if isinstance(payment, dict) and _jcs_ok(payment):
-            p_hash = obj_hash(payment, "agent_sig")
+        try:
+            if isinstance(payment, dict) and _jcs_ok(payment):
+                p_hash = obj_hash(payment, "agent_sig")
+        except Exception:  # noqa: BLE001
+            p_hash = None
         try:
             reason = self._run(mandate, payment, p_hash, at, checks, state)
         except _Stop as s:
@@ -608,7 +690,10 @@ class Checker:
         d = self._decision(mandate, payment, p_hash, reason, checks, at)
         if state.get("registered"):
             try:
-                self.payments.remember(payment["id"], d)
+                if reason in TRANSIENT:
+                    self.payments.forget(state["key"])
+                else:
+                    self.payments.remember(state["key"], d)
             except Exception:  # noqa: BLE001 - the decision still stands; the log is the bank's to fix
                 pass
         return d
@@ -629,7 +714,11 @@ class Checker:
         """Steps 7-8a: every signer through authority separately, then threshold and joint. Raises _Stop."""
         counted: list[AuthorityResult] = []
         unknown = False
+        seen_keys: set[str] = set()
         for signer, _ in sigs:
+            if signer["public_key"] in seen_keys:  # one person counts once (also blocked by mandate_problem)
+                continue
+            seen_keys.add(signer["public_key"])
             try:
                 counted.append(self._authorized(m["company"], signer))
             except _Stop as s:
@@ -659,20 +748,18 @@ class Checker:
         return None
 
     def _run(self, m: Any, p: Any, p_hash: str | None, at: datetime, checks: list[str],
-             state: dict[str, bool]) -> str | dict | None:
+             state: dict[str, Any]) -> str | dict | None:
         if mandate_problem(m):
             return "mandate_malformed"
         if p_hash is None or payment_problem(p):
             return "payment_malformed"
+        key = payment_key(m["company"], p["id"])
         try:
-            prior = self.payments.seen(p["id"], p_hash)
+            prior = self.payments.lookup(key, p_hash)
         except Exception:  # noqa: BLE001
             return "checker_unavailable"
         if isinstance(prior, dict):
-            return prior
-        if prior is not None:
-            return "duplicate_payment"
-        state["registered"] = True
+            return prior  # idempotent retry, read-only: unknown payers cannot write to the log
         mh = mandate_hash(m)
         if p["mandate"]["hash"] != mh:
             return "mandate_mismatch"
@@ -693,6 +780,18 @@ class Checker:
                 return bad
         else:
             self._signers_ok(m, sigs, threshold, checks)
+        if "public_key" in m["agent"]:
+            if not _verify("payment", p_hash, p.get("agent_sig"), m["agent"]["public_key"], self.webauthn):
+                return "agent_bad_signature"
+            checks.append("agent_signed")
+        # Authentic from here on: only now may the payment id be claimed (spec 7, step 7c).
+        try:
+            claimed = self.payments.register(key, p_hash)
+        except Exception:  # noqa: BLE001
+            return "checker_unavailable"
+        if not claimed:
+            return "duplicate_payment"
+        state["registered"], state["key"] = True, key
         if "valid_from" in m and at < _ts(m["valid_from"]):
             return "mandate_not_yet_valid"
         if at > _ts(m["valid_until"]):
@@ -712,10 +811,6 @@ class Checker:
             if st != "active":
                 return "status_unavailable"
         checks.append("not_revoked")
-        if "public_key" in m["agent"]:
-            if not _verify("payment", p_hash, p.get("agent_sig"), m["agent"]["public_key"], self.webauthn):
-                return "agent_bad_signature"
-            checks.append("agent_signed")
         sc = m["scope"]
         if "rails" in sc and p["rail"] not in sc["rails"]:
             return "rail_not_allowed"
@@ -729,34 +824,60 @@ class Checker:
         if amt > parse_amount(sc["max_per_payment"], sc["currency"]):
             return "over_payment_limit"
         checks.append("within_payment_limit")
-        if "max_per_period" in sc:
-            per = sc["max_per_period"]
-            if self.ledger is None:
-                return "ledger_missing"
-            try:
-                ok = self.ledger.reserve(m["id"], per["period"], amt, parse_amount(per["amount"], sc["currency"]), at)
-            except Exception:  # noqa: BLE001
-                return "checker_unavailable"
-            if not ok:
-                return "over_period_limit"
-            checks.append("within_period_limit")
+        return self._reserve(m, mh, chain, amt, at, checks)
+
+    def _reserve(self, m: dict, mh: str, chain: list[dict], amt: Decimal, at: datetime,
+                 checks: list[str]) -> str | None:
+        """Step 17: reserve the amount against the mandate's period limit and against every delegation link's
+        own period limit (a link's limit is shared by all mandates under it), all or nothing."""
+        wanted = [(f"mandate:{mh}", m["scope"])] if "max_per_period" in m["scope"] else []
+        wanted += [(f"delegation:{delegation_hash(d)}", d["scope"]) for d in chain if "max_per_period" in d["scope"]]
+        if not wanted:
+            return None
+        if self.ledger is None:
+            return "ledger_missing"
+        done: list[tuple[str, str]] = []
+        try:
+            for key, sc in wanted:
+                per = sc["max_per_period"]
+                if not self.ledger.reserve(key, per["period"], amt, parse_amount(per["amount"], sc["currency"]), at):
+                    self._release(done, amt, at)
+                    return "over_period_limit"
+                done.append((key, per["period"]))
+        except Exception:  # noqa: BLE001
+            self._release(done, amt, at)
+            return "checker_unavailable"
+        checks.append("within_period_limit")
         return None
+
+    def _release(self, done: list[tuple[str, str]], amt: Decimal, at: datetime) -> None:
+        for key, period in done:
+            try:
+                self.ledger.release(key, period, amt, at)  # type: ignore[union-attr]
+            except Exception:  # noqa: BLE001, S110 - best effort; the bank reconciles its ledger
+                pass
 
     def _revoked(self, m: dict, mh: str, chain: list[dict], sigs: list[tuple[dict, Any]], at: datetime) -> str | None:
         """Section 9: a valid revocation of the mandate or of any delegation link, by an allowed person."""
-        link_hashes = {delegation_hash(d) for d in chain}
-        parties = {(s["id"], s["public_key"]) for s, _ in sigs}
-        for d in chain:
-            parties |= {(d["from"]["id"], d["from"]["public_key"]), (d["to"]["id"], d["to"]["public_key"])}
+        def people(links: list[dict]) -> set[tuple[str, str]]:
+            out: set[tuple[str, str]] = set()
+            for d in links:
+                out |= {(d["from"]["id"], d["from"]["public_key"]), (d["to"]["id"], d["to"]["public_key"])}
+            return out
+
+        # The line of authority of each target: the mandate's own signers and its whole chain; for a link,
+        # that link and the links above it (a delegate below cannot cut their delegator's authority).
+        mandate_parties = {(s["id"], s["public_key"]) for s, _ in sigs} | people(chain)
+        link_parties = {delegation_hash(d): people(chain[: i + 1]) for i, d in enumerate(chain)}
         for r in self.revocations:
             if revocation_problem(r) or _ts(r["revoked_at"]) > at:
                 continue
             if "mandate_hash" in r:
                 if r["mandate_hash"] != mh:
                     continue
-                reason = "mandate_revoked"
-            elif r["delegation_hash"] in link_hashes:
-                reason = "delegation_revoked"
+                reason, parties = "mandate_revoked", mandate_parties
+            elif r["delegation_hash"] in link_parties:
+                reason, parties = "delegation_revoked", link_parties[r["delegation_hash"]]
             else:
                 continue
             if not _verify("revocation", obj_hash(r), r.get("sig"), r["signer"]["public_key"], self.webauthn):
@@ -795,6 +916,9 @@ def verify_receipt(mandate: Any, payment: Any, decision: Any, checker_keys: Iter
     Verifies the decision against the bank's known keys, that it names exactly this mandate and payment, and
     every signature in the mandate, its delegation chain and the payment. It cannot re-run the bank's authority
     check; the decision's ``signer_authorized:<source>`` checks record which source the bank relied on.
+
+    For mandates signed with a passkey, pass the bank's passkey settings (``{"rp_id": ..., "origins": [...]}``);
+    without them a passkey signature cannot be checked and the receipt reports ``mandate_bad_signature``.
     """
     wa = webauthn or {}
     problems: list[str] = []

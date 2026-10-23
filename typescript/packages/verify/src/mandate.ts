@@ -38,6 +38,15 @@ export const ESCALATE: ReadonlySet<string> = new Set([
   "signer_unknown", "status_unavailable", "over_payment_limit", "over_period_limit", "ledger_missing", "checker_unavailable",
 ]);
 export const MANDATE_SIG_FIELDS: readonly string[] = ["sig", "sigs"];
+/** Outcomes the payment log never caches: a retry once the dependency is back gets a fresh check. */
+export const TRANSIENT: ReadonlySet<string> = new Set(["checker_unavailable", "status_unavailable", "ledger_missing"]);
+const COUNTRY_RE = /^[A-Z]{2}$/;
+const IBAN_RE = /^[A-Za-z0-9 ]+$/;
+
+/** Set an own property, also for keys like "__proto__" that plain assignment would not create. */
+function put(obj: JsonDict, key: string, value: unknown): void {
+  Object.defineProperty(obj, key, { value, enumerable: true, writable: true, configurable: true });
+}
 export const MAX_DELEGATION_DEPTH = 5;
 
 export type Outcome = "allow" | "block" | "escalate";
@@ -49,7 +58,7 @@ export type Awaitable<T> = T | Promise<T>;
 export function objHash(obj: JsonDict, sigField: string | readonly string[] = "sig"): string {
   const skip = typeof sigField === "string" ? [sigField] : sigField;
   const body: JsonDict = {};
-  for (const k of Object.keys(obj)) if (!skip.includes(k)) body[k] = obj[k];
+  for (const k of Object.keys(obj)) if (!skip.includes(k)) put(body, k, obj[k]);
   return sha256Tagged(canonicalize(body));
 }
 
@@ -90,13 +99,13 @@ function sigText(seed: Seed, kind: string, hash: string): string {
 
 function without(obj: JsonDict, field: string): JsonDict {
   const out: JsonDict = {};
-  for (const k of Object.keys(obj)) if (k !== field) out[k] = obj[k];
+  for (const k of Object.keys(obj)) if (k !== field) put(out, k, obj[k]);
   return out;
 }
 
 function sign(seed: Seed, kind: string, obj: JsonDict, sigField = "sig"): JsonDict {
   const out = without(obj, sigField);
-  out[sigField] = sigText(seed, kind, objHash(out, sigField));
+  put(out, sigField, sigText(seed, kind, objHash(out, sigField)));
   return out;
 }
 
@@ -128,19 +137,18 @@ export function parseAmount(text: unknown, currency: unknown): bigint {
   return v;
 }
 
-/** Python `str(v)` for the JSON scalars an account field can hold. */
-function pyStr(v: unknown): string {
-  if (typeof v === "string") return v;
-  if (v === true) return "True";
-  if (v === false) return "False";
-  if (v === null) return "None";
-  return typeof v === "number" ? String(v) : JSON.stringify(v);
+/** Account fields are strings (checked by accountProblem); IBANs ASCII, uppercased without spaces. */
+export function normAccount(acc: JsonDict): string {
+  if (hasKey(acc, "iban")) return JSON.stringify({ iban: String(acc.iban).replaceAll(" ", "").toUpperCase() });
+  const keys = Object.keys(acc).sort();
+  return JSON.stringify(keys.map((k) => [k, String(acc[k]).replaceAll(" ", "")]));
 }
 
-export function normAccount(acc: JsonDict): string {
-  if (hasKey(acc, "iban")) return JSON.stringify({ iban: pyStr(acc.iban).replaceAll(" ", "").toUpperCase() });
-  const keys = Object.keys(acc).sort();
-  return JSON.stringify(keys.map((k) => [k, pyStr(acc[k]).replaceAll(" ", "")]));
+function accountProblem(acc: unknown): string | null {
+  if (!isDict(acc) || Object.keys(acc).length === 0) return "every payee needs an account object";
+  if (!Object.values(acc).every((v) => typeof v === "string" && v.length > 0)) return "account fields must be non-empty strings";
+  if (hasKey(acc, "iban") && !IBAN_RE.test(acc.iban as string)) return "IBAN must be ASCII letters, digits and spaces";
+  return null;
 }
 
 // ---------- parsing ----------
@@ -170,14 +178,35 @@ export function duplicateKey(text: string): string | null {
   return null;
 }
 
+/** The first number literal that is not an I-JSON integer (a float, or beyond 2^53 - 1), or null. */
+export function nonIntegerNumber(text: string): string | null {
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]!;
+    if (c === '"') {
+      i++;
+      while (text[i] !== '"') i += text[i] === "\\" ? 2 : 1;
+    } else if (c === "-" || (c >= "0" && c <= "9")) {
+      let j = i + 1;
+      while (j < text.length && /[0-9eE.+-]/.test(text[j]!)) j++;
+      const tok = text.slice(i, j);
+      if (/[.eE]/.test(tok) || !Number.isSafeInteger(Number(tok))) return tok;
+      i = j - 1;
+    }
+  }
+  return null;
+}
+
 /**
  * Parse JSON from the wire as spec section 13 requires: no duplicate keys (two parsers could read
- * different objects behind one hash), no NaN or Infinity. Throws on violation.
+ * different objects behind one hash), no NaN or Infinity, no floats, integers within 2^53 - 1 (so 2.0
+ * and 2 cannot mean different things to different checkers). Throws on violation.
  */
 export function parseStrict(text: string): unknown {
   const value = JSON.parse(text) as unknown;
   const dup = duplicateKey(text);
   if (dup !== null) throw new Error(`duplicate JSON key ${JSON.stringify(dup)}`);
+  const num = nonIntegerNumber(text);
+  if (num !== null) throw new Error(`number ${num} is not an I-JSON integer`);
   return value;
 }
 
@@ -216,7 +245,7 @@ export function issue(o: IssueOptions): JsonDict {
 /** Sign a single-signer mandate. */
 export function signMandate(mandate: JsonDict, seed: Seed): JsonDict {
   const out = without(mandate, "sig");
-  out.sig = sigText(seed, "mandate", mandateHash(out));
+  put(out, "sig", sigText(seed, "mandate", mandateHash(out)));
   return out;
 }
 
@@ -308,13 +337,23 @@ function strFields(obj: unknown, paths: readonly string[]): string | null {
   return null;
 }
 
+/** I-JSON as spec 13 profiles it: numbers are safe integers (JS cannot tell 2.0 from 2: use parseStrict). */
+function numbersOk(obj: unknown, depth = 0): boolean {
+  if (depth > 900) return false;
+  if (obj === null || typeof obj === "string" || typeof obj === "boolean") return true;
+  if (typeof obj === "number") return Number.isSafeInteger(obj);
+  if (Array.isArray(obj)) return obj.every((x) => numbersOk(x, depth + 1));
+  if (isDict(obj)) return Object.keys(obj).every((k) => numbersOk(obj[k], depth + 1));
+  return false;
+}
+
 function jcsOk(obj: unknown): boolean {
   try {
     canonicalize(obj);
-    return true;
   } catch {
     return false;
   }
+  return numbersOk(obj);
 }
 
 function msg(e: unknown): string {
@@ -345,8 +384,10 @@ function scopeProblem(sc: JsonDict): string | null {
   const unknown = [...new Set(rails as string[])].filter((r) => !RAILS.has(r)).sort();
   if (unknown.length) return `unknown rails: ${JSON.stringify(unknown)}`;
   const payees = hasKey(sc, "payees") ? sc.payees : [];
-  if (!Array.isArray(payees) || !payees.every((x) => isDict(x) && isDict(x.account) && Object.keys(x.account).length > 0)) {
-    return "every payee needs an account object";
+  if (!Array.isArray(payees) || !payees.every((x) => isDict(x))) return "every payee needs an account object";
+  for (const x of payees as JsonDict[]) {
+    const bad = accountProblem(hasKey(x, "account") ? x.account : null);
+    if (bad) return bad;
   }
   return null;
 }
@@ -382,6 +423,7 @@ function signersProblem(m: JsonDict): string | null {
     ids.push((p as JsonDict).id as string);
   }
   if (new Set(ids).size !== ids.length) return "duplicate signer id";
+  if (new Set((of as JsonDict[]).map((p) => p.public_key)).size !== of.length) return "duplicate signer key: one person cannot count twice";
   const sigs = hasKey(m, "sigs") ? m.sigs : [];
   if (!Array.isArray(sigs) || !sigs.every((s) => isDict(s) && typeof s.signer === "string" && ids.includes(s.signer)
     && (typeof s.sig === "string" || isDict(s.sig)))) {
@@ -398,6 +440,7 @@ export function mandateProblem(m: unknown): string | null {
     "scope.max_per_payment", "valid_until"]);
   if (bad) return bad;
   if (!jcsOk(m)) return "mandate is not valid I-JSON";
+  if (!COUNTRY_RE.test((m.company as JsonDict).country as string)) return "company.country must be an ISO 3166-1 alpha-2 code";
   const bad2 = signersProblem(m) ?? scopeProblem(m.scope as JsonDict) ?? validityProblem(m);
   if (bad2) return bad2;
   if (hasKey(m, "status_url") && typeof m.status_url !== "string") return "status_url must be a string";
@@ -433,6 +476,9 @@ export function paymentProblem(p: unknown): string | null {
   const acc = get(p, "payee.account");
   if (!isDict(acc) || Object.keys(acc).length === 0) return "missing payee.account";
   if (!jcsOk(p)) return "payment is not valid I-JSON";
+  if (!RAILS.has(p.rail as string)) return `unknown rail: ${JSON.stringify(p.rail)}`;
+  const accBad = accountProblem(acc);
+  if (accBad) return accBad;
   try {
     parseAmount(hasKey(p, "amount") ? p.amount : null, p.currency);
     ts(p.requested_at);
@@ -488,16 +534,35 @@ function samePerson(a: JsonDict, b: JsonDict): boolean {
   return a.id === b.id && a.public_key === b.public_key;
 }
 
+/** A link names the mandate's company: same name, and the same country and ids where the link gives them. */
+function sameCompany(link: JsonDict, mandate: JsonDict): boolean {
+  if (link.name !== mandate.name) return false;
+  for (const k of ["country", "ids"]) {
+    if (hasKey(link, k) && canonicalizeOrNull(link[k]) !== canonicalizeOrNull(hasKey(mandate, k) ? mandate[k] : undefined)) return false;
+  }
+  return true;
+}
+
+function canonicalizeOrNull(v: unknown): string | null {
+  if (v === undefined) return null;
+  try {
+    return new TextDecoder().decode(canonicalize(v));
+  } catch {
+    return null;
+  }
+}
+
 /** Linkage and signatures of a delegation chain (spec section 5, steps 1-2), or null. */
 function chainProblem(m: JsonDict, chain: JsonDict[], wa: WebauthnOptions): string | null {
   for (let i = 0; i < chain.length; i++) {
     const d = chain[i]!;
-    if ((d.company as JsonDict).name !== (m.company as JsonDict).name) return "delegation_broken";
+    if (!sameCompany(d.company as JsonDict, m.company as JsonDict)) return "delegation_broken";
     if (i === 0) {
       if (hasKey(d, "parent")) return "delegation_broken";
     } else {
       const prev = chain[i - 1]!;
-      if (!samePerson(d.from as JsonDict, prev.to as JsonDict) || get(d, "parent.hash") !== delegationHash(prev)) {
+      if (!samePerson(d.from as JsonDict, prev.to as JsonDict) || get(d, "parent.hash") !== delegationHash(prev)
+        || get(d, "parent.id") !== prev.id) {
         return "delegation_broken";
       }
     }
@@ -563,37 +628,53 @@ export function combine(...sources: Authority[]): Authority {
   };
 }
 
+/** Idempotency per payer (spec 7). `key` is paymentKey(company, payment id). */
 export interface PaymentLog {
-  /**
-   * Atomically register a payment id. null: new (now registered). A decision: this id and hash were
-   * decided before. "duplicate": the id is known with another hash, or is still being checked.
-   */
-  seen(paymentId: string, paymentHash: string): Awaitable<JsonDict | "duplicate" | null>;
-  /** Store the decision for a registered payment id. */
-  remember(paymentId: string, decision: JsonDict): Awaitable<void>;
+  /** The earlier final decision for this key and this exact payment, or null. */
+  lookup(key: string, paymentHash: string): Awaitable<JsonDict | null>;
+  /** Atomically claim the key. false if it is already claimed (by any payment). */
+  register(key: string, paymentHash: string): Awaitable<boolean>;
+  /** Store the final decision for a claimed key. */
+  remember(key: string, decision: JsonDict): Awaitable<void>;
+  /** Release a claim without a decision (a transient failure), so a retry is checked afresh. */
+  forget(key: string): Awaitable<void>;
 }
 
+/** Period totals (spec 7). `key` is "mandate:<hash>" or "delegation:<hash>"; `at` picks the period. */
 export interface Ledger {
   /** Atomically add amount (minor units) to the period total if the total stays within limit. */
-  reserve(mandateId: string, period: string, amount: bigint, limit: bigint, at: Micros): Awaitable<boolean>;
+  reserve(key: string, period: string, amount: bigint, limit: bigint, at: Micros): Awaitable<boolean>;
+  /** Give back a reservation (a later step failed, or the bank did not execute). */
+  release(key: string, period: string, amount: bigint, at: Micros): Awaitable<void>;
+}
+
+/** The payment log key: payment ids are unique per payer, so the payer is part of the key. */
+export function paymentKey(company: JsonDict, paymentId: string): string {
+  return `${String(company.country ?? "None")}|${String(company.name ?? "None")}|${paymentId}`;
 }
 
 /** Payment log for tests and demos. Production needs a persistent, shared store. */
 export class InMemoryPaymentLog implements PaymentLog {
   private items = new Map<string, { hash: string; decision: JsonDict | null }>();
 
-  seen(paymentId: string, paymentHash: string): JsonDict | "duplicate" | null {
-    const e = this.items.get(paymentId);
-    if (e === undefined) {
-      this.items.set(paymentId, { hash: paymentHash, decision: null });
-      return null;
-    }
-    return e.hash === paymentHash && e.decision !== null ? e.decision : "duplicate";
+  lookup(key: string, paymentHash: string): JsonDict | null {
+    const e = this.items.get(key);
+    return e && e.hash === paymentHash ? e.decision : null;
   }
 
-  remember(paymentId: string, decision: JsonDict): void {
-    const e = this.items.get(paymentId);
+  register(key: string, paymentHash: string): boolean {
+    if (this.items.has(key)) return false;
+    this.items.set(key, { hash: paymentHash, decision: null });
+    return true;
+  }
+
+  remember(key: string, decision: JsonDict): void {
+    const e = this.items.get(key);
     if (e) e.decision = decision;
+  }
+
+  forget(key: string): void {
+    this.items.delete(key);
   }
 }
 
@@ -622,18 +703,18 @@ export function periodKey(period: string, at: Micros): string {
 export class InMemoryLedger implements Ledger {
   readonly totals = new Map<string, bigint>();
 
-  reserve(mandateId: string, period: string, amount: bigint, limit: bigint, at: Micros): boolean {
-    const key = `${mandateId}|${periodKey(period, at)}`;
-    const total = (this.totals.get(key) ?? 0n) + amount;
+  reserve(key: string, period: string, amount: bigint, limit: bigint, at: Micros): boolean {
+    const k = `${key}|${periodKey(period, at)}`;
+    const total = (this.totals.get(k) ?? 0n) + amount;
     if (total > limit) return false;
-    this.totals.set(key, total);
+    this.totals.set(k, total);
     return true;
   }
 
-  release(mandateId: string, period: string, amount: bigint, at: Micros): void {
-    const key = `${mandateId}|${periodKey(period, at)}`;
-    const total = (this.totals.get(key) ?? 0n) - amount;
-    this.totals.set(key, total < 0n ? 0n : total);
+  release(key: string, period: string, amount: bigint, at: Micros): void {
+    const k = `${key}|${periodKey(period, at)}`;
+    const total = (this.totals.get(k) ?? 0n) - amount;
+    this.totals.set(k, total < 0n ? 0n : total);
   }
 }
 
@@ -702,12 +783,14 @@ export class Checker {
       throw new Stop("checker_unavailable");
     }
     if (res === null || res === undefined) throw new Stop("signer_unknown");
-    const joint = typeof res === "object" ? (res.joint ?? 1) : 0;
+    const joint: unknown = typeof res === "object" ? (res.joint === undefined ? 1 : res.joint) : 0;
+    const maySignRaw: unknown = typeof res === "object" ? (res.maySign === undefined ? true : res.maySign) : null;
     if (typeof res !== "object" || typeof res.source !== "string" || !Array.isArray(res.keys)
-      || typeof joint !== "number" || !Number.isInteger(joint) || joint < 1) {
+      || !res.keys.every((k) => typeof k === "string") || typeof joint !== "number" || !Number.isInteger(joint)
+      || joint < 1 || typeof maySignRaw !== "boolean") {
       throw new Stop("checker_unavailable");
     }
-    const maySign = res.maySign !== false;
+    const maySign = maySignRaw;
     if (!res.keys.includes(person.public_key as string) || (needPower && !maySign)) throw new Stop("signer_not_authorized");
     return { source: res.source, maySign, joint };
   }
@@ -716,8 +799,13 @@ export class Checker {
   async check(mandate: unknown, payment: unknown): Promise<JsonDict> {
     const at = microsFromDate(this.clock());
     const checks: string[] = [];
-    const state = { registered: false };
-    const pHash = isDict(payment) && jcsOk(payment) ? objHash(payment, "agent_sig") : null;
+    const state = { registered: false, key: "" };
+    let pHash: string | null = null;
+    try {
+      pHash = isDict(payment) && jcsOk(payment) ? objHash(payment, "agent_sig") : null;
+    } catch {
+      pHash = null;
+    }
     let reason: string | JsonDict | null;
     try {
       reason = await this.run(mandate, payment, pHash, at, checks, state);
@@ -728,7 +816,8 @@ export class Checker {
     const d = this.decision(mandate, payment, pHash, reason, checks, at);
     if (state.registered) {
       try {
-        await this.payments.remember((payment as JsonDict).id as string, d);
+        if (reason !== null && TRANSIENT.has(reason)) await this.payments.forget(state.key);
+        else await this.payments.remember(state.key, d);
       } catch {
         // the decision still stands; the log is the bank's to fix
       }
@@ -740,7 +829,12 @@ export class Checker {
     const outcome: Outcome = reason === null ? "allow" : ESCALATE.has(reason) ? "escalate" : "block";
     const pid = isDict(p) && typeof p.id === "string" ? p.id : null;
     const mid = isDict(m) && typeof m.id === "string" ? m.id : null;
-    const mh = isDict(m) && jcsOk(m) ? mandateHash(m) : null;
+    let mh: string | null = null;
+    try {
+      mh = isDict(m) && jcsOk(m) ? mandateHash(m) : null;
+    } catch {
+      mh = null;
+    }
     const rnd = globalThis.crypto.getRandomValues(new Uint8Array(12));
     const d: JsonDict = {
       v: `gleipnir/decision/${V}`, id: "d_" + [...rnd].map((b) => b.toString(16).padStart(2, "0")).join(""),
@@ -754,7 +848,10 @@ export class Checker {
   private async signersOk(m: JsonDict, sigs: Signed[], threshold: number, checks: string[]): Promise<void> {
     const counted: Accepted[] = [];
     let unknown = false;
+    const seenKeys = new Set<unknown>();
     for (const [signer] of sigs) {
+      if (seenKeys.has(signer.public_key)) continue; // one person counts once
+      seenKeys.add(signer.public_key);
       try {
         counted.push(await this.authorized(m.company as JsonDict, signer));
       } catch (e) {
@@ -784,20 +881,19 @@ export class Checker {
   }
 
   private async run(
-    m: unknown, p: unknown, pHash: string | null, at: Micros, checks: string[], state: { registered: boolean },
+    m: unknown, p: unknown, pHash: string | null, at: Micros, checks: string[], state: { registered: boolean; key: string },
   ): Promise<string | JsonDict | null> {
     if (mandateProblem(m)) return "mandate_malformed";
     if (pHash === null || paymentProblem(p)) return "payment_malformed";
     const md = m as JsonDict, pd = p as JsonDict;
-    let prior: JsonDict | "duplicate" | null;
+    const key = paymentKey(md.company as JsonDict, pd.id as string);
+    let prior: JsonDict | null;
     try {
-      prior = await this.payments.seen(pd.id as string, pHash);
+      prior = await this.payments.lookup(key, pHash);
     } catch {
       return "checker_unavailable";
     }
-    if (isDict(prior)) return prior;
-    if (prior !== null && prior !== undefined) return "duplicate_payment";
-    state.registered = true;
+    if (isDict(prior)) return prior; // idempotent retry, read-only: unknown payers cannot write to the log
     const mh = mandateHash(md);
     if ((pd.mandate as JsonDict).hash !== mh) return "mandate_mismatch";
     const skew = ts(pd.requested_at) - at;
@@ -818,6 +914,23 @@ export class Checker {
     } else {
       await this.signersOk(md, sigs, threshold, checks);
     }
+    const agent = md.agent as JsonDict;
+    if (hasKey(agent, "public_key")) {
+      if (!verify("payment", pHash, hasKey(pd, "agent_sig") ? pd.agent_sig : null, agent.public_key, this.webauthn)) {
+        return "agent_bad_signature";
+      }
+      checks.push("agent_signed");
+    }
+    // Authentic from here on: only now may the payment id be claimed (spec 7, step 7c).
+    let claimed: boolean;
+    try {
+      claimed = await this.payments.register(key, pHash);
+    } catch {
+      return "checker_unavailable";
+    }
+    if (!claimed) return "duplicate_payment";
+    state.registered = true;
+    state.key = key;
     if (hasKey(md, "valid_from") && at < ts(md.valid_from)) return "mandate_not_yet_valid";
     if (at > ts(md.valid_until)) return "mandate_expired";
     const revoked = await this.revoked(md, mh, chain, sigs, at);
@@ -834,13 +947,6 @@ export class Checker {
       if (st !== "active") return "status_unavailable";
     }
     checks.push("not_revoked");
-    const agent = md.agent as JsonDict;
-    if (hasKey(agent, "public_key")) {
-      if (!verify("payment", pHash, hasKey(pd, "agent_sig") ? pd.agent_sig : null, agent.public_key, this.webauthn)) {
-        return "agent_bad_signature";
-      }
-      checks.push("agent_signed");
-    }
     const sc = md.scope as JsonDict;
     if (hasKey(sc, "rails") && !(sc.rails as string[]).includes(pd.rail as string)) return "rail_not_allowed";
     if (pd.currency !== sc.currency) return "currency_mismatch";
@@ -852,40 +958,68 @@ export class Checker {
     const amt = parseAmount(pd.amount, pd.currency);
     if (amt > parseAmount(sc.max_per_payment, sc.currency)) return "over_payment_limit";
     checks.push("within_payment_limit");
-    if (hasKey(sc, "max_per_period")) {
-      const per = sc.max_per_period as JsonDict;
-      if (this.ledger === null) return "ledger_missing";
-      let ok: boolean;
-      try {
-        ok = await this.ledger.reserve(md.id as string, per.period as string, amt, parseAmount(per.amount, sc.currency), at);
-      } catch {
-        return "checker_unavailable";
+    return this.reserve(md, mh, chain, amt, at, checks);
+  }
+
+  /**
+   * Step 17: reserve the amount against the mandate's period limit and against every delegation link's own
+   * period limit (a link's limit is shared by all mandates under it), all or nothing.
+   */
+  private async reserve(m: JsonDict, mh: string, chain: JsonDict[], amt: bigint, at: Micros, checks: string[]): Promise<string | null> {
+    const wanted: [string, JsonDict][] = [];
+    if (hasKey(m.scope as JsonDict, "max_per_period")) wanted.push([`mandate:${mh}`, m.scope as JsonDict]);
+    for (const d of chain) if (hasKey(d.scope as JsonDict, "max_per_period")) wanted.push([`delegation:${delegationHash(d)}`, d.scope as JsonDict]);
+    if (!wanted.length) return null;
+    if (this.ledger === null) return "ledger_missing";
+    const done: [string, string][] = [];
+    try {
+      for (const [key, sc] of wanted) {
+        const per = sc.max_per_period as JsonDict;
+        if (!(await this.ledger.reserve(key, per.period as string, amt, parseAmount(per.amount, sc.currency), at))) {
+          await this.releaseAll(done, amt, at);
+          return "over_period_limit";
+        }
+        done.push([key, per.period as string]);
       }
-      if (!ok) return "over_period_limit";
-      checks.push("within_period_limit");
+    } catch {
+      await this.releaseAll(done, amt, at);
+      return "checker_unavailable";
     }
+    checks.push("within_period_limit");
     return null;
+  }
+
+  private async releaseAll(done: [string, string][], amt: bigint, at: Micros): Promise<void> {
+    for (const [key, period] of done) {
+      try {
+        await this.ledger!.release(key, period, amt, at);
+      } catch {
+        // best effort; the bank reconciles its ledger
+      }
+    }
   }
 
   /** Section 9: a valid revocation of the mandate or of any delegation link, by an allowed person. */
   private async revoked(m: JsonDict, mh: string, chain: JsonDict[], sigs: Signed[], at: Micros): Promise<string | null> {
-    const linkHashes = new Set(chain.map((d) => delegationHash(d)));
     const key = (p: JsonDict) => JSON.stringify([p.id, p.public_key]);
-    const parties = new Set(sigs.map(([s]) => key(s)));
-    for (const d of chain) {
-      parties.add(key(d.from as JsonDict));
-      parties.add(key(d.to as JsonDict));
-    }
+    const people = (links: JsonDict[]) => links.flatMap((d) => [key(d.from as JsonDict), key(d.to as JsonDict)]);
+    // The line of authority of each target: for the mandate, its signers and whole chain; for a link, that
+    // link and the links above it (a delegate below cannot cut their delegator's authority).
+    const mandateParties = new Set([...sigs.map(([s]) => key(s)), ...people(chain)]);
+    const linkParties = new Map(chain.map((d, i) => [delegationHash(d), new Set(people(chain.slice(0, i + 1)))]));
     for (const r of this.revocations) {
       if (revocationProblem(r)) continue;
       const rd = r as JsonDict;
       if (ts(rd.revoked_at) > at) continue;
       let reason: string;
+      let parties: Set<string>;
       if (hasKey(rd, "mandate_hash")) {
         if (rd.mandate_hash !== mh) continue;
         reason = "mandate_revoked";
-      } else if (linkHashes.has(rd.delegation_hash as string)) {
+        parties = mandateParties;
+      } else if (linkParties.has(rd.delegation_hash as string)) {
         reason = "delegation_revoked";
+        parties = linkParties.get(rd.delegation_hash as string)!;
       } else continue;
       const signer = rd.signer as JsonDict;
       if (!verify("revocation", objHash(rd), hasKey(rd, "sig") ? rd.sig : null, signer.public_key, this.webauthn)) continue;

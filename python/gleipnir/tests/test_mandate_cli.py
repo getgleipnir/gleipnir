@@ -57,7 +57,8 @@ def test_state_persists_between_runs(setup: Path) -> None:
     code, d = check(pay("p_3", "18400.00"))  # 55 200 > 40 000 period limit
     assert (code, d["reasons"]) == (3, ["over_period_limit"])
     state = json.loads((setup / ".gleipnir" / "mandate-state" / "state.json").read_text())
-    assert state["totals"] == {f"m_ap|{d['checked_at'][:7]}": "36800.00"}
+    mh = json.loads(Path("p_1.json").read_text())["mandate"]["hash"]
+    assert state["totals"] == {f"mandate:{mh}|{d['checked_at'][:7]}": "36800.00"}
 
 
 def test_verify(setup: Path, capsys: pytest.CaptureFixture[str]) -> None:

@@ -13,6 +13,7 @@ import {
   combine,
   cosign,
   delegate,
+  parseStrict,
   revoke,
   seedFromHex,
   signMandate,
@@ -34,6 +35,8 @@ interface Vector {
   expect: J[];
   receipt: J;
   webauthn: { rp_id?: string; origins?: string[] };
+  mandates?: unknown[];
+  which?: number[];
 }
 
 const DATA = JSON.parse(
@@ -64,7 +67,8 @@ async function run(c: Vector): Promise<J[]> {
   const out: J[] = [];
   for (let i = 0; i < c.payments.length; i++) {
     now = c.now[i]!;
-    out.push(await checker.check(c.mandate, c.payments[i]));
+    const mandates = c.mandates ?? [c.mandate];
+    out.push(await checker.check(mandates[(c.which ?? [])[i] ?? 0], c.payments[i]));
   }
   return out;
 }
@@ -84,7 +88,8 @@ describe("mandate conformance vectors (shared with the Python reference)", () =>
     const decisions = await run(c);
     expect(expected(decisions)).toEqual(c.expect);
     for (const d of decisions) expect(verifyDecision(d, [DATA.bank.public_key])).toBe(true);
-    const receipt: J = { ...verifyReceipt(c.mandate, c.payments[0], decisions[0], [DATA.bank.public_key], {
+    const first = (c.mandates ?? [c.mandate])[(c.which ?? [0])[0]!];
+    const receipt: J = { ...verifyReceipt(first, c.payments[0], decisions[0], [DATA.bank.public_key], {
       webauthn: { rpId: c.webauthn.rp_id, origins: c.webauthn.origins },
     }) };
     delete receipt.checked_at;
@@ -201,4 +206,53 @@ describe("mandate flow in TypeScript", () => {
     expect(periodKey("P7D", t("2024-12-30T00:00:00Z"))).toBe("2025-W01");
     expect(() => periodKey("P1Y", 0n)).toThrow();
   });
+});
+
+
+describe("second audit regressions (TS-specific)", () => {
+  const bankSeed = newSeed();
+  const signerSeed = newSeed();
+  const brenner = { name: "Brenner Stahl AG", account: { iban: "AT611904300234573201" } };
+  const m = signMandate(issue({ id: "m_p", company: { name: "X GmbH", country: "AT" }, agent: { id: "a" },
+    signer: { id: "s", public_key: publicKeyOf(signerSeed) }, validUntil: "2099-01-01T00:00:00.000Z",
+    scope: { currency: "EUR", max_per_payment: "100.00", payees: [brenner] } }), signerSeed);
+  const kyb = () => ({ source: "bank_kyb", keys: [publicKeyOf(signerSeed)] });
+
+  it("F2: a __proto__ key never throws and never hides from the hash", async () => {
+    const bank = new Checker({ id: "b", seed: bankSeed, authority: kyb });
+    const p = attach(m, { id: "p1", rail: "sepa", amount: "1.00", currency: "EUR", payee: brenner });
+    const added = JSON.parse(JSON.stringify(m).replace(/^\{/, '{"__proto__":"x",')) as Record<string, unknown>;
+    expect(Object.keys(added)).toContain("__proto__");
+    expect((await bank.check(added, p)).reasons).toEqual(["mandate_mismatch"]);
+    const objInPayment = JSON.parse(JSON.stringify(p).replace(/^\{/, '{"__proto__":{"a":1},'));
+    const d = await bank.check(m, objInPayment);
+    expect(d.outcome).toBe("allow"); // no agent key on this mandate: the extra field is just part of the payment
+    expect(verifyReceipt(m, objInPayment, d, [publicKeyOf(bankSeed)]).valid).toBe(true);
+    const objInMandate = JSON.parse(JSON.stringify(m).replace(/^\{/, '{"__proto__":{"a":1},'));
+    expect(() => verifyReceipt(objInMandate, p, d, [publicKeyOf(bankSeed)])).not.toThrow();
+    expect((await bank.check(objInMandate, p)).outcome).toBe("block");
+  });
+
+  it.each(['{"t": 2.0}', '{"t": 1e16}', '{"t": 1E2}', '{"t": 9007199254740993}', '{"t": -1.5}', '{"a": 1, "a": 1}'])(
+    "F3: parseStrict refuses %s", (text) => {
+      expect(() => parseStrict(text)).toThrow();
+    });
+
+  it("F3: parseStrict keeps strings that look like numbers, and plain integers", () => {
+    expect(parseStrict('{"amount": "1.5e3", "n": -42, "s": "\\"2.0\\""}')).toEqual({ amount: "1.5e3", n: -42, s: '"2.0"' });
+  });
+
+  it("F3: non-integer numbers in objects are not I-JSON", async () => {
+    const bank = new Checker({ id: "b", seed: bankSeed, authority: kyb });
+    const p = attach(m, { id: "p9", rail: "sepa", amount: "1.00", currency: "EUR", payee: brenner });
+    expect((await bank.check({ ...m, extra: 2.5 }, p)).reasons).toEqual(["mandate_malformed"]);
+    expect((await bank.check({ ...m, extra: 2 ** 60 }, p)).reasons).toEqual(["mandate_malformed"]);
+  });
+
+  it.each([{ maySign: null }, { maySign: "yes" }, { joint: "2" }, { joint: 0 }, { keys: [1] }])(
+    "F10: odd authority answer %j fails closed", async (bad) => {
+      const bank = new Checker({ id: "b", seed: bankSeed, authority: () => ({ ...kyb(), ...bad }) as never });
+      const p = attach(m, { id: `p_${JSON.stringify(bad)}`, rail: "sepa", amount: "1.00", currency: "EUR", payee: brenner });
+      expect((await bank.check(m, p)).reasons).toEqual(["checker_unavailable"]);
+    });
 });

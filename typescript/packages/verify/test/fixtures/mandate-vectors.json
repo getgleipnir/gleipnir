@@ -106,8 +106,8 @@
      "checks": [
       "mandate_valid",
       "signer_authorized:bank_kyb",
-      "not_revoked",
       "agent_signed",
+      "not_revoked",
       "payee_on_mandate",
       "within_payment_limit",
       "within_period_limit"
@@ -245,8 +245,8 @@
      "checks": [
       "mandate_valid",
       "signer_authorized:bank_kyb",
-      "not_revoked",
-      "agent_signed"
+      "agent_signed",
+      "not_revoked"
      ],
      "checked_at": "2026-10-23T09:14:02.000Z",
      "checker": {
@@ -381,8 +381,8 @@
      "checks": [
       "mandate_valid",
       "signer_authorized:bank_kyb",
-      "not_revoked",
       "agent_signed",
+      "not_revoked",
       "payee_on_mandate",
       "within_payment_limit",
       "within_period_limit"
@@ -520,8 +520,8 @@
      "checks": [
       "mandate_valid",
       "signer_authorized:bank_kyb",
-      "not_revoked",
       "agent_signed",
+      "not_revoked",
       "payee_on_mandate"
      ],
      "checked_at": "2026-10-23T09:14:02.000Z",
@@ -720,8 +720,8 @@
      "checks": [
       "mandate_valid",
       "signer_authorized:bank_kyb",
-      "not_revoked",
       "agent_signed",
+      "not_revoked",
       "payee_on_mandate",
       "within_payment_limit",
       "within_period_limit"
@@ -747,8 +747,8 @@
      "checks": [
       "mandate_valid",
       "signer_authorized:bank_kyb",
-      "not_revoked",
       "agent_signed",
+      "not_revoked",
       "payee_on_mandate",
       "within_payment_limit",
       "within_period_limit"
@@ -776,8 +776,8 @@
      "checks": [
       "mandate_valid",
       "signer_authorized:bank_kyb",
-      "not_revoked",
       "agent_signed",
+      "not_revoked",
       "payee_on_mandate",
       "within_payment_limit"
      ],
@@ -936,8 +936,8 @@
      "checks": [
       "mandate_valid",
       "signer_authorized:bank_kyb",
-      "not_revoked",
       "agent_signed",
+      "not_revoked",
       "payee_on_mandate",
       "within_payment_limit",
       "within_period_limit"
@@ -962,7 +962,11 @@
      "reasons": [
       "duplicate_payment"
      ],
-     "checks": [],
+     "checks": [
+      "mandate_valid",
+      "signer_authorized:bank_kyb",
+      "agent_signed"
+     ],
      "checked_at": "2026-10-23T09:14:02.000Z",
      "checker": {
       "id": "bank:VECTORS",
@@ -1136,8 +1140,8 @@
      "checks": [
       "mandate_valid",
       "signer_authorized:bank_kyb",
-      "not_revoked",
       "agent_signed",
+      "not_revoked",
       "payee_on_mandate",
       "within_payment_limit",
       "within_period_limit"
@@ -1165,8 +1169,8 @@
      "checks": [
       "mandate_valid",
       "signer_authorized:bank_kyb",
-      "not_revoked",
       "agent_signed",
+      "not_revoked",
       "payee_on_mandate",
       "within_payment_limit"
      ],
@@ -1191,8 +1195,8 @@
      "checks": [
       "mandate_valid",
       "signer_authorized:bank_kyb",
-      "not_revoked",
       "agent_signed",
+      "not_revoked",
       "payee_on_mandate",
       "within_payment_limit",
       "within_period_limit"
@@ -1330,8 +1334,8 @@
      "checks": [
       "mandate_valid",
       "signer_authorized:bank_kyb",
-      "not_revoked",
       "agent_signed",
+      "not_revoked",
       "payee_on_mandate",
       "within_payment_limit"
      ],
@@ -1485,8 +1489,8 @@
      "checks": [
       "mandate_valid",
       "signer_authorized:bank_kyb",
-      "not_revoked",
       "agent_signed",
+      "not_revoked",
       "payee_on_mandate",
       "within_payment_limit"
      ],
@@ -1662,8 +1666,8 @@
      "checks": [
       "mandate_valid",
       "signer_authorized:bank_kyb",
-      "not_revoked",
       "agent_signed",
+      "not_revoked",
       "payee_on_mandate",
       "within_payment_limit"
      ],
@@ -1690,8 +1694,8 @@
      "checks": [
       "mandate_valid",
       "signer_authorized:bank_kyb",
-      "not_revoked",
-      "agent_signed"
+      "agent_signed",
+      "not_revoked"
      ],
      "checked_at": "2026-10-23T09:14:02.000Z",
      "checker": {
@@ -1827,8 +1831,8 @@
      "checks": [
       "mandate_valid",
       "signer_authorized:bank_kyb",
-      "not_revoked",
-      "agent_signed"
+      "agent_signed",
+      "not_revoked"
      ],
      "checked_at": "2026-10-23T09:14:02.000Z",
      "checker": {
@@ -1965,8 +1969,8 @@
      "checks": [
       "mandate_valid",
       "signer_authorized:bank_kyb",
-      "not_revoked",
-      "agent_signed"
+      "agent_signed",
+      "not_revoked"
      ],
      "checked_at": "2026-10-23T09:14:02.000Z",
      "checker": {
@@ -2143,8 +2147,7 @@
      ],
      "checks": [
       "mandate_valid",
-      "signer_authorized:bank_kyb",
-      "not_revoked"
+      "signer_authorized:bank_kyb"
      ],
      "checked_at": "2026-10-23T09:14:02.000Z",
      "checker": {
@@ -2168,8 +2171,7 @@
      ],
      "checks": [
       "mandate_valid",
-      "signer_authorized:bank_kyb",
-      "not_revoked"
+      "signer_authorized:bank_kyb"
      ],
      "checked_at": "2026-10-23T09:14:02.000Z",
      "checker": {
@@ -2193,8 +2195,7 @@
      ],
      "checks": [
       "mandate_valid",
-      "signer_authorized:bank_kyb",
-      "not_revoked"
+      "signer_authorized:bank_kyb"
      ],
      "checked_at": "2026-10-23T09:14:02.000Z",
      "checker": {
@@ -3119,7 +3120,8 @@
      ],
      "checks": [
       "mandate_valid",
-      "signer_authorized:bank_kyb"
+      "signer_authorized:bank_kyb",
+      "agent_signed"
      ],
      "checked_at": "2027-01-01T00:00:00.000Z",
      "checker": {
@@ -3256,7 +3258,8 @@
      ],
      "checks": [
       "mandate_valid",
-      "signer_authorized:bank_kyb"
+      "signer_authorized:bank_kyb",
+      "agent_signed"
      ],
      "checked_at": "2026-10-23T09:14:02.000Z",
      "checker": {
@@ -3407,7 +3410,8 @@
      ],
      "checks": [
       "mandate_valid",
-      "signer_authorized:bank_kyb"
+      "signer_authorized:bank_kyb",
+      "agent_signed"
      ],
      "checked_at": "2026-10-23T09:14:02.000Z",
      "checker": {
@@ -3557,8 +3561,8 @@
      "checks": [
       "mandate_valid",
       "signer_authorized:bank_kyb",
-      "not_revoked",
       "agent_signed",
+      "not_revoked",
       "payee_on_mandate",
       "within_payment_limit",
       "within_period_limit"
@@ -3709,8 +3713,8 @@
      "checks": [
       "mandate_valid",
       "signer_authorized:bank_kyb",
-      "not_revoked",
       "agent_signed",
+      "not_revoked",
       "payee_on_mandate",
       "within_payment_limit",
       "within_period_limit"
@@ -3847,8 +3851,8 @@
      "checks": [
       "mandate_valid",
       "signer_authorized:bank_kyb",
-      "not_revoked",
       "agent_signed",
+      "not_revoked",
       "payee_on_mandate",
       "within_payment_limit",
       "within_period_limit"
@@ -3986,7 +3990,8 @@
      ],
      "checks": [
       "mandate_valid",
-      "signer_authorized:bank_kyb"
+      "signer_authorized:bank_kyb",
+      "agent_signed"
      ],
      "checked_at": "2026-10-23T09:14:02.000Z",
      "checker": {
@@ -4123,7 +4128,8 @@
      ],
      "checks": [
       "mandate_valid",
-      "signer_authorized:bank_kyb"
+      "signer_authorized:bank_kyb",
+      "agent_signed"
      ],
      "checked_at": "2026-10-23T09:14:02.000Z",
      "checker": {
@@ -4260,7 +4266,8 @@
      ],
      "checks": [
       "mandate_valid",
-      "signer_authorized:bank_kyb"
+      "signer_authorized:bank_kyb",
+      "agent_signed"
      ],
      "checked_at": "2026-10-23T09:14:02.000Z",
      "checker": {
@@ -4437,8 +4444,8 @@
      "checks": [
       "mandate_valid",
       "signer_authorized:bank_kyb",
-      "not_revoked",
       "agent_signed",
+      "not_revoked",
       "payee_on_mandate",
       "within_payment_limit",
       "within_period_limit"
@@ -4854,8 +4861,8 @@
      "checks": [
       "mandate_valid",
       "signer_authorized:bank_kyb",
-      "not_revoked",
       "agent_signed",
+      "not_revoked",
       "payee_on_mandate",
       "within_payment_limit",
       "within_period_limit"
@@ -5152,8 +5159,8 @@
       "signer_authorized:bank_kyb",
       "signer_authorized:bank_kyb",
       "signatures:2/2",
-      "not_revoked",
       "agent_signed",
+      "not_revoked",
       "payee_on_mandate",
       "within_payment_limit",
       "within_period_limit"
@@ -6116,8 +6123,8 @@
       "signer_authorized:bank_kyb",
       "signer_authorized:bank_kyb",
       "signatures:2/2",
-      "not_revoked",
       "agent_signed",
+      "not_revoked",
       "payee_on_mandate",
       "within_payment_limit",
       "within_period_limit"
@@ -6594,8 +6601,8 @@
       "mandate_valid",
       "delegation:1",
       "signer_authorized:bank_kyb",
-      "not_revoked",
       "agent_signed",
+      "not_revoked",
       "payee_on_mandate",
       "within_payment_limit",
       "within_period_limit"
@@ -6836,8 +6843,8 @@
       "mandate_valid",
       "delegation:2",
       "signer_authorized:bank_kyb",
-      "not_revoked",
       "agent_signed",
+      "not_revoked",
       "payee_on_mandate",
       "within_payment_limit",
       "within_period_limit"
@@ -9127,7 +9134,8 @@
      "checks": [
       "mandate_valid",
       "delegation:1",
-      "signer_authorized:bank_kyb"
+      "signer_authorized:bank_kyb",
+      "agent_signed"
      ],
      "checked_at": "2026-10-23T09:14:02.000Z",
      "checker": {
@@ -9345,7 +9353,8 @@
      "checks": [
       "mandate_valid",
       "delegation:1",
-      "signer_authorized:bank_kyb"
+      "signer_authorized:bank_kyb",
+      "agent_signed"
      ],
      "checked_at": "2026-10-23T09:14:02.000Z",
      "checker": {
@@ -9562,8 +9571,8 @@
       "mandate_valid",
       "delegation:1",
       "signer_authorized:bank_kyb",
-      "not_revoked",
       "agent_signed",
+      "not_revoked",
       "payee_on_mandate",
       "within_payment_limit",
       "within_period_limit"
@@ -9959,8 +9968,8 @@
      "checks": [
       "mandate_valid",
       "signer_authorized:vlei",
-      "not_revoked",
       "agent_signed",
+      "not_revoked",
       "payee_on_mandate",
       "within_payment_limit",
       "within_period_limit"
@@ -10115,8 +10124,8 @@
      "checks": [
       "mandate_valid",
       "signer_authorized:bank_kyb",
-      "not_revoked",
       "agent_signed",
+      "not_revoked",
       "payee_on_mandate",
       "within_payment_limit",
       "within_period_limit"
@@ -10741,8 +10750,8 @@
       "signer_authorized:bank_kyb",
       "signer_authorized:bank_kyb",
       "signatures:2/2",
-      "not_revoked",
       "agent_signed",
+      "not_revoked",
       "payee_on_mandate",
       "within_payment_limit",
       "within_period_limit"
@@ -10780,12 +10789,2517 @@
      }
     }
    }
+  },
+  {
+   "name": "F1_delegated_period_limit_is_shared",
+   "mandate": {
+    "v": "gleipnir/mandate/0.2",
+    "id": "m_a",
+    "company": {
+     "name": "Nordhafen Logistik GmbH",
+     "country": "AT"
+    },
+    "agent": {
+     "id": "ap-agent",
+     "public_key": "ed25519:gTl3Dqh9F19Wo1Rmw0x-zMuNipG07jeiXfYPW4_Js5Q"
+    },
+    "signer": {
+     "id": "cfo@nordhafen.at",
+     "public_key": "ed25519:6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iw",
+     "role": "CFO"
+    },
+    "scope": {
+     "rails": [
+      "sepa",
+      "sepa_instant"
+     ],
+     "currency": "EUR",
+     "max_per_payment": "150000.00",
+     "max_per_period": {
+      "amount": "200000.00",
+      "period": "P1M"
+     },
+     "payees": [
+      {
+       "name": "Brenner Stahl AG",
+       "account": {
+        "iban": "AT611904300234573201"
+       }
+      }
+     ]
+    },
+    "valid_until": "2026-12-31T23:59:59.000Z",
+    "issued_at": "2026-10-01T08:00:00.000Z",
+    "delegation": [
+     {
+      "v": "gleipnir/delegation/0.2",
+      "id": "g_shared",
+      "company": {
+       "name": "Nordhafen Logistik GmbH",
+       "country": "AT"
+      },
+      "from": {
+       "id": "ceo@nordhafen.at",
+       "public_key": "ed25519:iodf_x6zhFFXes1a_uQFRWVo3XyJ4JCGOgVXvHr0nxc",
+       "role": "CEO"
+      },
+      "to": {
+       "id": "cfo@nordhafen.at",
+       "public_key": "ed25519:6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iw",
+       "role": "CFO"
+      },
+      "scope": {
+       "rails": [
+        "sepa",
+        "sepa_instant"
+       ],
+       "currency": "EUR",
+       "max_per_payment": "200000.00",
+       "max_per_period": {
+        "amount": "200000.00",
+        "period": "P1M"
+       }
+      },
+      "valid_until": "2027-03-31T23:59:59.000Z",
+      "issued_at": "2026-10-01T08:00:00.000Z",
+      "sig": "ed25519:Q3BrZteHc4t-VF8M1y3fB9-k5fiWuigSX26FHpwP-a9hThsjMcALuqGFh0Rn1x5ArfwxrJzgxFY25h_ck1E2Dw"
+     }
+    ],
+    "sig": "ed25519:vyVDcCz8nwQO8JW9Uf7HV7ivl58HlQi-wVbT62gRTT37fEjqheb32SfiNacWhXNdag-pC5CBydlJV6hbUxbIBQ"
+   },
+   "payments": [
+    {
+     "v": "gleipnir/payment/0.2",
+     "id": "p_1",
+     "mandate": {
+      "id": "m_a",
+      "hash": "sha256:339ff27ca5c504a7fe72977b9ce2815aef0df8c5b80807d17def5c9c88dcbd40"
+     },
+     "rail": "sepa",
+     "amount": "150000.00",
+     "currency": "EUR",
+     "payee": {
+      "name": "Brenner Stahl AG",
+      "account": {
+       "iban": "AT611904300234573201"
+      }
+     },
+     "requested_at": "2026-10-23T09:14:02.000Z",
+     "reference": "INV-1",
+     "agent_sig": "ed25519:34qYuP2UUKn8s2hHmcr6xJarDHKS7uSkIq-ydG0sLxb2gCSx0iQQ2qxFJHLZ4XP3g_Ird3YBF_CxPKGQx7DkAw"
+    },
+    {
+     "v": "gleipnir/payment/0.2",
+     "id": "p_2",
+     "mandate": {
+      "id": "m_b",
+      "hash": "sha256:c29575e5b8a63d015277b9f39b92e6285a7161b2c1b3083042a3ca3a9bcee3c7"
+     },
+     "rail": "sepa",
+     "amount": "150000.00",
+     "currency": "EUR",
+     "payee": {
+      "name": "Brenner Stahl AG",
+      "account": {
+       "iban": "AT611904300234573201"
+      }
+     },
+     "requested_at": "2026-10-23T09:14:02.000Z",
+     "reference": "INV-1",
+     "agent_sig": "ed25519:IJZy6J-LyvNAurtUthdDgtOxKq-KpMgslhg9lIcmfhOfFW0GH1YCRwKwefAFI-Y0b5UzeIRSDcMKXkOvzS1nAw"
+    },
+    {
+     "v": "gleipnir/payment/0.2",
+     "id": "p_3",
+     "mandate": {
+      "id": "m_a",
+      "hash": "sha256:339ff27ca5c504a7fe72977b9ce2815aef0df8c5b80807d17def5c9c88dcbd40"
+     },
+     "rail": "sepa",
+     "amount": "40000.00",
+     "currency": "EUR",
+     "payee": {
+      "name": "Brenner Stahl AG",
+      "account": {
+       "iban": "AT611904300234573201"
+      }
+     },
+     "requested_at": "2026-10-23T09:14:02.000Z",
+     "reference": "INV-1",
+     "agent_sig": "ed25519:lWD-CcGTrZNz9-Tv7I8lDNaujL4rnbMPONMsegUpglFyLDQcPpAQP5Rk4MOdclhPmn-BZN7QVZBtkvDCjKa4BQ"
+    }
+   ],
+   "webauthn": {},
+   "mandates": [
+    {
+     "v": "gleipnir/mandate/0.2",
+     "id": "m_a",
+     "company": {
+      "name": "Nordhafen Logistik GmbH",
+      "country": "AT"
+     },
+     "agent": {
+      "id": "ap-agent",
+      "public_key": "ed25519:gTl3Dqh9F19Wo1Rmw0x-zMuNipG07jeiXfYPW4_Js5Q"
+     },
+     "signer": {
+      "id": "cfo@nordhafen.at",
+      "public_key": "ed25519:6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iw",
+      "role": "CFO"
+     },
+     "scope": {
+      "rails": [
+       "sepa",
+       "sepa_instant"
+      ],
+      "currency": "EUR",
+      "max_per_payment": "150000.00",
+      "max_per_period": {
+       "amount": "200000.00",
+       "period": "P1M"
+      },
+      "payees": [
+       {
+        "name": "Brenner Stahl AG",
+        "account": {
+         "iban": "AT611904300234573201"
+        }
+       }
+      ]
+     },
+     "valid_until": "2026-12-31T23:59:59.000Z",
+     "issued_at": "2026-10-01T08:00:00.000Z",
+     "delegation": [
+      {
+       "v": "gleipnir/delegation/0.2",
+       "id": "g_shared",
+       "company": {
+        "name": "Nordhafen Logistik GmbH",
+        "country": "AT"
+       },
+       "from": {
+        "id": "ceo@nordhafen.at",
+        "public_key": "ed25519:iodf_x6zhFFXes1a_uQFRWVo3XyJ4JCGOgVXvHr0nxc",
+        "role": "CEO"
+       },
+       "to": {
+        "id": "cfo@nordhafen.at",
+        "public_key": "ed25519:6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iw",
+        "role": "CFO"
+       },
+       "scope": {
+        "rails": [
+         "sepa",
+         "sepa_instant"
+        ],
+        "currency": "EUR",
+        "max_per_payment": "200000.00",
+        "max_per_period": {
+         "amount": "200000.00",
+         "period": "P1M"
+        }
+       },
+       "valid_until": "2027-03-31T23:59:59.000Z",
+       "issued_at": "2026-10-01T08:00:00.000Z",
+       "sig": "ed25519:Q3BrZteHc4t-VF8M1y3fB9-k5fiWuigSX26FHpwP-a9hThsjMcALuqGFh0Rn1x5ArfwxrJzgxFY25h_ck1E2Dw"
+      }
+     ],
+     "sig": "ed25519:vyVDcCz8nwQO8JW9Uf7HV7ivl58HlQi-wVbT62gRTT37fEjqheb32SfiNacWhXNdag-pC5CBydlJV6hbUxbIBQ"
+    },
+    {
+     "v": "gleipnir/mandate/0.2",
+     "id": "m_b",
+     "company": {
+      "name": "Nordhafen Logistik GmbH",
+      "country": "AT"
+     },
+     "agent": {
+      "id": "ap-agent",
+      "public_key": "ed25519:gTl3Dqh9F19Wo1Rmw0x-zMuNipG07jeiXfYPW4_Js5Q"
+     },
+     "signer": {
+      "id": "cfo@nordhafen.at",
+      "public_key": "ed25519:6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iw",
+      "role": "CFO"
+     },
+     "scope": {
+      "rails": [
+       "sepa",
+       "sepa_instant"
+      ],
+      "currency": "EUR",
+      "max_per_payment": "150000.00",
+      "max_per_period": {
+       "amount": "200000.00",
+       "period": "P1M"
+      },
+      "payees": [
+       {
+        "name": "Brenner Stahl AG",
+        "account": {
+         "iban": "AT611904300234573201"
+        }
+       }
+      ]
+     },
+     "valid_until": "2026-12-31T23:59:59.000Z",
+     "issued_at": "2026-10-01T08:00:00.000Z",
+     "delegation": [
+      {
+       "v": "gleipnir/delegation/0.2",
+       "id": "g_shared",
+       "company": {
+        "name": "Nordhafen Logistik GmbH",
+        "country": "AT"
+       },
+       "from": {
+        "id": "ceo@nordhafen.at",
+        "public_key": "ed25519:iodf_x6zhFFXes1a_uQFRWVo3XyJ4JCGOgVXvHr0nxc",
+        "role": "CEO"
+       },
+       "to": {
+        "id": "cfo@nordhafen.at",
+        "public_key": "ed25519:6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iw",
+        "role": "CFO"
+       },
+       "scope": {
+        "rails": [
+         "sepa",
+         "sepa_instant"
+        ],
+        "currency": "EUR",
+        "max_per_payment": "200000.00",
+        "max_per_period": {
+         "amount": "200000.00",
+         "period": "P1M"
+        }
+       },
+       "valid_until": "2027-03-31T23:59:59.000Z",
+       "issued_at": "2026-10-01T08:00:00.000Z",
+       "sig": "ed25519:Q3BrZteHc4t-VF8M1y3fB9-k5fiWuigSX26FHpwP-a9hThsjMcALuqGFh0Rn1x5ArfwxrJzgxFY25h_ck1E2Dw"
+      }
+     ],
+     "sig": "ed25519:H4SThaY_VFurzdpplMoC_ztwVCekIb2f_Jx6vsi67UbDsJcJwamk9MMSeJg9DttLJmw0EwpqQwCrZJDXPWp6DQ"
+    }
+   ],
+   "which": [
+    0,
+    1,
+    0
+   ],
+   "now": [
+    "2026-10-23T09:14:02.000Z",
+    "2026-10-23T09:14:02.000Z",
+    "2026-10-23T09:14:02.000Z"
+   ],
+   "authority": [
+    {
+     "company": "Nordhafen Logistik GmbH",
+     "signer": "ceo@nordhafen.at",
+     "source": "bank_kyb",
+     "keys": [
+      "ed25519:iodf_x6zhFFXes1a_uQFRWVo3XyJ4JCGOgVXvHr0nxc"
+     ],
+     "may_sign": true,
+     "joint": 1
+    },
+    {
+     "company": "Nordhafen Logistik GmbH",
+     "signer": "cfo@nordhafen.at",
+     "source": "bank_kyb",
+     "keys": [
+      "ed25519:6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iw"
+     ],
+     "may_sign": false,
+     "joint": 1
+    },
+    {
+     "company": "Nordhafen Logistik GmbH",
+     "signer": "controller@nordhafen.at",
+     "source": "bank_kyb",
+     "keys": [
+      "ed25519:E5j2LG0aRXxRumpLXz29L2n8qTIWIY3ImX5Ba9F9k8o"
+     ],
+     "may_sign": false,
+     "joint": 1
+    },
+    {
+     "company": "Nordhafen Logistik GmbH",
+     "signer": "kberger@nordhafen.at",
+     "source": "bank_kyb",
+     "keys": [
+      "ed25519:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w"
+     ],
+     "may_sign": true,
+     "joint": 1
+    }
+   ],
+   "revocations": [],
+   "status": null,
+   "ledger": true,
+   "expect": [
+    {
+     "v": "gleipnir/decision/0.2",
+     "payment": {
+      "id": "p_1",
+      "hash": "sha256:e4badad04b59ad703f82b71b24dbc7b0d75f224d8d9c81b1b86d102231f279da"
+     },
+     "mandate": {
+      "id": "m_a",
+      "hash": "sha256:339ff27ca5c504a7fe72977b9ce2815aef0df8c5b80807d17def5c9c88dcbd40"
+     },
+     "outcome": "allow",
+     "reasons": [],
+     "checks": [
+      "mandate_valid",
+      "delegation:1",
+      "signer_authorized:bank_kyb",
+      "agent_signed",
+      "not_revoked",
+      "payee_on_mandate",
+      "within_payment_limit",
+      "within_period_limit"
+     ],
+     "checked_at": "2026-10-23T09:14:02.000Z",
+     "checker": {
+      "id": "bank:VECTORS",
+      "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
+     }
+    },
+    {
+     "v": "gleipnir/decision/0.2",
+     "payment": {
+      "id": "p_2",
+      "hash": "sha256:e3f2c2a4473ff5220c4ce169ff2e8fc513d30a421f642c65c435bbdedc54f73f"
+     },
+     "mandate": {
+      "id": "m_b",
+      "hash": "sha256:c29575e5b8a63d015277b9f39b92e6285a7161b2c1b3083042a3ca3a9bcee3c7"
+     },
+     "outcome": "escalate",
+     "reasons": [
+      "over_period_limit"
+     ],
+     "checks": [
+      "mandate_valid",
+      "delegation:1",
+      "signer_authorized:bank_kyb",
+      "agent_signed",
+      "not_revoked",
+      "payee_on_mandate",
+      "within_payment_limit"
+     ],
+     "checked_at": "2026-10-23T09:14:02.000Z",
+     "checker": {
+      "id": "bank:VECTORS",
+      "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
+     }
+    },
+    {
+     "v": "gleipnir/decision/0.2",
+     "payment": {
+      "id": "p_3",
+      "hash": "sha256:1b03f932c03ddfb679286d4bc4068314b0ba8b0272a5e7f39ff45cffb9dfd907"
+     },
+     "mandate": {
+      "id": "m_a",
+      "hash": "sha256:339ff27ca5c504a7fe72977b9ce2815aef0df8c5b80807d17def5c9c88dcbd40"
+     },
+     "outcome": "allow",
+     "reasons": [],
+     "checks": [
+      "mandate_valid",
+      "delegation:1",
+      "signer_authorized:bank_kyb",
+      "agent_signed",
+      "not_revoked",
+      "payee_on_mandate",
+      "within_payment_limit",
+      "within_period_limit"
+     ],
+     "checked_at": "2026-10-23T09:14:02.000Z",
+     "checker": {
+      "id": "bank:VECTORS",
+      "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
+     }
+    }
+   ],
+   "receipt": {
+    "valid": true,
+    "problems": [],
+    "outcome": "allow",
+    "reasons": [],
+    "checker": "bank:VECTORS",
+    "company": "Nordhafen Logistik GmbH",
+    "agent": "ap-agent",
+    "signed_by": [
+     "cfo@nordhafen.at"
+    ],
+    "delegation": [
+     "ceo@nordhafen.at -> cfo@nordhafen.at"
+    ],
+    "authority": [
+     "signer_authorized:bank_kyb"
+    ],
+    "payment": {
+     "id": "p_1",
+     "amount": "150000.00",
+     "currency": "EUR",
+     "payee": {
+      "iban": "AT611904300234573201"
+     }
+    }
+   }
+  },
+  {
+   "name": "F2_proto_key_added_after_signing",
+   "mandate": {
+    "v": "gleipnir/mandate/0.2",
+    "id": "m_vec",
+    "company": {
+     "name": "Nordhafen Logistik GmbH",
+     "country": "AT"
+    },
+    "agent": {
+     "id": "ap-agent",
+     "public_key": "ed25519:gTl3Dqh9F19Wo1Rmw0x-zMuNipG07jeiXfYPW4_Js5Q"
+    },
+    "signer": {
+     "id": "kberger@nordhafen.at",
+     "name": "K. Berger",
+     "role": "Prokurist",
+     "public_key": "ed25519:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w"
+    },
+    "scope": {
+     "rails": [
+      "sepa",
+      "sepa_instant"
+     ],
+     "currency": "EUR",
+     "max_per_payment": "25000.00",
+     "max_per_period": {
+      "amount": "40000.00",
+      "period": "P1M"
+     },
+     "payees": [
+      {
+       "name": "Brenner Stahl AG",
+       "account": {
+        "iban": "AT611904300234573201"
+       }
+      }
+     ]
+    },
+    "valid_until": "2026-12-31T23:59:59.000Z",
+    "issued_at": "2026-10-01T08:00:00.000Z",
+    "sig": "ed25519:qeYzwKcYAqBpEDMydw6PsawTzGZgcjBkHcjgbf1d2SQsoGOkv6TZe_w5J38zapV-tJC8ldvp72PtPoZ8BEqKDg",
+    "__proto__": "x"
+   },
+   "payments": [
+    {
+     "v": "gleipnir/payment/0.2",
+     "id": "p_1",
+     "mandate": {
+      "id": "m_vec",
+      "hash": "sha256:a5f2b787ff540eeae475c1155cae041123787952f9fb897c88176922b4828047"
+     },
+     "rail": "sepa",
+     "amount": "100.00",
+     "currency": "EUR",
+     "payee": {
+      "name": "Brenner Stahl AG",
+      "account": {
+       "iban": "AT611904300234573201"
+      }
+     },
+     "requested_at": "2026-10-23T09:14:02.000Z",
+     "reference": "INV-1",
+     "agent_sig": "ed25519:PkU5qKgixJ_Ac6ffy6vxrCxVLj8vRO0YdlE1KrTNMKOdjNueuyshrxZRxj49YJdz_kt90MLlVeXEyLD2HQuyDQ"
+    }
+   ],
+   "webauthn": {},
+   "now": [
+    "2026-10-23T09:14:02.000Z"
+   ],
+   "authority": [
+    {
+     "company": "Nordhafen Logistik GmbH",
+     "signer": "kberger@nordhafen.at",
+     "source": "bank_kyb",
+     "keys": [
+      "ed25519:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w"
+     ],
+     "may_sign": true
+    }
+   ],
+   "revocations": [],
+   "status": null,
+   "ledger": true,
+   "expect": [
+    {
+     "v": "gleipnir/decision/0.2",
+     "payment": {
+      "id": "p_1",
+      "hash": "sha256:898dfdd53c9d2e2be1bc3bb350d3882907f7d423e3fefb1085709034e5cc215d"
+     },
+     "mandate": {
+      "id": "m_vec",
+      "hash": "sha256:b9b31412f3a5b0f933dfa0773c84933831e7dae65a1a26bea38236fea1e38e9d"
+     },
+     "outcome": "block",
+     "reasons": [
+      "mandate_mismatch"
+     ],
+     "checks": [],
+     "checked_at": "2026-10-23T09:14:02.000Z",
+     "checker": {
+      "id": "bank:VECTORS",
+      "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
+     }
+    }
+   ],
+   "receipt": {
+    "valid": false,
+    "problems": [
+     "mandate_bad_signature",
+     "payment_mandate_mismatch"
+    ],
+    "outcome": "block",
+    "reasons": [
+     "mandate_mismatch"
+    ],
+    "checker": "bank:VECTORS",
+    "company": "Nordhafen Logistik GmbH",
+    "agent": "ap-agent",
+    "signed_by": [],
+    "delegation": [],
+    "authority": [],
+    "payment": {
+     "id": "p_1",
+     "amount": "100.00",
+     "currency": "EUR",
+     "payee": {
+      "iban": "AT611904300234573201"
+     }
+    }
+   }
+  },
+  {
+   "name": "F2_proto_object_in_payment",
+   "mandate": {
+    "v": "gleipnir/mandate/0.2",
+    "id": "m_vec",
+    "company": {
+     "name": "Nordhafen Logistik GmbH",
+     "country": "AT"
+    },
+    "agent": {
+     "id": "ap-agent",
+     "public_key": "ed25519:gTl3Dqh9F19Wo1Rmw0x-zMuNipG07jeiXfYPW4_Js5Q"
+    },
+    "signer": {
+     "id": "kberger@nordhafen.at",
+     "name": "K. Berger",
+     "role": "Prokurist",
+     "public_key": "ed25519:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w"
+    },
+    "scope": {
+     "rails": [
+      "sepa",
+      "sepa_instant"
+     ],
+     "currency": "EUR",
+     "max_per_payment": "25000.00",
+     "max_per_period": {
+      "amount": "40000.00",
+      "period": "P1M"
+     },
+     "payees": [
+      {
+       "name": "Brenner Stahl AG",
+       "account": {
+        "iban": "AT611904300234573201"
+       }
+      }
+     ]
+    },
+    "valid_until": "2026-12-31T23:59:59.000Z",
+    "issued_at": "2026-10-01T08:00:00.000Z",
+    "sig": "ed25519:qeYzwKcYAqBpEDMydw6PsawTzGZgcjBkHcjgbf1d2SQsoGOkv6TZe_w5J38zapV-tJC8ldvp72PtPoZ8BEqKDg"
+   },
+   "payments": [
+    {
+     "v": "gleipnir/payment/0.2",
+     "id": "p_1",
+     "mandate": {
+      "id": "m_vec",
+      "hash": "sha256:a5f2b787ff540eeae475c1155cae041123787952f9fb897c88176922b4828047"
+     },
+     "rail": "sepa",
+     "amount": "100.00",
+     "currency": "EUR",
+     "payee": {
+      "name": "Brenner Stahl AG",
+      "account": {
+       "iban": "AT611904300234573201"
+      }
+     },
+     "requested_at": "2026-10-23T09:14:02.000Z",
+     "reference": "INV-1",
+     "agent_sig": "ed25519:PkU5qKgixJ_Ac6ffy6vxrCxVLj8vRO0YdlE1KrTNMKOdjNueuyshrxZRxj49YJdz_kt90MLlVeXEyLD2HQuyDQ",
+     "__proto__": {
+      "a": "b"
+     }
+    }
+   ],
+   "webauthn": {},
+   "now": [
+    "2026-10-23T09:14:02.000Z"
+   ],
+   "authority": [
+    {
+     "company": "Nordhafen Logistik GmbH",
+     "signer": "kberger@nordhafen.at",
+     "source": "bank_kyb",
+     "keys": [
+      "ed25519:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w"
+     ],
+     "may_sign": true
+    }
+   ],
+   "revocations": [],
+   "status": null,
+   "ledger": true,
+   "expect": [
+    {
+     "v": "gleipnir/decision/0.2",
+     "payment": {
+      "id": "p_1",
+      "hash": "sha256:9608d84bd0c0488ccc215b9e080ce9b6c14e1e1b6c79de109c623f3342022def"
+     },
+     "mandate": {
+      "id": "m_vec",
+      "hash": "sha256:a5f2b787ff540eeae475c1155cae041123787952f9fb897c88176922b4828047"
+     },
+     "outcome": "block",
+     "reasons": [
+      "agent_bad_signature"
+     ],
+     "checks": [
+      "mandate_valid",
+      "signer_authorized:bank_kyb"
+     ],
+     "checked_at": "2026-10-23T09:14:02.000Z",
+     "checker": {
+      "id": "bank:VECTORS",
+      "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
+     }
+    }
+   ],
+   "receipt": {
+    "valid": false,
+    "problems": [
+     "agent_bad_signature"
+    ],
+    "outcome": "block",
+    "reasons": [
+     "agent_bad_signature"
+    ],
+    "checker": "bank:VECTORS",
+    "company": "Nordhafen Logistik GmbH",
+    "agent": "ap-agent",
+    "signed_by": [
+     "kberger@nordhafen.at"
+    ],
+    "delegation": [],
+    "authority": [
+     "signer_authorized:bank_kyb"
+    ],
+    "payment": {
+     "id": "p_1",
+     "amount": "100.00",
+     "currency": "EUR",
+     "payee": {
+      "iban": "AT611904300234573201"
+     }
+    }
+   }
+  },
+  {
+   "name": "F4_unsigned_junk_cannot_burn_payment_id",
+   "mandate": {
+    "v": "gleipnir/mandate/0.2",
+    "id": "m_vec",
+    "company": {
+     "name": "Nordhafen Logistik GmbH",
+     "country": "AT"
+    },
+    "agent": {
+     "id": "ap-agent",
+     "public_key": "ed25519:gTl3Dqh9F19Wo1Rmw0x-zMuNipG07jeiXfYPW4_Js5Q"
+    },
+    "signer": {
+     "id": "intruder@x",
+     "public_key": "ed25519:ypOsFwUYcHHWe4PH_w7-gQjo7EUwV113JoeTM9vavnw"
+    },
+    "scope": {
+     "rails": [
+      "sepa",
+      "sepa_instant"
+     ],
+     "currency": "EUR",
+     "max_per_payment": "25000.00",
+     "max_per_period": {
+      "amount": "40000.00",
+      "period": "P1M"
+     },
+     "payees": [
+      {
+       "name": "Brenner Stahl AG",
+       "account": {
+        "iban": "AT611904300234573201"
+       }
+      }
+     ]
+    },
+    "valid_until": "2026-12-31T23:59:59.000Z",
+    "issued_at": "2026-10-01T08:00:00.000Z"
+   },
+   "payments": [
+    {
+     "v": "gleipnir/payment/0.2",
+     "id": "INV-1",
+     "mandate": {
+      "id": "m_vec",
+      "hash": "sha256:67be7e7a6d2a065fe306c3a6060cb316a6cef4fc3705d9d6f910fbf8d229b4dc"
+     },
+     "rail": "sepa",
+     "amount": "100.00",
+     "currency": "EUR",
+     "payee": {
+      "name": "Brenner Stahl AG",
+      "account": {
+       "iban": "AT611904300234573201"
+      }
+     },
+     "requested_at": "2026-10-23T09:14:02.000Z",
+     "reference": "INV-1"
+    },
+    {
+     "v": "gleipnir/payment/0.2",
+     "id": "INV-1",
+     "mandate": {
+      "id": "m_vec",
+      "hash": "sha256:a5f2b787ff540eeae475c1155cae041123787952f9fb897c88176922b4828047"
+     },
+     "rail": "sepa",
+     "amount": "100.00",
+     "currency": "EUR",
+     "payee": {
+      "name": "Brenner Stahl AG",
+      "account": {
+       "iban": "AT611904300234573201"
+      }
+     },
+     "requested_at": "2026-10-23T09:14:02.000Z",
+     "reference": "INV-1",
+     "agent_sig": "ed25519:ZbNGFBL_rBbYcTvO8iGNTwaq8j-A91XqNy7ZNH0CChmbHbHSByi2y3CW3LQFqrJ-3PlfahDJE05-hnyTnZ-qBQ"
+    }
+   ],
+   "webauthn": {},
+   "mandates": [
+    {
+     "v": "gleipnir/mandate/0.2",
+     "id": "m_vec",
+     "company": {
+      "name": "Nordhafen Logistik GmbH",
+      "country": "AT"
+     },
+     "agent": {
+      "id": "ap-agent",
+      "public_key": "ed25519:gTl3Dqh9F19Wo1Rmw0x-zMuNipG07jeiXfYPW4_Js5Q"
+     },
+     "signer": {
+      "id": "intruder@x",
+      "public_key": "ed25519:ypOsFwUYcHHWe4PH_w7-gQjo7EUwV113JoeTM9vavnw"
+     },
+     "scope": {
+      "rails": [
+       "sepa",
+       "sepa_instant"
+      ],
+      "currency": "EUR",
+      "max_per_payment": "25000.00",
+      "max_per_period": {
+       "amount": "40000.00",
+       "period": "P1M"
+      },
+      "payees": [
+       {
+        "name": "Brenner Stahl AG",
+        "account": {
+         "iban": "AT611904300234573201"
+        }
+       }
+      ]
+     },
+     "valid_until": "2026-12-31T23:59:59.000Z",
+     "issued_at": "2026-10-01T08:00:00.000Z"
+    },
+    {
+     "v": "gleipnir/mandate/0.2",
+     "id": "m_vec",
+     "company": {
+      "name": "Nordhafen Logistik GmbH",
+      "country": "AT"
+     },
+     "agent": {
+      "id": "ap-agent",
+      "public_key": "ed25519:gTl3Dqh9F19Wo1Rmw0x-zMuNipG07jeiXfYPW4_Js5Q"
+     },
+     "signer": {
+      "id": "kberger@nordhafen.at",
+      "name": "K. Berger",
+      "role": "Prokurist",
+      "public_key": "ed25519:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w"
+     },
+     "scope": {
+      "rails": [
+       "sepa",
+       "sepa_instant"
+      ],
+      "currency": "EUR",
+      "max_per_payment": "25000.00",
+      "max_per_period": {
+       "amount": "40000.00",
+       "period": "P1M"
+      },
+      "payees": [
+       {
+        "name": "Brenner Stahl AG",
+        "account": {
+         "iban": "AT611904300234573201"
+        }
+       }
+      ]
+     },
+     "valid_until": "2026-12-31T23:59:59.000Z",
+     "issued_at": "2026-10-01T08:00:00.000Z",
+     "sig": "ed25519:qeYzwKcYAqBpEDMydw6PsawTzGZgcjBkHcjgbf1d2SQsoGOkv6TZe_w5J38zapV-tJC8ldvp72PtPoZ8BEqKDg"
+    }
+   ],
+   "which": [
+    0,
+    1
+   ],
+   "now": [
+    "2026-10-23T09:14:02.000Z",
+    "2026-10-23T09:14:02.000Z"
+   ],
+   "authority": [
+    {
+     "company": "Nordhafen Logistik GmbH",
+     "signer": "kberger@nordhafen.at",
+     "source": "bank_kyb",
+     "keys": [
+      "ed25519:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w"
+     ],
+     "may_sign": true
+    }
+   ],
+   "revocations": [],
+   "status": null,
+   "ledger": true,
+   "expect": [
+    {
+     "v": "gleipnir/decision/0.2",
+     "payment": {
+      "id": "INV-1",
+      "hash": "sha256:9a9569f39ce9b76d4a72694543a7b56247858d9067ce458e0f62427c07b29ad6"
+     },
+     "mandate": {
+      "id": "m_vec",
+      "hash": "sha256:67be7e7a6d2a065fe306c3a6060cb316a6cef4fc3705d9d6f910fbf8d229b4dc"
+     },
+     "outcome": "block",
+     "reasons": [
+      "mandate_bad_signature"
+     ],
+     "checks": [],
+     "checked_at": "2026-10-23T09:14:02.000Z",
+     "checker": {
+      "id": "bank:VECTORS",
+      "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
+     }
+    },
+    {
+     "v": "gleipnir/decision/0.2",
+     "payment": {
+      "id": "INV-1",
+      "hash": "sha256:f55403b211ff7d02779eef8e0bf9a4dc424a910047d0e6a8c8becc78ebab06cb"
+     },
+     "mandate": {
+      "id": "m_vec",
+      "hash": "sha256:a5f2b787ff540eeae475c1155cae041123787952f9fb897c88176922b4828047"
+     },
+     "outcome": "allow",
+     "reasons": [],
+     "checks": [
+      "mandate_valid",
+      "signer_authorized:bank_kyb",
+      "agent_signed",
+      "not_revoked",
+      "payee_on_mandate",
+      "within_payment_limit",
+      "within_period_limit"
+     ],
+     "checked_at": "2026-10-23T09:14:02.000Z",
+     "checker": {
+      "id": "bank:VECTORS",
+      "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
+     }
+    }
+   ],
+   "receipt": {
+    "valid": false,
+    "problems": [
+     "mandate_bad_signature",
+     "agent_bad_signature"
+    ],
+    "outcome": "block",
+    "reasons": [
+     "mandate_bad_signature"
+    ],
+    "checker": "bank:VECTORS",
+    "company": "Nordhafen Logistik GmbH",
+    "agent": "ap-agent",
+    "signed_by": [],
+    "delegation": [],
+    "authority": [],
+    "payment": {
+     "id": "INV-1",
+     "amount": "100.00",
+     "currency": "EUR",
+     "payee": {
+      "iban": "AT611904300234573201"
+     }
+    }
+   }
+  },
+  {
+   "name": "F5_unsigned_copy_first",
+   "mandate": {
+    "v": "gleipnir/mandate/0.2",
+    "id": "m_vec",
+    "company": {
+     "name": "Nordhafen Logistik GmbH",
+     "country": "AT"
+    },
+    "agent": {
+     "id": "ap-agent",
+     "public_key": "ed25519:gTl3Dqh9F19Wo1Rmw0x-zMuNipG07jeiXfYPW4_Js5Q"
+    },
+    "signer": {
+     "id": "kberger@nordhafen.at",
+     "name": "K. Berger",
+     "role": "Prokurist",
+     "public_key": "ed25519:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w"
+    },
+    "scope": {
+     "rails": [
+      "sepa",
+      "sepa_instant"
+     ],
+     "currency": "EUR",
+     "max_per_payment": "25000.00",
+     "max_per_period": {
+      "amount": "40000.00",
+      "period": "P1M"
+     },
+     "payees": [
+      {
+       "name": "Brenner Stahl AG",
+       "account": {
+        "iban": "AT611904300234573201"
+       }
+      }
+     ]
+    },
+    "valid_until": "2026-12-31T23:59:59.000Z",
+    "issued_at": "2026-10-01T08:00:00.000Z",
+    "sig": "ed25519:qeYzwKcYAqBpEDMydw6PsawTzGZgcjBkHcjgbf1d2SQsoGOkv6TZe_w5J38zapV-tJC8ldvp72PtPoZ8BEqKDg"
+   },
+   "payments": [
+    {
+     "v": "gleipnir/payment/0.2",
+     "id": "INV-1",
+     "mandate": {
+      "id": "m_vec",
+      "hash": "sha256:a5f2b787ff540eeae475c1155cae041123787952f9fb897c88176922b4828047"
+     },
+     "rail": "sepa",
+     "amount": "100.00",
+     "currency": "EUR",
+     "payee": {
+      "name": "Brenner Stahl AG",
+      "account": {
+       "iban": "AT611904300234573201"
+      }
+     },
+     "requested_at": "2026-10-23T09:14:02.000Z",
+     "reference": "INV-1"
+    },
+    {
+     "v": "gleipnir/payment/0.2",
+     "id": "INV-1",
+     "mandate": {
+      "id": "m_vec",
+      "hash": "sha256:a5f2b787ff540eeae475c1155cae041123787952f9fb897c88176922b4828047"
+     },
+     "rail": "sepa",
+     "amount": "100.00",
+     "currency": "EUR",
+     "payee": {
+      "name": "Brenner Stahl AG",
+      "account": {
+       "iban": "AT611904300234573201"
+      }
+     },
+     "requested_at": "2026-10-23T09:14:02.000Z",
+     "reference": "INV-1",
+     "agent_sig": "ed25519:ZbNGFBL_rBbYcTvO8iGNTwaq8j-A91XqNy7ZNH0CChmbHbHSByi2y3CW3LQFqrJ-3PlfahDJE05-hnyTnZ-qBQ"
+    }
+   ],
+   "webauthn": {},
+   "now": [
+    "2026-10-23T09:14:02.000Z",
+    "2026-10-23T09:14:02.000Z"
+   ],
+   "authority": [
+    {
+     "company": "Nordhafen Logistik GmbH",
+     "signer": "kberger@nordhafen.at",
+     "source": "bank_kyb",
+     "keys": [
+      "ed25519:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w"
+     ],
+     "may_sign": true
+    }
+   ],
+   "revocations": [],
+   "status": null,
+   "ledger": true,
+   "expect": [
+    {
+     "v": "gleipnir/decision/0.2",
+     "payment": {
+      "id": "INV-1",
+      "hash": "sha256:f55403b211ff7d02779eef8e0bf9a4dc424a910047d0e6a8c8becc78ebab06cb"
+     },
+     "mandate": {
+      "id": "m_vec",
+      "hash": "sha256:a5f2b787ff540eeae475c1155cae041123787952f9fb897c88176922b4828047"
+     },
+     "outcome": "block",
+     "reasons": [
+      "agent_bad_signature"
+     ],
+     "checks": [
+      "mandate_valid",
+      "signer_authorized:bank_kyb"
+     ],
+     "checked_at": "2026-10-23T09:14:02.000Z",
+     "checker": {
+      "id": "bank:VECTORS",
+      "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
+     }
+    },
+    {
+     "v": "gleipnir/decision/0.2",
+     "payment": {
+      "id": "INV-1",
+      "hash": "sha256:f55403b211ff7d02779eef8e0bf9a4dc424a910047d0e6a8c8becc78ebab06cb"
+     },
+     "mandate": {
+      "id": "m_vec",
+      "hash": "sha256:a5f2b787ff540eeae475c1155cae041123787952f9fb897c88176922b4828047"
+     },
+     "outcome": "allow",
+     "reasons": [],
+     "checks": [
+      "mandate_valid",
+      "signer_authorized:bank_kyb",
+      "agent_signed",
+      "not_revoked",
+      "payee_on_mandate",
+      "within_payment_limit",
+      "within_period_limit"
+     ],
+     "checked_at": "2026-10-23T09:14:02.000Z",
+     "checker": {
+      "id": "bank:VECTORS",
+      "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
+     }
+    }
+   ],
+   "receipt": {
+    "valid": false,
+    "problems": [
+     "agent_bad_signature"
+    ],
+    "outcome": "block",
+    "reasons": [
+     "agent_bad_signature"
+    ],
+    "checker": "bank:VECTORS",
+    "company": "Nordhafen Logistik GmbH",
+    "agent": "ap-agent",
+    "signed_by": [
+     "kberger@nordhafen.at"
+    ],
+    "delegation": [],
+    "authority": [
+     "signer_authorized:bank_kyb"
+    ],
+    "payment": {
+     "id": "INV-1",
+     "amount": "100.00",
+     "currency": "EUR",
+     "payee": {
+      "iban": "AT611904300234573201"
+     }
+    }
+   }
+  },
+  {
+   "name": "F6_same_mandate_id_other_company",
+   "mandate": {
+    "v": "gleipnir/mandate/0.2",
+    "id": "m_vec",
+    "company": {
+     "name": "Andere Spedition GmbH",
+     "country": "AT"
+    },
+    "agent": {
+     "id": "ap-agent",
+     "public_key": "ed25519:gTl3Dqh9F19Wo1Rmw0x-zMuNipG07jeiXfYPW4_Js5Q"
+    },
+    "signer": {
+     "id": "boss@andere.at",
+     "public_key": "ed25519:ypOsFwUYcHHWe4PH_w7-gQjo7EUwV113JoeTM9vavnw"
+    },
+    "scope": {
+     "rails": [
+      "sepa",
+      "sepa_instant"
+     ],
+     "currency": "EUR",
+     "max_per_payment": "25000.00",
+     "max_per_period": {
+      "amount": "40000.00",
+      "period": "P1M"
+     },
+     "payees": [
+      {
+       "name": "Brenner Stahl AG",
+       "account": {
+        "iban": "AT611904300234573201"
+       }
+      }
+     ]
+    },
+    "valid_until": "2026-12-31T23:59:59.000Z",
+    "issued_at": "2026-10-01T08:00:00.000Z",
+    "sig": "ed25519:8rFvduUwSIGvyBiy5ov0yUXGk_WlhDz0iFmuWgwLolQgjR2NuXTuEsc_-_giZDMbFCSkp3Lf4pbdKnV8hD6xAg"
+   },
+   "payments": [
+    {
+     "v": "gleipnir/payment/0.2",
+     "id": "o_1",
+     "mandate": {
+      "id": "m_vec",
+      "hash": "sha256:698a27247e27e8f4bbe6e9f8a649216458118f2bbd57bbbc0d9096a976888c21"
+     },
+     "rail": "sepa",
+     "amount": "25000.00",
+     "currency": "EUR",
+     "payee": {
+      "name": "Brenner Stahl AG",
+      "account": {
+       "iban": "AT611904300234573201"
+      }
+     },
+     "requested_at": "2026-10-23T09:14:02.000Z",
+     "reference": "INV-1",
+     "agent_sig": "ed25519:CBsl88CaElp5LLUqXfbCRKyM2smL8cjGEuQzBQTt1-Npn-Tas7sXD7T-HyqSNHNPJ32fYrj_7XCNR0vVaP-lDA"
+    },
+    {
+     "v": "gleipnir/payment/0.2",
+     "id": "o_2",
+     "mandate": {
+      "id": "m_vec",
+      "hash": "sha256:698a27247e27e8f4bbe6e9f8a649216458118f2bbd57bbbc0d9096a976888c21"
+     },
+     "rail": "sepa",
+     "amount": "15000.00",
+     "currency": "EUR",
+     "payee": {
+      "name": "Brenner Stahl AG",
+      "account": {
+       "iban": "AT611904300234573201"
+      }
+     },
+     "requested_at": "2026-10-23T09:14:02.000Z",
+     "reference": "INV-1",
+     "agent_sig": "ed25519:3xQvJh_nTGHIh9xZHdyyQU4hQ1njZaFGya86LeBQPHcJ0iwaSkoG4m3MbOmVj5h4C9jjKtMrTAlPGADC5tjACw"
+    },
+    {
+     "v": "gleipnir/payment/0.2",
+     "id": "p_1",
+     "mandate": {
+      "id": "m_vec",
+      "hash": "sha256:a5f2b787ff540eeae475c1155cae041123787952f9fb897c88176922b4828047"
+     },
+     "rail": "sepa",
+     "amount": "25000.00",
+     "currency": "EUR",
+     "payee": {
+      "name": "Brenner Stahl AG",
+      "account": {
+       "iban": "AT611904300234573201"
+      }
+     },
+     "requested_at": "2026-10-23T09:14:02.000Z",
+     "reference": "INV-1",
+     "agent_sig": "ed25519:dEh-bjjhyNn8yUdJBDkL0kBHVb6dcgIrDwXNECAkJsOF8GRovOEYQC_s_HDhDfSjJnvjOEcsvjwoxlqWrvWVBQ"
+    }
+   ],
+   "webauthn": {},
+   "mandates": [
+    {
+     "v": "gleipnir/mandate/0.2",
+     "id": "m_vec",
+     "company": {
+      "name": "Andere Spedition GmbH",
+      "country": "AT"
+     },
+     "agent": {
+      "id": "ap-agent",
+      "public_key": "ed25519:gTl3Dqh9F19Wo1Rmw0x-zMuNipG07jeiXfYPW4_Js5Q"
+     },
+     "signer": {
+      "id": "boss@andere.at",
+      "public_key": "ed25519:ypOsFwUYcHHWe4PH_w7-gQjo7EUwV113JoeTM9vavnw"
+     },
+     "scope": {
+      "rails": [
+       "sepa",
+       "sepa_instant"
+      ],
+      "currency": "EUR",
+      "max_per_payment": "25000.00",
+      "max_per_period": {
+       "amount": "40000.00",
+       "period": "P1M"
+      },
+      "payees": [
+       {
+        "name": "Brenner Stahl AG",
+        "account": {
+         "iban": "AT611904300234573201"
+        }
+       }
+      ]
+     },
+     "valid_until": "2026-12-31T23:59:59.000Z",
+     "issued_at": "2026-10-01T08:00:00.000Z",
+     "sig": "ed25519:8rFvduUwSIGvyBiy5ov0yUXGk_WlhDz0iFmuWgwLolQgjR2NuXTuEsc_-_giZDMbFCSkp3Lf4pbdKnV8hD6xAg"
+    },
+    {
+     "v": "gleipnir/mandate/0.2",
+     "id": "m_vec",
+     "company": {
+      "name": "Nordhafen Logistik GmbH",
+      "country": "AT"
+     },
+     "agent": {
+      "id": "ap-agent",
+      "public_key": "ed25519:gTl3Dqh9F19Wo1Rmw0x-zMuNipG07jeiXfYPW4_Js5Q"
+     },
+     "signer": {
+      "id": "kberger@nordhafen.at",
+      "name": "K. Berger",
+      "role": "Prokurist",
+      "public_key": "ed25519:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w"
+     },
+     "scope": {
+      "rails": [
+       "sepa",
+       "sepa_instant"
+      ],
+      "currency": "EUR",
+      "max_per_payment": "25000.00",
+      "max_per_period": {
+       "amount": "40000.00",
+       "period": "P1M"
+      },
+      "payees": [
+       {
+        "name": "Brenner Stahl AG",
+        "account": {
+         "iban": "AT611904300234573201"
+        }
+       }
+      ]
+     },
+     "valid_until": "2026-12-31T23:59:59.000Z",
+     "issued_at": "2026-10-01T08:00:00.000Z",
+     "sig": "ed25519:qeYzwKcYAqBpEDMydw6PsawTzGZgcjBkHcjgbf1d2SQsoGOkv6TZe_w5J38zapV-tJC8ldvp72PtPoZ8BEqKDg"
+    }
+   ],
+   "which": [
+    0,
+    0,
+    1
+   ],
+   "now": [
+    "2026-10-23T09:14:02.000Z",
+    "2026-10-23T09:14:02.000Z",
+    "2026-10-23T09:14:02.000Z"
+   ],
+   "authority": [
+    {
+     "company": "Nordhafen Logistik GmbH",
+     "signer": "kberger@nordhafen.at",
+     "source": "bank_kyb",
+     "keys": [
+      "ed25519:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w"
+     ],
+     "may_sign": true
+    },
+    {
+     "company": "Andere Spedition GmbH",
+     "signer": "boss@andere.at",
+     "source": "bank_kyb",
+     "keys": [
+      "ed25519:ypOsFwUYcHHWe4PH_w7-gQjo7EUwV113JoeTM9vavnw"
+     ],
+     "may_sign": true,
+     "joint": 1
+    }
+   ],
+   "revocations": [],
+   "status": null,
+   "ledger": true,
+   "expect": [
+    {
+     "v": "gleipnir/decision/0.2",
+     "payment": {
+      "id": "o_1",
+      "hash": "sha256:af9d3863f774730d72707fa8ac93e60550602f6f922cd5618557b16395162b5c"
+     },
+     "mandate": {
+      "id": "m_vec",
+      "hash": "sha256:698a27247e27e8f4bbe6e9f8a649216458118f2bbd57bbbc0d9096a976888c21"
+     },
+     "outcome": "allow",
+     "reasons": [],
+     "checks": [
+      "mandate_valid",
+      "signer_authorized:bank_kyb",
+      "agent_signed",
+      "not_revoked",
+      "payee_on_mandate",
+      "within_payment_limit",
+      "within_period_limit"
+     ],
+     "checked_at": "2026-10-23T09:14:02.000Z",
+     "checker": {
+      "id": "bank:VECTORS",
+      "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
+     }
+    },
+    {
+     "v": "gleipnir/decision/0.2",
+     "payment": {
+      "id": "o_2",
+      "hash": "sha256:914279a5ef064487c066366ebf3e77a122b01a97f93d682cdafe7c57d1fe2305"
+     },
+     "mandate": {
+      "id": "m_vec",
+      "hash": "sha256:698a27247e27e8f4bbe6e9f8a649216458118f2bbd57bbbc0d9096a976888c21"
+     },
+     "outcome": "allow",
+     "reasons": [],
+     "checks": [
+      "mandate_valid",
+      "signer_authorized:bank_kyb",
+      "agent_signed",
+      "not_revoked",
+      "payee_on_mandate",
+      "within_payment_limit",
+      "within_period_limit"
+     ],
+     "checked_at": "2026-10-23T09:14:02.000Z",
+     "checker": {
+      "id": "bank:VECTORS",
+      "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
+     }
+    },
+    {
+     "v": "gleipnir/decision/0.2",
+     "payment": {
+      "id": "p_1",
+      "hash": "sha256:c6a842b3a944600dc23e7149418d9a9da1a6c2cb622f152d2d3272a141aec01a"
+     },
+     "mandate": {
+      "id": "m_vec",
+      "hash": "sha256:a5f2b787ff540eeae475c1155cae041123787952f9fb897c88176922b4828047"
+     },
+     "outcome": "allow",
+     "reasons": [],
+     "checks": [
+      "mandate_valid",
+      "signer_authorized:bank_kyb",
+      "agent_signed",
+      "not_revoked",
+      "payee_on_mandate",
+      "within_payment_limit",
+      "within_period_limit"
+     ],
+     "checked_at": "2026-10-23T09:14:02.000Z",
+     "checker": {
+      "id": "bank:VECTORS",
+      "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
+     }
+    }
+   ],
+   "receipt": {
+    "valid": true,
+    "problems": [],
+    "outcome": "allow",
+    "reasons": [],
+    "checker": "bank:VECTORS",
+    "company": "Andere Spedition GmbH",
+    "agent": "ap-agent",
+    "signed_by": [
+     "boss@andere.at"
+    ],
+    "delegation": [],
+    "authority": [
+     "signer_authorized:bank_kyb"
+    ],
+    "payment": {
+     "id": "o_1",
+     "amount": "25000.00",
+     "currency": "EUR",
+     "payee": {
+      "iban": "AT611904300234573201"
+     }
+    }
+   }
+  },
+  {
+   "name": "F7_one_key_two_signer_ids",
+   "mandate": {
+    "v": "gleipnir/mandate/0.2",
+    "id": "m_vec",
+    "company": {
+     "name": "Nordhafen Logistik GmbH",
+     "country": "AT"
+    },
+    "agent": {
+     "id": "ap-agent",
+     "public_key": "ed25519:gTl3Dqh9F19Wo1Rmw0x-zMuNipG07jeiXfYPW4_Js5Q"
+    },
+    "scope": {
+     "rails": [
+      "sepa",
+      "sepa_instant"
+     ],
+     "currency": "EUR",
+     "max_per_payment": "25000.00",
+     "max_per_period": {
+      "amount": "40000.00",
+      "period": "P1M"
+     },
+     "payees": [
+      {
+       "name": "Brenner Stahl AG",
+       "account": {
+        "iban": "AT611904300234573201"
+       }
+      }
+     ]
+    },
+    "valid_until": "2026-12-31T23:59:59.000Z",
+    "issued_at": "2026-10-01T08:00:00.000Z",
+    "signers": {
+     "threshold": 2,
+     "of": [
+      {
+       "id": "kberger@nordhafen.at",
+       "public_key": "ed25519:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w",
+       "role": "Prokurist"
+      },
+      {
+       "id": "mhofer@nordhafen.at",
+       "public_key": "ed25519:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w",
+       "role": "Geschäftsführerin"
+      }
+     ]
+    }
+   },
+   "payments": [
+    {
+     "v": "gleipnir/payment/0.2",
+     "id": "p_1",
+     "mandate": {
+      "id": "m_vec",
+      "hash": "sha256:29292da7d3c8319345ab5bd7dee29742afb4802f5af2324076c49c816936de02"
+     },
+     "rail": "sepa",
+     "amount": "100.00",
+     "currency": "EUR",
+     "payee": {
+      "name": "Brenner Stahl AG",
+      "account": {
+       "iban": "AT611904300234573201"
+      }
+     },
+     "requested_at": "2026-10-23T09:14:02.000Z",
+     "reference": "INV-1",
+     "agent_sig": "ed25519:U0PGBzv5lr4VowYHjvth5vOZA6nQwqA_aNG46Oe27OrkAcJvTswNXIjg4ojCQDLwIMiZjT5rS39mS3Sd-akXCQ"
+    }
+   ],
+   "webauthn": {},
+   "now": [
+    "2026-10-23T09:14:02.000Z"
+   ],
+   "authority": [
+    {
+     "company": "Nordhafen Logistik GmbH",
+     "signer": "kberger@nordhafen.at",
+     "source": "bank_kyb",
+     "keys": [
+      "ed25519:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w"
+     ],
+     "may_sign": true,
+     "joint": 1
+    },
+    {
+     "company": "Nordhafen Logistik GmbH",
+     "signer": "mhofer@nordhafen.at",
+     "source": "bank_kyb",
+     "keys": [
+      "ed25519:bnoc3Smwt4_ROvTFWY_v9O8qlxZuPKby5Pv8zYBQW_E"
+     ],
+     "may_sign": true,
+     "joint": 1
+    }
+   ],
+   "revocations": [],
+   "status": null,
+   "ledger": true,
+   "expect": [
+    {
+     "v": "gleipnir/decision/0.2",
+     "payment": {
+      "id": "p_1",
+      "hash": "sha256:1672792e1123dbd3499ca825b473776f4379757d453160e6ffcfc1d8045d0608"
+     },
+     "mandate": {
+      "id": "m_vec",
+      "hash": "sha256:29292da7d3c8319345ab5bd7dee29742afb4802f5af2324076c49c816936de02"
+     },
+     "outcome": "block",
+     "reasons": [
+      "mandate_malformed"
+     ],
+     "checks": [],
+     "checked_at": "2026-10-23T09:14:02.000Z",
+     "checker": {
+      "id": "bank:VECTORS",
+      "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
+     }
+    }
+   ],
+   "receipt": {
+    "valid": false,
+    "problems": [
+     "mandate_malformed"
+    ],
+    "outcome": "block",
+    "reasons": [
+     "mandate_malformed"
+    ],
+    "checker": "bank:VECTORS",
+    "company": "Nordhafen Logistik GmbH",
+    "agent": "ap-agent",
+    "signed_by": [],
+    "delegation": [],
+    "authority": [],
+    "payment": {
+     "id": "p_1",
+     "amount": "100.00",
+     "currency": "EUR",
+     "payee": {
+      "iban": "AT611904300234573201"
+     }
+    }
+   }
+  },
+  {
+   "name": "F11_unknown_rail_in_payment",
+   "mandate": {
+    "v": "gleipnir/mandate/0.2",
+    "id": "m_vec",
+    "company": {
+     "name": "Nordhafen Logistik GmbH",
+     "country": "AT"
+    },
+    "agent": {
+     "id": "ap-agent",
+     "public_key": "ed25519:gTl3Dqh9F19Wo1Rmw0x-zMuNipG07jeiXfYPW4_Js5Q"
+    },
+    "signer": {
+     "id": "kberger@nordhafen.at",
+     "name": "K. Berger",
+     "role": "Prokurist",
+     "public_key": "ed25519:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w"
+    },
+    "scope": {
+     "currency": "EUR",
+     "max_per_payment": "25000.00",
+     "max_per_period": {
+      "amount": "40000.00",
+      "period": "P1M"
+     },
+     "payees": [
+      {
+       "name": "Brenner Stahl AG",
+       "account": {
+        "iban": "AT611904300234573201"
+       }
+      }
+     ]
+    },
+    "valid_until": "2026-12-31T23:59:59.000Z",
+    "issued_at": "2026-10-01T08:00:00.000Z",
+    "sig": "ed25519:pfdglUYEvdHmRyCveeC_0uxIdlqgvg4IbVgJ_5FBfC4r0Y_yiAsNP_OSxFA45wNfS9vuK30Pm0DrF-Kx3CgRDA"
+   },
+   "payments": [
+    {
+     "v": "gleipnir/payment/0.2",
+     "id": "p_1",
+     "mandate": {
+      "id": "m_vec",
+      "hash": "sha256:bad60c32a752d5e94bd40e56889731489aa9cd9d1596a04353ead0d2d6ccdc40"
+     },
+     "rail": "bitcoin",
+     "amount": "100.00",
+     "currency": "EUR",
+     "payee": {
+      "name": "Brenner Stahl AG",
+      "account": {
+       "iban": "AT611904300234573201"
+      }
+     },
+     "requested_at": "2026-10-23T09:14:02.000Z",
+     "reference": "INV-1",
+     "agent_sig": "ed25519:93n3df3e9BIwv1JGCK3VKlgSOYl1W0cOw2-xo6exDtdKEhqFzFWozugvn5i4miS1VUB0AQTse0WVYp10y18dAQ"
+    }
+   ],
+   "webauthn": {},
+   "now": [
+    "2026-10-23T09:14:02.000Z"
+   ],
+   "authority": [
+    {
+     "company": "Nordhafen Logistik GmbH",
+     "signer": "kberger@nordhafen.at",
+     "source": "bank_kyb",
+     "keys": [
+      "ed25519:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w"
+     ],
+     "may_sign": true
+    }
+   ],
+   "revocations": [],
+   "status": null,
+   "ledger": true,
+   "expect": [
+    {
+     "v": "gleipnir/decision/0.2",
+     "payment": {
+      "id": "p_1",
+      "hash": "sha256:6101ff173ca4aebeed1f97a84533b604d65047c8361c5157bb2926b0c1c6c740"
+     },
+     "mandate": {
+      "id": "m_vec",
+      "hash": "sha256:bad60c32a752d5e94bd40e56889731489aa9cd9d1596a04353ead0d2d6ccdc40"
+     },
+     "outcome": "block",
+     "reasons": [
+      "payment_malformed"
+     ],
+     "checks": [],
+     "checked_at": "2026-10-23T09:14:02.000Z",
+     "checker": {
+      "id": "bank:VECTORS",
+      "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
+     }
+    }
+   ],
+   "receipt": {
+    "valid": false,
+    "problems": [
+     "payment_malformed"
+    ],
+    "outcome": "block",
+    "reasons": [
+     "payment_malformed"
+    ],
+    "checker": "bank:VECTORS",
+    "company": "Nordhafen Logistik GmbH",
+    "agent": "ap-agent",
+    "signed_by": [
+     "kberger@nordhafen.at"
+    ],
+    "delegation": [],
+    "authority": [],
+    "payment": {
+     "id": "p_1",
+     "amount": "100.00",
+     "currency": "EUR",
+     "payee": {
+      "iban": "AT611904300234573201"
+     }
+    }
+   }
+  },
+  {
+   "name": "F13_link_names_other_country",
+   "mandate": {
+    "v": "gleipnir/mandate/0.2",
+    "id": "m_vec",
+    "company": {
+     "name": "Nordhafen Logistik GmbH",
+     "country": "AT"
+    },
+    "agent": {
+     "id": "ap-agent",
+     "public_key": "ed25519:gTl3Dqh9F19Wo1Rmw0x-zMuNipG07jeiXfYPW4_Js5Q"
+    },
+    "signer": {
+     "id": "cfo@nordhafen.at",
+     "public_key": "ed25519:6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iw",
+     "role": "CFO"
+    },
+    "scope": {
+     "rails": [
+      "sepa",
+      "sepa_instant"
+     ],
+     "currency": "EUR",
+     "max_per_payment": "25000.00",
+     "max_per_period": {
+      "amount": "40000.00",
+      "period": "P1M"
+     },
+     "payees": [
+      {
+       "name": "Brenner Stahl AG",
+       "account": {
+        "iban": "AT611904300234573201"
+       }
+      }
+     ]
+    },
+    "valid_until": "2026-12-31T23:59:59.000Z",
+    "issued_at": "2026-10-01T08:00:00.000Z",
+    "delegation": [
+     {
+      "v": "gleipnir/delegation/0.2",
+      "id": "g_de",
+      "company": {
+       "name": "Nordhafen Logistik GmbH",
+       "country": "DE"
+      },
+      "from": {
+       "id": "ceo@nordhafen.at",
+       "public_key": "ed25519:iodf_x6zhFFXes1a_uQFRWVo3XyJ4JCGOgVXvHr0nxc",
+       "role": "CEO"
+      },
+      "to": {
+       "id": "cfo@nordhafen.at",
+       "public_key": "ed25519:6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iw",
+       "role": "CFO"
+      },
+      "scope": {
+       "rails": [
+        "sepa",
+        "sepa_instant"
+       ],
+       "currency": "EUR",
+       "max_per_payment": "50000.00",
+       "max_per_period": {
+        "amount": "200000.00",
+        "period": "P1M"
+       }
+      },
+      "valid_until": "2027-03-31T23:59:59.000Z",
+      "issued_at": "2026-10-01T08:00:00.000Z",
+      "sig": "ed25519:XoQCdE_Wzw6zLarxdCEizmwUZeFwvc0WqfN9xe24rsYrsdSNg_LDm1rLKTX0GmvhSx5yhM7VLU89ZYL1s8bdBg"
+     }
+    ],
+    "sig": "ed25519:WChFPz1SVOJiA7zkaGohxd3_RCEZ9ITNndqbXwqoAGYMyjKTJYaiEhwB3d4bg7Ib_Bv0o-giFzhbBn4c7V_EDA"
+   },
+   "payments": [
+    {
+     "v": "gleipnir/payment/0.2",
+     "id": "p_1",
+     "mandate": {
+      "id": "m_vec",
+      "hash": "sha256:33f0f91ba32c29856c30547e6d4d3c8e7d627bd4666aa6024e9efb206ff21319"
+     },
+     "rail": "sepa",
+     "amount": "100.00",
+     "currency": "EUR",
+     "payee": {
+      "name": "Brenner Stahl AG",
+      "account": {
+       "iban": "AT611904300234573201"
+      }
+     },
+     "requested_at": "2026-10-23T09:14:02.000Z",
+     "reference": "INV-1",
+     "agent_sig": "ed25519:C1onngmmO3LMQoGRqAmRBJzNTX40Aw7jE-wfZDiM0v0Vmt88dDvj_YMhuD1H89xhWRKv9MA0hQRYvYzO8s0ZDA"
+    }
+   ],
+   "webauthn": {},
+   "now": [
+    "2026-10-23T09:14:02.000Z"
+   ],
+   "authority": [
+    {
+     "company": "Nordhafen Logistik GmbH",
+     "signer": "ceo@nordhafen.at",
+     "source": "bank_kyb",
+     "keys": [
+      "ed25519:iodf_x6zhFFXes1a_uQFRWVo3XyJ4JCGOgVXvHr0nxc"
+     ],
+     "may_sign": true,
+     "joint": 1
+    },
+    {
+     "company": "Nordhafen Logistik GmbH",
+     "signer": "cfo@nordhafen.at",
+     "source": "bank_kyb",
+     "keys": [
+      "ed25519:6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iw"
+     ],
+     "may_sign": false,
+     "joint": 1
+    },
+    {
+     "company": "Nordhafen Logistik GmbH",
+     "signer": "controller@nordhafen.at",
+     "source": "bank_kyb",
+     "keys": [
+      "ed25519:E5j2LG0aRXxRumpLXz29L2n8qTIWIY3ImX5Ba9F9k8o"
+     ],
+     "may_sign": false,
+     "joint": 1
+    },
+    {
+     "company": "Nordhafen Logistik GmbH",
+     "signer": "kberger@nordhafen.at",
+     "source": "bank_kyb",
+     "keys": [
+      "ed25519:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w"
+     ],
+     "may_sign": true,
+     "joint": 1
+    }
+   ],
+   "revocations": [],
+   "status": null,
+   "ledger": true,
+   "expect": [
+    {
+     "v": "gleipnir/decision/0.2",
+     "payment": {
+      "id": "p_1",
+      "hash": "sha256:e59d968855c20868923578aba6ff64f3a0630935f204839115d3192df2bfe531"
+     },
+     "mandate": {
+      "id": "m_vec",
+      "hash": "sha256:33f0f91ba32c29856c30547e6d4d3c8e7d627bd4666aa6024e9efb206ff21319"
+     },
+     "outcome": "block",
+     "reasons": [
+      "delegation_broken"
+     ],
+     "checks": [],
+     "checked_at": "2026-10-23T09:14:02.000Z",
+     "checker": {
+      "id": "bank:VECTORS",
+      "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
+     }
+    }
+   ],
+   "receipt": {
+    "valid": false,
+    "problems": [
+     "delegation_broken"
+    ],
+    "outcome": "block",
+    "reasons": [
+     "delegation_broken"
+    ],
+    "checker": "bank:VECTORS",
+    "company": "Nordhafen Logistik GmbH",
+    "agent": "ap-agent",
+    "signed_by": [
+     "cfo@nordhafen.at"
+    ],
+    "delegation": [
+     "ceo@nordhafen.at -> cfo@nordhafen.at"
+    ],
+    "authority": [],
+    "payment": {
+     "id": "p_1",
+     "amount": "100.00",
+     "currency": "EUR",
+     "payee": {
+      "iban": "AT611904300234573201"
+     }
+    }
+   }
+  },
+  {
+   "name": "F14_leaf_delegate_cannot_cut_root",
+   "mandate": {
+    "v": "gleipnir/mandate/0.2",
+    "id": "m_vec",
+    "company": {
+     "name": "Nordhafen Logistik GmbH",
+     "country": "AT"
+    },
+    "agent": {
+     "id": "ap-agent",
+     "public_key": "ed25519:gTl3Dqh9F19Wo1Rmw0x-zMuNipG07jeiXfYPW4_Js5Q"
+    },
+    "signer": {
+     "id": "controller@nordhafen.at",
+     "public_key": "ed25519:E5j2LG0aRXxRumpLXz29L2n8qTIWIY3ImX5Ba9F9k8o",
+     "role": "Controller"
+    },
+    "scope": {
+     "rails": [
+      "sepa",
+      "sepa_instant"
+     ],
+     "currency": "EUR",
+     "max_per_payment": "25000.00",
+     "max_per_period": {
+      "amount": "40000.00",
+      "period": "P1M"
+     },
+     "payees": [
+      {
+       "name": "Brenner Stahl AG",
+       "account": {
+        "iban": "AT611904300234573201"
+       }
+      }
+     ]
+    },
+    "valid_until": "2026-12-31T23:59:59.000Z",
+    "issued_at": "2026-10-01T08:00:00.000Z",
+    "delegation": [
+     {
+      "v": "gleipnir/delegation/0.2",
+      "id": "g_ceo_cfo",
+      "company": {
+       "name": "Nordhafen Logistik GmbH",
+       "country": "AT"
+      },
+      "from": {
+       "id": "ceo@nordhafen.at",
+       "public_key": "ed25519:iodf_x6zhFFXes1a_uQFRWVo3XyJ4JCGOgVXvHr0nxc",
+       "role": "CEO"
+      },
+      "to": {
+       "id": "cfo@nordhafen.at",
+       "public_key": "ed25519:6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iw",
+       "role": "CFO"
+      },
+      "scope": {
+       "rails": [
+        "sepa",
+        "sepa_instant"
+       ],
+       "currency": "EUR",
+       "max_per_payment": "50000.00",
+       "max_per_period": {
+        "amount": "200000.00",
+        "period": "P1M"
+       }
+      },
+      "valid_until": "2027-03-31T23:59:59.000Z",
+      "issued_at": "2026-10-01T08:00:00.000Z",
+      "sig": "ed25519:fhTgG8qs1LEgYif8ScfcWtw_YG4ZD4OsKXmD6yw0zgKrZ16ONQ0k7y4jSoXqiceA1ffL-v7LvMS15Ha98VoTDA"
+     },
+     {
+      "v": "gleipnir/delegation/0.2",
+      "id": "g_cfo_ctrl",
+      "company": {
+       "name": "Nordhafen Logistik GmbH",
+       "country": "AT"
+      },
+      "from": {
+       "id": "cfo@nordhafen.at",
+       "public_key": "ed25519:6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iw",
+       "role": "CFO"
+      },
+      "to": {
+       "id": "controller@nordhafen.at",
+       "public_key": "ed25519:E5j2LG0aRXxRumpLXz29L2n8qTIWIY3ImX5Ba9F9k8o",
+       "role": "Controller"
+      },
+      "scope": {
+       "rails": [
+        "sepa",
+        "sepa_instant"
+       ],
+       "currency": "EUR",
+       "max_per_payment": "30000.00",
+       "max_per_period": {
+        "amount": "200000.00",
+        "period": "P1M"
+       }
+      },
+      "valid_until": "2027-01-31T23:59:59.000Z",
+      "issued_at": "2026-10-01T08:00:00.000Z",
+      "parent": {
+       "id": "g_ceo_cfo",
+       "hash": "sha256:8fb534f4ab8992330d7ba8ec65a06246e827ad64556fc081d042ed95ea7f813d"
+      },
+      "sig": "ed25519:1DkdwzhCURx7DpGcYY2RjLZlNhPeGenNzMJaaWaQ0_spFUnPLv2QeLyx5FL3G2P6ieGOFWlzlgSbExMiGkwvBg"
+     }
+    ],
+    "sig": "ed25519:jQ5vby-Nq_hTpA2L6r4Rpigi4wqmBCxnKuUbI7rWn14KKWhgvWKP4pH9kPuJez7Pm-dC8pwMZsUVp0LSTPuSCg"
+   },
+   "payments": [
+    {
+     "v": "gleipnir/payment/0.2",
+     "id": "p_1",
+     "mandate": {
+      "id": "m_vec",
+      "hash": "sha256:530398ee9264f1d8f0d07f2575e4ad5fd85bd0a1d14f4dcb14c0708e44b9d124"
+     },
+     "rail": "sepa",
+     "amount": "100.00",
+     "currency": "EUR",
+     "payee": {
+      "name": "Brenner Stahl AG",
+      "account": {
+       "iban": "AT611904300234573201"
+      }
+     },
+     "requested_at": "2026-10-23T09:14:02.000Z",
+     "reference": "INV-1",
+     "agent_sig": "ed25519:z7eEZ-eAkf50QMjygUSPnVzn6bOPw9Hu5xgWKyymh7qkIUCpJDoHuif_cAHOMLDJrc2UG_XtsJTq_S2_yWnEBg"
+    }
+   ],
+   "webauthn": {},
+   "now": [
+    "2026-10-23T09:14:02.000Z"
+   ],
+   "authority": [
+    {
+     "company": "Nordhafen Logistik GmbH",
+     "signer": "ceo@nordhafen.at",
+     "source": "bank_kyb",
+     "keys": [
+      "ed25519:iodf_x6zhFFXes1a_uQFRWVo3XyJ4JCGOgVXvHr0nxc"
+     ],
+     "may_sign": true,
+     "joint": 1
+    },
+    {
+     "company": "Nordhafen Logistik GmbH",
+     "signer": "cfo@nordhafen.at",
+     "source": "bank_kyb",
+     "keys": [
+      "ed25519:6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iw"
+     ],
+     "may_sign": false,
+     "joint": 1
+    },
+    {
+     "company": "Nordhafen Logistik GmbH",
+     "signer": "controller@nordhafen.at",
+     "source": "bank_kyb",
+     "keys": [
+      "ed25519:E5j2LG0aRXxRumpLXz29L2n8qTIWIY3ImX5Ba9F9k8o"
+     ],
+     "may_sign": false,
+     "joint": 1
+    },
+    {
+     "company": "Nordhafen Logistik GmbH",
+     "signer": "kberger@nordhafen.at",
+     "source": "bank_kyb",
+     "keys": [
+      "ed25519:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w"
+     ],
+     "may_sign": true,
+     "joint": 1
+    }
+   ],
+   "revocations": [
+    {
+     "v": "gleipnir/revocation/0.2",
+     "id": "r_leaf",
+     "delegation": "g_ceo_cfo",
+     "delegation_hash": "sha256:8fb534f4ab8992330d7ba8ec65a06246e827ad64556fc081d042ed95ea7f813d",
+     "revoked_at": "2026-10-22T00:00:00.000Z",
+     "signer": {
+      "id": "controller@nordhafen.at",
+      "public_key": "ed25519:E5j2LG0aRXxRumpLXz29L2n8qTIWIY3ImX5Ba9F9k8o",
+      "role": "Controller"
+     },
+     "sig": "ed25519:63YkpQr5YOMFQ-un1n2mIox3YloL2uXj9r9y-zxaZ3yZ02cMYoa0kEFjss2IxIhKfPT_P7mrZ_xHHJ2DRLKODg"
+    }
+   ],
+   "status": null,
+   "ledger": true,
+   "expect": [
+    {
+     "v": "gleipnir/decision/0.2",
+     "payment": {
+      "id": "p_1",
+      "hash": "sha256:18fd49666bd5cb54272eac82c1d7ed8b869a588cb9b771f1b6130fb4c6373ba0"
+     },
+     "mandate": {
+      "id": "m_vec",
+      "hash": "sha256:530398ee9264f1d8f0d07f2575e4ad5fd85bd0a1d14f4dcb14c0708e44b9d124"
+     },
+     "outcome": "allow",
+     "reasons": [],
+     "checks": [
+      "mandate_valid",
+      "delegation:2",
+      "signer_authorized:bank_kyb",
+      "agent_signed",
+      "not_revoked",
+      "payee_on_mandate",
+      "within_payment_limit",
+      "within_period_limit"
+     ],
+     "checked_at": "2026-10-23T09:14:02.000Z",
+     "checker": {
+      "id": "bank:VECTORS",
+      "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
+     }
+    }
+   ],
+   "receipt": {
+    "valid": true,
+    "problems": [],
+    "outcome": "allow",
+    "reasons": [],
+    "checker": "bank:VECTORS",
+    "company": "Nordhafen Logistik GmbH",
+    "agent": "ap-agent",
+    "signed_by": [
+     "controller@nordhafen.at"
+    ],
+    "delegation": [
+     "ceo@nordhafen.at -> cfo@nordhafen.at",
+     "cfo@nordhafen.at -> controller@nordhafen.at"
+    ],
+    "authority": [
+     "signer_authorized:bank_kyb"
+    ],
+    "payment": {
+     "id": "p_1",
+     "amount": "100.00",
+     "currency": "EUR",
+     "payee": {
+      "iban": "AT611904300234573201"
+     }
+    }
+   }
+  },
+  {
+   "name": "F3_account_value_not_a_string",
+   "mandate": {
+    "v": "gleipnir/mandate/0.2",
+    "id": "m_vec",
+    "company": {
+     "name": "Nordhafen Logistik GmbH",
+     "country": "AT"
+    },
+    "agent": {
+     "id": "ap-agent",
+     "public_key": "ed25519:gTl3Dqh9F19Wo1Rmw0x-zMuNipG07jeiXfYPW4_Js5Q"
+    },
+    "signer": {
+     "id": "kberger@nordhafen.at",
+     "name": "K. Berger",
+     "role": "Prokurist",
+     "public_key": "ed25519:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w"
+    },
+    "scope": {
+     "rails": [
+      "sepa",
+      "sepa_instant"
+     ],
+     "currency": "EUR",
+     "max_per_payment": "25000.00",
+     "max_per_period": {
+      "amount": "40000.00",
+      "period": "P1M"
+     },
+     "payees": [
+      {
+       "name": "Acme",
+       "account": {
+        "routing": 21000021
+       }
+      }
+     ]
+    },
+    "valid_until": "2026-12-31T23:59:59.000Z",
+    "issued_at": "2026-10-01T08:00:00.000Z"
+   },
+   "payments": [
+    {
+     "v": "gleipnir/payment/0.2",
+     "id": "p_1",
+     "mandate": {
+      "id": "m_vec",
+      "hash": "sha256:a5f2b787ff540eeae475c1155cae041123787952f9fb897c88176922b4828047"
+     },
+     "rail": "sepa",
+     "amount": "100.00",
+     "currency": "EUR",
+     "payee": {
+      "name": "Brenner Stahl AG",
+      "account": {
+       "iban": "AT611904300234573201"
+      }
+     },
+     "requested_at": "2026-10-23T09:14:02.000Z",
+     "reference": "INV-1",
+     "agent_sig": "ed25519:PkU5qKgixJ_Ac6ffy6vxrCxVLj8vRO0YdlE1KrTNMKOdjNueuyshrxZRxj49YJdz_kt90MLlVeXEyLD2HQuyDQ"
+    }
+   ],
+   "webauthn": {},
+   "now": [
+    "2026-10-23T09:14:02.000Z"
+   ],
+   "authority": [
+    {
+     "company": "Nordhafen Logistik GmbH",
+     "signer": "kberger@nordhafen.at",
+     "source": "bank_kyb",
+     "keys": [
+      "ed25519:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w"
+     ],
+     "may_sign": true
+    }
+   ],
+   "revocations": [],
+   "status": null,
+   "ledger": true,
+   "expect": [
+    {
+     "v": "gleipnir/decision/0.2",
+     "payment": {
+      "id": "p_1",
+      "hash": "sha256:898dfdd53c9d2e2be1bc3bb350d3882907f7d423e3fefb1085709034e5cc215d"
+     },
+     "mandate": {
+      "id": "m_vec",
+      "hash": "sha256:527d6b2e5b19dca750899b407588b84fedd3e45b5f825031f3dd6bfe459c4d8d"
+     },
+     "outcome": "block",
+     "reasons": [
+      "mandate_malformed"
+     ],
+     "checks": [],
+     "checked_at": "2026-10-23T09:14:02.000Z",
+     "checker": {
+      "id": "bank:VECTORS",
+      "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
+     }
+    }
+   ],
+   "receipt": {
+    "valid": false,
+    "problems": [
+     "mandate_malformed"
+    ],
+    "outcome": "block",
+    "reasons": [
+     "mandate_malformed"
+    ],
+    "checker": "bank:VECTORS",
+    "company": "Nordhafen Logistik GmbH",
+    "agent": "ap-agent",
+    "signed_by": [],
+    "delegation": [],
+    "authority": [],
+    "payment": {
+     "id": "p_1",
+     "amount": "100.00",
+     "currency": "EUR",
+     "payee": {
+      "iban": "AT611904300234573201"
+     }
+    }
+   }
+  },
+  {
+   "name": "F16_non_ascii_iban",
+   "mandate": {
+    "v": "gleipnir/mandate/0.2",
+    "id": "m_vec",
+    "company": {
+     "name": "Nordhafen Logistik GmbH",
+     "country": "AT"
+    },
+    "agent": {
+     "id": "ap-agent",
+     "public_key": "ed25519:gTl3Dqh9F19Wo1Rmw0x-zMuNipG07jeiXfYPW4_Js5Q"
+    },
+    "signer": {
+     "id": "kberger@nordhafen.at",
+     "name": "K. Berger",
+     "role": "Prokurist",
+     "public_key": "ed25519:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w"
+    },
+    "scope": {
+     "rails": [
+      "sepa",
+      "sepa_instant"
+     ],
+     "currency": "EUR",
+     "max_per_payment": "25000.00",
+     "max_per_period": {
+      "amount": "40000.00",
+      "period": "P1M"
+     },
+     "payees": [
+      {
+       "name": "X",
+       "account": {
+        "iban": "AT61ƕ1904"
+       }
+      }
+     ]
+    },
+    "valid_until": "2026-12-31T23:59:59.000Z",
+    "issued_at": "2026-10-01T08:00:00.000Z"
+   },
+   "payments": [
+    {
+     "v": "gleipnir/payment/0.2",
+     "id": "p_1",
+     "mandate": {
+      "id": "m_vec",
+      "hash": "sha256:a5f2b787ff540eeae475c1155cae041123787952f9fb897c88176922b4828047"
+     },
+     "rail": "sepa",
+     "amount": "100.00",
+     "currency": "EUR",
+     "payee": {
+      "name": "Brenner Stahl AG",
+      "account": {
+       "iban": "AT611904300234573201"
+      }
+     },
+     "requested_at": "2026-10-23T09:14:02.000Z",
+     "reference": "INV-1",
+     "agent_sig": "ed25519:PkU5qKgixJ_Ac6ffy6vxrCxVLj8vRO0YdlE1KrTNMKOdjNueuyshrxZRxj49YJdz_kt90MLlVeXEyLD2HQuyDQ"
+    }
+   ],
+   "webauthn": {},
+   "now": [
+    "2026-10-23T09:14:02.000Z"
+   ],
+   "authority": [
+    {
+     "company": "Nordhafen Logistik GmbH",
+     "signer": "kberger@nordhafen.at",
+     "source": "bank_kyb",
+     "keys": [
+      "ed25519:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w"
+     ],
+     "may_sign": true
+    }
+   ],
+   "revocations": [],
+   "status": null,
+   "ledger": true,
+   "expect": [
+    {
+     "v": "gleipnir/decision/0.2",
+     "payment": {
+      "id": "p_1",
+      "hash": "sha256:898dfdd53c9d2e2be1bc3bb350d3882907f7d423e3fefb1085709034e5cc215d"
+     },
+     "mandate": {
+      "id": "m_vec",
+      "hash": "sha256:1dd923973a2475f2938c76b66daee18dc7a5e135aacd70cae941b3d9f39a15bb"
+     },
+     "outcome": "block",
+     "reasons": [
+      "mandate_malformed"
+     ],
+     "checks": [],
+     "checked_at": "2026-10-23T09:14:02.000Z",
+     "checker": {
+      "id": "bank:VECTORS",
+      "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
+     }
+    }
+   ],
+   "receipt": {
+    "valid": false,
+    "problems": [
+     "mandate_malformed"
+    ],
+    "outcome": "block",
+    "reasons": [
+     "mandate_malformed"
+    ],
+    "checker": "bank:VECTORS",
+    "company": "Nordhafen Logistik GmbH",
+    "agent": "ap-agent",
+    "signed_by": [],
+    "delegation": [],
+    "authority": [],
+    "payment": {
+     "id": "p_1",
+     "amount": "100.00",
+     "currency": "EUR",
+     "payee": {
+      "iban": "AT611904300234573201"
+     }
+    }
+   }
   }
  ],
  "signed": [
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_f3b26ff99f22324943d1d03d",
+   "id": "d_0c05bac6c1a87c63570dec37",
    "payment": {
     "id": "p_1",
     "hash": "sha256:6e25fc31c9a41f758aee5400ed624e45cbd814085a64ca5903edd5a9190129ac"
@@ -10799,8 +13313,8 @@
    "checks": [
     "mandate_valid",
     "signer_authorized:bank_kyb",
-    "not_revoked",
     "agent_signed",
+    "not_revoked",
     "payee_on_mandate",
     "within_payment_limit",
     "within_period_limit"
@@ -10810,11 +13324,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:hj7wDip5JmkMDZwIJOFzkC4B8ta1VSgmmE1BOJHh-BvugNWxXDHG6N7EookplrFYodpBkb_rYkCK9J5T8zjnDg"
+   "sig": "ed25519:zGOjbl7O8pDiolsdNZAZUu2Kk983vqfqbdY_zNs-dw-fwvpGhUXPLuYBn_U_uevx7n0mMQPuZXm2q-NYVzx7Aw"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_07aa1bca9053c261bb287642",
+   "id": "d_76fafed79ce3f3887dcca116",
    "payment": {
     "id": "p_1",
     "hash": "sha256:a2f68f06a3d754535f5bc625521ef560bc0e8093524bddaee6f4e7d284766228"
@@ -10830,19 +13344,19 @@
    "checks": [
     "mandate_valid",
     "signer_authorized:bank_kyb",
-    "not_revoked",
-    "agent_signed"
+    "agent_signed",
+    "not_revoked"
    ],
    "checked_at": "2026-10-23T09:14:02.000Z",
    "checker": {
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:CS5fXsoz87M4eAZJJWbeKdsqlXLHopZfx23mJT1e50lfgrzas74G73fGsAQVBMjMQGNqT4QgNJLmwglyBQq1DQ"
+   "sig": "ed25519:zWAJLvYro1nHLiDboRlNKQ54IixCS4DOj48KV7BE9ehNOlh0gUf7jAKaBMPwGXmg9W60cgaIVmZze-nG4beCBg"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_97686e5962c46e96eab39009",
+   "id": "d_4598347b0bb8a54e880b93e0",
    "payment": {
     "id": "p_1",
     "hash": "sha256:45b76503678b637e518266b12b7ea457ca264e800293f42237813823c0395979"
@@ -10856,8 +13370,8 @@
    "checks": [
     "mandate_valid",
     "signer_authorized:bank_kyb",
-    "not_revoked",
     "agent_signed",
+    "not_revoked",
     "payee_on_mandate",
     "within_payment_limit",
     "within_period_limit"
@@ -10867,11 +13381,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:LcEnBHijmbQ5Q92mYkRBR4p_NKdNcwa1QtfQ2BgRKsEQAWX6WDGiwReJn-_xiss2jx6zVrF8ZU4niB1prYcFBQ"
+   "sig": "ed25519:61treP1Ne-A_T4fwogSVCFFLnF24hLaELdXZFDow7aNpYZzCitYgqZUzZkJNy9B9_AjZJT_LzhzbpijbVb0KAg"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_bc7c4236f57d62c6cce54573",
+   "id": "d_22da80ebd317112f3291ba8c",
    "payment": {
     "id": "p_1",
     "hash": "sha256:9d869eb24fdf60ade4d5d0b16c7c7a285ca9e820caed3848a5e9735b98fbcfc4"
@@ -10887,8 +13401,8 @@
    "checks": [
     "mandate_valid",
     "signer_authorized:bank_kyb",
-    "not_revoked",
     "agent_signed",
+    "not_revoked",
     "payee_on_mandate"
    ],
    "checked_at": "2026-10-23T09:14:02.000Z",
@@ -10896,11 +13410,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:kOS1dGHXxIuN1a7y-PsyKJkWbm-UgHv5KygBYzksVPiJ6XhR0WtPzEREikmnluMVnzmLs1kCgIU_fniM7n2oBQ"
+   "sig": "ed25519:8A3p4RuNRZIKR00vG1SjOGHs2NkY4mVbhXOM8D4iUQYzOyk_ZFDVqGwsyMGhVx6NDVMnWCKjz1G3bw2YY1lNBg"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_ef73dc1b538ee2bf0a2d6c9e",
+   "id": "d_27b0c5a525ff54b56e9d4446",
    "payment": {
     "id": "p_1",
     "hash": "sha256:ec3ff29c5660cccc985eb696609b9a10153872b5ae53daab30816018f436c40d"
@@ -10914,8 +13428,8 @@
    "checks": [
     "mandate_valid",
     "signer_authorized:bank_kyb",
-    "not_revoked",
     "agent_signed",
+    "not_revoked",
     "payee_on_mandate",
     "within_payment_limit",
     "within_period_limit"
@@ -10925,11 +13439,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:rv7_DxW8Pd3T8nQMlUTAgiAR_jy_ZNPD-bYSBEM34itcN09ikkjFi2uoCJHfXr12b4P5-1ryoCZRnkINIsyzDA"
+   "sig": "ed25519:OBf4RLVIgCmvhe28NxlgrYq3mhK0qxMwB3goViWIAdvuuaBygEW5guQplElD71zuY8QTbIcAeNyLngCdyhqhCQ"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_e6c87c684e6885604f79f436",
+   "id": "d_b1b978b990676c5824e779d0",
    "payment": {
     "id": "p_1",
     "hash": "sha256:898dfdd53c9d2e2be1bc3bb350d3882907f7d423e3fefb1085709034e5cc215d"
@@ -10943,8 +13457,8 @@
    "checks": [
     "mandate_valid",
     "signer_authorized:bank_kyb",
-    "not_revoked",
     "agent_signed",
+    "not_revoked",
     "payee_on_mandate",
     "within_payment_limit",
     "within_period_limit"
@@ -10954,11 +13468,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:OlyiUTx0UDdmsguh1rcVVP64p0ebIAiIUBd6qrrI4OqGAnlKRv8D3Hl1oRINOM9bBSkGL0CZ9Y_8Ymhq_bGaAQ"
+   "sig": "ed25519:dghrwja4bPoGYCPKPnGLk4KwhqOOnQAgz1dilbJdkq8EhbBJCOdS80q8YI94Jy6sO0W8iAxxR_pMwLG0QXOQBg"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_f1f7e2378d7f95ecd6fc09e6",
+   "id": "d_1f11f10ffd775edfb43d2910",
    "payment": {
     "id": "p_1",
     "hash": "sha256:91d9a951a11bac6fda57a19e7d893f933e54846a26e39d0438ebf057c41bcdb2"
@@ -10972,8 +13486,8 @@
    "checks": [
     "mandate_valid",
     "signer_authorized:bank_kyb",
-    "not_revoked",
     "agent_signed",
+    "not_revoked",
     "payee_on_mandate",
     "within_payment_limit",
     "within_period_limit"
@@ -10983,11 +13497,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:0SUNLl-2X_0UY-H4sLuDmWZ6XO860F4IKbFrP_vjvPOdiE1lt86P9taJ1sd_MpqZPPkRy7BN4xynjUK9XfU2Bg"
+   "sig": "ed25519:8vOenZgUjLiMTmZJHz9LnoI2-JasZH4eT_7vDi7bGh7AWpjzU3HxB_ZfyvJmCb9vatk7SOo-_-8NUe4cKO_cBQ"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_9abc8ea982697060480e3ea2",
+   "id": "d_6b4603eb516ec09d700cbfd6",
    "payment": {
     "id": "p_1",
     "hash": "sha256:898dfdd53c9d2e2be1bc3bb350d3882907f7d423e3fefb1085709034e5cc215d"
@@ -11003,8 +13517,8 @@
    "checks": [
     "mandate_valid",
     "signer_authorized:bank_kyb",
-    "not_revoked",
     "agent_signed",
+    "not_revoked",
     "payee_on_mandate",
     "within_payment_limit"
    ],
@@ -11013,11 +13527,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:8BKI1wjILa_RnasesWz86RxWhh67kJ9uNVKayp5bIe_TDejdszutj_ZKEkIm_JA0Tg4ufeJ9X3Om0jFqplJDCA"
+   "sig": "ed25519:lWS6JGlaMZFsPvaNZxD1ghZo26xLeaS9DQFJF9PthvROFxFYZgI1JyZp_sm19NhHKGc-k6q4MzedjsFBgy-KCg"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_5e008142e51b329494f99c9c",
+   "id": "d_8c7c617b941e0ec9c9e548ed",
    "payment": {
     "id": "p_1",
     "hash": "sha256:b632f4e4a9361596f782f09e9afa242d8da1aa3d6f892dd845c0a47208310694"
@@ -11031,8 +13545,8 @@
    "checks": [
     "mandate_valid",
     "signer_authorized:bank_kyb",
-    "not_revoked",
     "agent_signed",
+    "not_revoked",
     "payee_on_mandate",
     "within_payment_limit"
    ],
@@ -11041,11 +13555,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:SDweQwudE41oiHcVwW-hyX56XeoTIqqecFleHzKamiQnvDXGPQq4sz2VZtgrx9HvdYwidwZx87tICXM2K0xtAg"
+   "sig": "ed25519:dAsn-oyYe6oP1J-zQS0OJUpyIOtbKUTL6fgnq2ID4oiOXC6o2a_Di1JmbHdtAsTStsEguBLGBfDyaEDZ6189Ag"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_a863f9359beda0a98587968d",
+   "id": "d_262c8b444cdb47bc9e4b0cb6",
    "payment": {
     "id": "p_1",
     "hash": "sha256:2c73272ee5e368ecdbd622d3a534bec813a1cb3eb62c4c49d92997b5b4aaa4f0"
@@ -11059,8 +13573,8 @@
    "checks": [
     "mandate_valid",
     "signer_authorized:bank_kyb",
-    "not_revoked",
     "agent_signed",
+    "not_revoked",
     "payee_on_mandate",
     "within_payment_limit"
    ],
@@ -11069,11 +13583,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:pNR7Z-q7hvcvRktJLJOKdYibLKiTjcYdLJSVRP9YmEy8AVcGgeSNwlIUzekQe72HJxiZiC5l8X4wVlEGfpxaBw"
+   "sig": "ed25519:5-STK7__mopWuw_NG8VqiBnBlVUjF--ARu49AArcb35tUYd_8v1K7rIvEiaaDvu8tkdL-0z5b2CtLAao0tcWBQ"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_01d66741bf2af3497bcea157",
+   "id": "d_4c1fc2959b7603f3579383e5",
    "payment": {
     "id": "p_1",
     "hash": "sha256:cd8897f41bff3647902cb554202f7091ab7df666de6730c846a39cac2bb7cc1a"
@@ -11089,19 +13603,19 @@
    "checks": [
     "mandate_valid",
     "signer_authorized:bank_kyb",
-    "not_revoked",
-    "agent_signed"
+    "agent_signed",
+    "not_revoked"
    ],
    "checked_at": "2026-10-23T09:14:02.000Z",
    "checker": {
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:JxAgs2WsC0vP1XL2g6LhkCxX9AJprGsNju5ahqOd3l68JaVp30VZJ9AP5aRVBZNGYdt-6adwxw-bVdU-G7e3Bg"
+   "sig": "ed25519:PD41UlA-RknX5pEuuN_f0WLVgdWOqY0e3t_A65GbuT6ABv5VF0xbe_mWksfI1p2A2M16lTNpsh3sDfPt13OIBQ"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_27002d285ed35c733a143707",
+   "id": "d_56c61e718ae74ac6d183e458",
    "payment": {
     "id": "p_1",
     "hash": "sha256:833c81dcb5717c56705795f9a75a22b0afbbf49a098c7a3665bbeaf366f4c1f8"
@@ -11117,19 +13631,19 @@
    "checks": [
     "mandate_valid",
     "signer_authorized:bank_kyb",
-    "not_revoked",
-    "agent_signed"
+    "agent_signed",
+    "not_revoked"
    ],
    "checked_at": "2026-10-23T09:14:02.000Z",
    "checker": {
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:uUK4271th-i-9CBHP7jv1lN6DVDybXYgQYqhO6YOna_7rIflMeqGfa1Zct5B4d8pRfx1V-7MpnqOvZIorqWmAQ"
+   "sig": "ed25519:Y45TceSNmaIjqShw_v2W-g5dZ7S2NtiGV9OG4EhGIy6OC2BudL5hhryAJzxAiqG985HhXvkZRH62JlThRcBdDQ"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_32e4632d22e86a1abd3896bf",
+   "id": "d_2efdbebd4bcfc8c9b2803e63",
    "payment": {
     "id": "p_1",
     "hash": "sha256:d2dd8e7eb0799fa99af625bbe1696f83c799ddb04f5877c1ba749a08b330a403"
@@ -11144,19 +13658,18 @@
    ],
    "checks": [
     "mandate_valid",
-    "signer_authorized:bank_kyb",
-    "not_revoked"
+    "signer_authorized:bank_kyb"
    ],
    "checked_at": "2026-10-23T09:14:02.000Z",
    "checker": {
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:L9J4E1Kz7zoXegpInYBCx04CD3j21LON_RZhdS6GxAvksRw41pk0iBl53XslIDP9gtAN4nX9JlEdSDeEnurDDw"
+   "sig": "ed25519:YGf3-mkK3Wn4Kidtcf2kuqFZTUB8w0bar1hQ9-EfMoJFgQHG1Qk1d1chaNXqxXxFeYp07B4iLlyQ712LVIWQCg"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_58dd1a1f606fca8dc4a96f78",
+   "id": "d_283392b5d5d166832519d0b8",
    "payment": {
     "id": "p_1",
     "hash": "sha256:07801b6cba008da7669b6d8ccc50958bb40f03ec812d000703962ff6c2add0a7"
@@ -11180,11 +13693,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:bzSF0_NLZlDCOzqx70q6ChchZFEqS_By8Im1jaoNNa0zqZswDyhxBMwNDmM_UBjgVE8Tb-ZPwwlnkDU7m75tDg"
+   "sig": "ed25519:GNMWNNXeOkWU0QpWhMs6g6kfPygWFbmFKAjiYoYN-uMz_xeUf6POXpV04jW29VAfuktZQQckA8LsRoSTUbM3Ag"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_f14f1d7e637a9030c13560ec",
+   "id": "d_0c32f2c5d15abc84b446d1ee",
    "payment": {
     "id": "p_1",
     "hash": "sha256:16da2b0b23aad338f7eb1f12fbefe89af15a24b28bcfd6462e92bc86eaf47cc2"
@@ -11203,11 +13716,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:JqooKuY0XRyYz8ehiebIweUX-NZ2wYaBB0HcI9Jg7DIqYkJMNWLwT2E5YJokmYubFLKWi4kFq6iz-QryYcGQDg"
+   "sig": "ed25519:gqjZgVFl5lHXtUtG-mW0LM0eGelssMu9pBWdaw6clUFxpELutq38Wv4OCKObs_OiXiOjZ4WAhgri90M5ipeyCg"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_c1f8d004dea1b803c22a72d5",
+   "id": "d_32607bd09442efc09caa6611",
    "payment": {
     "id": "p_1",
     "hash": "sha256:16da2b0b23aad338f7eb1f12fbefe89af15a24b28bcfd6462e92bc86eaf47cc2"
@@ -11226,11 +13739,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:2hmSB1hfa3h_-njhmGniTsFs-f-mPwLaQgJRkfnRsYceDECBVQM9ImmiIa5hxMR7sfgo90t0dKzNw1lkfj56Dw"
+   "sig": "ed25519:97lmiWWr3JkpkNZPFxC9UZ47IJe0NXuWVbLSPExG2QHb9Q_PXXpeBPQVtXyoNiBgTxaxR5xPBDpaaYpiWuZ4AA"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_62940940ff8eacb079bb611d",
+   "id": "d_62e210f14f55056bce66f87f",
    "payment": {
     "id": "p_1",
     "hash": "sha256:898dfdd53c9d2e2be1bc3bb350d3882907f7d423e3fefb1085709034e5cc215d"
@@ -11251,11 +13764,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:p3AMRctmngP61dgZj1tb7hbwwZqspaunEmY7Lj5pPl5dnapIGNcsKRQv1vRsR_A5Y1xaGwvG27Xkf_H6qSYxBQ"
+   "sig": "ed25519:B8HUYXHzAaGtvjiQiUpao-KHXPhowbNv6W_i7X63tE1RcQwkBtxej6B4Q30GQJlNoTYLe_p9e3Bw5PyvyRH1Ag"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_39d61e05d4f5a4a9e9bd8ed4",
+   "id": "d_558780a104dc7faf0d85e0c9",
    "payment": {
     "id": "p_1",
     "hash": "sha256:898dfdd53c9d2e2be1bc3bb350d3882907f7d423e3fefb1085709034e5cc215d"
@@ -11276,11 +13789,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:_O2DjcsjiNFRqyf8raaaF8ilcttrjrWZ5tVOY82huMM_ncvoPKmVz_t_MiiNZy0zpmlDreXQHUCEQawuMtlXDQ"
+   "sig": "ed25519:wu45vu-jbFTR1b3vNQqLP48NFhg1whP9JbDcHU3zJWdZRTF66WOIbi9hOFEo3jQYhu0mr5-oIDGyqpQleTKACw"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_afb979e7d5897d302633a917",
+   "id": "d_d4080dce5de3f81ede562876",
    "payment": {
     "id": "p_1",
     "hash": "sha256:898dfdd53c9d2e2be1bc3bb350d3882907f7d423e3fefb1085709034e5cc215d"
@@ -11301,11 +13814,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:qnCxoSl_fo6W6JlI00ZTixi3HOYQHN6BMt4Q3nr574kusZVOUg1qr-HKhzcOY2KaPiOpi6js8JtqWSGoTsk5BA"
+   "sig": "ed25519:TxqBha1l-vXL1VEELA7zrLcK0VQlKwIpNH32gFiBNuVE3rTRMg3x6dU4NkHL5Veucj5syWm_AqivhYJsAUT1Bg"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_f370b6c2f9f21e3f79dde14d",
+   "id": "d_be315f8bd0f74c266f7f8300",
    "payment": {
     "id": "p_1",
     "hash": "sha256:13f22780cc19952a5f237a1decbc57203089e592dbc545591e7a97f73243b560"
@@ -11320,18 +13833,19 @@
    ],
    "checks": [
     "mandate_valid",
-    "signer_authorized:bank_kyb"
+    "signer_authorized:bank_kyb",
+    "agent_signed"
    ],
    "checked_at": "2027-01-01T00:00:00.000Z",
    "checker": {
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:uY_xt0dvOn0gXDUImuSmzyIVk9UIFBQhgOw7tM1YTEFx1rxWwPc8IBC9XdKTFaUPW-esv4RWUEuDfBYEpvVfBw"
+   "sig": "ed25519:44WElJFHoIsUFeHNDse4DpljDQwyk_WzcgdwgW7ZMnfzpDKhm9ao0R9BhBeMsZCR0dpZVi1ksW1JFcANoFiOCQ"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_9e2e20a74cde3c06eddcc881",
+   "id": "d_a8e50671d0ed299b30110f64",
    "payment": {
     "id": "p_1",
     "hash": "sha256:e45bb62bf94f540f21ce92f7338a4f48b033ae0033e6ed2339b5024b0a88d935"
@@ -11346,18 +13860,19 @@
    ],
    "checks": [
     "mandate_valid",
-    "signer_authorized:bank_kyb"
+    "signer_authorized:bank_kyb",
+    "agent_signed"
    ],
    "checked_at": "2026-10-23T09:14:02.000Z",
    "checker": {
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:4Nfm11Dl_bpaHRSem0AUf7DMVEbdL3ybgyjw9HHtjMynNDWZfZnjGYgB04B_SqZjg9b70x60sUkNUIHFMLlwDA"
+   "sig": "ed25519:HNNDPxLpElwlMpIgSKVBYHjl5LQtNY4YrX6HtVRu3Bz8Sv2fVK7hr5oxndXcskTPNWPrdFaNH3RfDhvTEVZEAQ"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_afde762c2abdbbe56841f731",
+   "id": "d_dcba2242e4931f86f28ec52e",
    "payment": {
     "id": "p_1",
     "hash": "sha256:898dfdd53c9d2e2be1bc3bb350d3882907f7d423e3fefb1085709034e5cc215d"
@@ -11372,18 +13887,19 @@
    ],
    "checks": [
     "mandate_valid",
-    "signer_authorized:bank_kyb"
+    "signer_authorized:bank_kyb",
+    "agent_signed"
    ],
    "checked_at": "2026-10-23T09:14:02.000Z",
    "checker": {
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:4RtQztysjOVKwTVwHquoZfWmS_eHiLkKuUFY50_gtI_MwLRsbDihan2HljiIEV9J1eVT71sR9fjOpaMKXAguAA"
+   "sig": "ed25519:rlxFjhAVRjbvIkbIk1lt-n2zB2SReWDvrliqN-lxtkW5I5ojkyH2V9LQSx4-ajQV1J4TFlXCAvbtmXie3h52DA"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_0fd8e786f6aa2bec1c829542",
+   "id": "d_fa965dd82ec00caed07827d1",
    "payment": {
     "id": "p_1",
     "hash": "sha256:898dfdd53c9d2e2be1bc3bb350d3882907f7d423e3fefb1085709034e5cc215d"
@@ -11397,8 +13913,8 @@
    "checks": [
     "mandate_valid",
     "signer_authorized:bank_kyb",
-    "not_revoked",
     "agent_signed",
+    "not_revoked",
     "payee_on_mandate",
     "within_payment_limit",
     "within_period_limit"
@@ -11408,11 +13924,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:mOrfI4v3HhO87FMrhk014mM3A6uS1kYlzek9bbOPA-iUNbGguH4Z0j8WTlrTvPy6aIJZ5sJWWq8HwT2io5CZAw"
+   "sig": "ed25519:5Z6IfZKa8zNxPRRE354dr6i6L6HWEcc7rQqthEAxTyuRzL3mp-T9SAHVcn0jCxWRDuqwKNXzTQgNAQB6oU7xAw"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_f3b1945ddb2f1929ebe9245e",
+   "id": "d_7ca0c892c36e0432bc96d8ad",
    "payment": {
     "id": "p_1",
     "hash": "sha256:898dfdd53c9d2e2be1bc3bb350d3882907f7d423e3fefb1085709034e5cc215d"
@@ -11426,8 +13942,8 @@
    "checks": [
     "mandate_valid",
     "signer_authorized:bank_kyb",
-    "not_revoked",
     "agent_signed",
+    "not_revoked",
     "payee_on_mandate",
     "within_payment_limit",
     "within_period_limit"
@@ -11437,11 +13953,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:L57zCWBqbmOBsAHho4sT9BG-jW8J5kmlsWz-wC6g1DGeGVQxU2XQ1H7_eYtiuDEVVOhUfKvbsPF6K6n8eSkeDA"
+   "sig": "ed25519:o0hhJQSm8z32loXeX9T1adaq0pUEvmN2d4dY10bAuxgwHwXRD2a3CoXKoDud__V65J0RpS-sF2s7fp9SY31sCw"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_a2b96b798112023e82e10805",
+   "id": "d_89f4d2d4707a5331e1a0f070",
    "payment": {
     "id": "p_1",
     "hash": "sha256:6a280137f8bcd46e4e112966e3b422a420aae5b8109d556aa67b5b23237d2ca8"
@@ -11455,8 +13971,8 @@
    "checks": [
     "mandate_valid",
     "signer_authorized:bank_kyb",
-    "not_revoked",
     "agent_signed",
+    "not_revoked",
     "payee_on_mandate",
     "within_payment_limit",
     "within_period_limit"
@@ -11466,11 +13982,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:KuOPraOSMjuKl2QANwgMehxQvNNLT6itTXlPaSOh8pIUkp4pko4MvFsMxzGs5bwqo_SRrjry6bCmqOwK8QOUDg"
+   "sig": "ed25519:gYpMALwHXfYuQ2q7xtyRCWEAW2jbObecWTCncpSJ2ORaWbY9FJxwwm1SRugKTWaB_r9WS9ejopmyePRGQC5lDA"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_e114a4f04b18a363d8ead312",
+   "id": "d_2fd84f809206bd0ada55ea9a",
    "payment": {
     "id": "p_1",
     "hash": "sha256:6a280137f8bcd46e4e112966e3b422a420aae5b8109d556aa67b5b23237d2ca8"
@@ -11485,18 +14001,19 @@
    ],
    "checks": [
     "mandate_valid",
-    "signer_authorized:bank_kyb"
+    "signer_authorized:bank_kyb",
+    "agent_signed"
    ],
    "checked_at": "2026-10-23T09:14:02.000Z",
    "checker": {
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:AN-7ofYFRlChjY9srgP8AYBME6JNIfYIUYSuP0nATL3a6_QJre0l1D5w83b6Zym7uK2PxLe-Vp2-Gl-VJ26tCA"
+   "sig": "ed25519:DVRS0D4YceREFm-pUfe8puFKfx0F79Y6rtJvWrNpLIguRC_twE1Z5GrldtzllSlr-rfHqjUvKA_ZIF2JjREmBQ"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_6bf699455eacd5090ad37331",
+   "id": "d_a2bc4b2fdb87e316cd4e951c",
    "payment": {
     "id": "p_1",
     "hash": "sha256:6a280137f8bcd46e4e112966e3b422a420aae5b8109d556aa67b5b23237d2ca8"
@@ -11511,18 +14028,19 @@
    ],
    "checks": [
     "mandate_valid",
-    "signer_authorized:bank_kyb"
+    "signer_authorized:bank_kyb",
+    "agent_signed"
    ],
    "checked_at": "2026-10-23T09:14:02.000Z",
    "checker": {
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:DgO1zYim_QDkqqLOSkxGAn3z7vr9uCXEtePFVbwQu-n7I5lA-yBCl_SSsVE2mflE0-RJSyQ7Eb0FiQKCgST_CA"
+   "sig": "ed25519:CemvAFCT7zs14smsxpXBwjYr-mOBydDdhk5LCFQxmF9FXVtxdVu27UYE38DbK4xbE7TnxOBXJCioTXoAC-JLDw"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_e6ad09ff3f279bc7329dfd09",
+   "id": "d_70c7e16a2d56c0b4f459894d",
    "payment": {
     "id": "p_1",
     "hash": "sha256:6a280137f8bcd46e4e112966e3b422a420aae5b8109d556aa67b5b23237d2ca8"
@@ -11537,18 +14055,19 @@
    ],
    "checks": [
     "mandate_valid",
-    "signer_authorized:bank_kyb"
+    "signer_authorized:bank_kyb",
+    "agent_signed"
    ],
    "checked_at": "2026-10-23T09:14:02.000Z",
    "checker": {
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:8JF5ih4BtsrQovFiKYhYjfDPplrRisC3Gprf1EFUdO0MqHWn5v2_0Y0IRNrGpo_G7bfcg5r8MHseD6S56gVjDQ"
+   "sig": "ed25519:R57bKK69QvXiSXdCTpDgvhkRoqvibkVtf-vFB9LAD6Fs2aA9U8Hr-W94VEBg9hO8YdCc9FJpzQ2C6Gvkq221Bw"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_eb50cdefc00f39ebc4fad1ee",
+   "id": "d_f9e3d264fa8954df6b8c92d5",
    "payment": {
     "id": "p_1",
     "hash": "sha256:3fe2b0f17f38c16221d60a6f8eed78e118568a178a499a79238c965015e52d3c"
@@ -11567,11 +14086,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:MqgStfzGgXlfi193Ihnae5CbXo5ozDwkXDkl2zQllL2sirfkQ8LHYJeh1FYEo68psgSGLc_BeViG4Pi9siXJCg"
+   "sig": "ed25519:3rysZWe1BDomHhqVXH3LfbqB1SvS57PZGJOiW_d86-suwwLQqEATX4ulqH1BpKafmR5wd2CHdolSp5xz-WEtAQ"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_887e37a9fd6d0539d0db9efb",
+   "id": "d_75519b74530b4d3658e8fec8",
    "payment": {
     "id": "p_1",
     "hash": "sha256:d4159e44c6fdb2b1c783efb414bb8a0e99d7974e7aa01cbbf1f28d824c978748"
@@ -11590,11 +14109,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:YsenlRKGqnlX28sZ5MXxdqPlC_EjmC0bk5l2L2AY9424mLVa_HjnbeadmoT3PsJ1jXboYxO5Wj19SZlhfji0Bg"
+   "sig": "ed25519:tNTHWYYgwZBBn7xP4hzVtR4oXJa_-IvLTDcLyIT7pmlxmwPiQsqvbHyHKC3rdocXpjCqkuNTbGs3_mQjYP_qDg"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_4c48561e639bdeb97bcd97e7",
+   "id": "d_e8e47dc44fe10ba580c3dbb4",
    "payment": {
     "id": "p_1",
     "hash": "sha256:898dfdd53c9d2e2be1bc3bb350d3882907f7d423e3fefb1085709034e5cc215d"
@@ -11608,8 +14127,8 @@
    "checks": [
     "mandate_valid",
     "signer_authorized:bank_kyb",
-    "not_revoked",
     "agent_signed",
+    "not_revoked",
     "payee_on_mandate",
     "within_payment_limit",
     "within_period_limit"
@@ -11619,11 +14138,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:YVpLm3mi9MwC2BIHXcuN6y3bEGgQsvu6Ib_2KJXBBowNkY8nt0P7T_LG5a5DjVCr80lxDq6W8l0rB3L1RUPwDA"
+   "sig": "ed25519:1o6ijZWP7whMSsSmbaVmAbp1jRGCud3mPy48H9d1XIOjd7OP4XWKVbHH069PmfZ201CZVGYQ1nhXiTFryb0iDw"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_5023c36694a553f4673a4490",
+   "id": "d_9e8ef26eaf03109e0fa8a48f",
    "payment": {
     "id": "p_1",
     "hash": "sha256:898dfdd53c9d2e2be1bc3bb350d3882907f7d423e3fefb1085709034e5cc215d"
@@ -11642,11 +14161,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:x-BJnG8VHexV5JSF-vLCzuLamC1wejCOKAvs0xlXitx7PyI6fgOhh673glz_oAb1ce43pxxBUAQ_PQf6VyHSDg"
+   "sig": "ed25519:sQwRbhY_ri3KvZszt0uvvlJxWZzxMUt-BNhLlHIUUr6ail70WC4Z3mlJS9qJ5DqCCFUg2vVVji5WtFMaF2OjBQ"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_1e6db08e97fe0d2815d90504",
+   "id": "d_0d75d217298a0012c1370ef3",
    "payment": {
     "id": "p_1",
     "hash": "sha256:a94c1dbdc403d38a657818c72d91037af2e84be747ccc19a338f00f25a303fdc"
@@ -11662,8 +14181,8 @@
     "signer_authorized:bank_kyb",
     "signer_authorized:bank_kyb",
     "signatures:2/2",
-    "not_revoked",
     "agent_signed",
+    "not_revoked",
     "payee_on_mandate",
     "within_payment_limit",
     "within_period_limit"
@@ -11673,11 +14192,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:8v4nkntbJl6hbLk5btwD2XSWtvzvXwAfqvWIWYZF7ov8y7gVnbEMf0wajZb-QHdvcHEv26hEYKHi6XeYwUcuCw"
+   "sig": "ed25519:ztFT3S7M05pqB3sN0F1anPCgoy1rjTRVaOc-6trjdeZZNYflhLcj4lKf8H2mhdRuO4xYFLHOJFidDWGhuaSnCQ"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_d4845ecbd6304b28df1f9393",
+   "id": "d_40cd057ac3af9766a87b45ef",
    "payment": {
     "id": "p_1",
     "hash": "sha256:a94c1dbdc403d38a657818c72d91037af2e84be747ccc19a338f00f25a303fdc"
@@ -11698,11 +14217,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:KFqjctCkyQzsSwVQvkbLPk-s606PTDAW74nPwR8ALxTD2C6ywODwnsIWkIOsiPGt3sD8wazBGVTAxXNsFcLzBw"
+   "sig": "ed25519:Fr7vE4RSqaytcoSZBvSYRkrYXclzYigs6Sdmqhpe9npa8n5nBEQl1f4Ov0d06tz0ZdFrMAg-RZngQk_GmdCVDg"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_24568ae49af478d6758a48b7",
+   "id": "d_d7235f4ce41f86809010c4b7",
    "payment": {
     "id": "p_1",
     "hash": "sha256:a94c1dbdc403d38a657818c72d91037af2e84be747ccc19a338f00f25a303fdc"
@@ -11721,11 +14240,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:Ld9xsO1qS5onvqALih-w2I1TMmOhx8pww4eO-l0phVMMWAMC3T3j_rBw7IpnrnTlK1wJ1Ux7qo3D2kXL-RaqBw"
+   "sig": "ed25519:jtp0ikeiDr0h9IlQC1dUeX_YhwByzrX1--Ke8hIzjfHytRVMriaBQGSOJjQ5m3k5EnvqH_ffzXtHWYo7qar8BA"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_178f54c1e1dfb4e48587083b",
+   "id": "d_ed7eb8011ba333b119533bd5",
    "payment": {
     "id": "p_1",
     "hash": "sha256:a94c1dbdc403d38a657818c72d91037af2e84be747ccc19a338f00f25a303fdc"
@@ -11746,11 +14265,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:uTG9xzga20KatNEzu3PtIMbkihhMXNlzyE7vP9eqwcqpWnMumpe11qzUlSb8uNbz2qyU4cd-R37c9Eg3pEaWDw"
+   "sig": "ed25519:z12zRLzQxyf63REtkUA5QjwtsJbrWxwwLBhJPIY4w8O1_ip9dYLeArzMpQBWlFsCyvAejxpDX2g1fMj3L_vYBQ"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_d06cb3be82fe7fc50711fc95",
+   "id": "d_c620996ea5ca7acde3392a3d",
    "payment": {
     "id": "p_1",
     "hash": "sha256:a94c1dbdc403d38a657818c72d91037af2e84be747ccc19a338f00f25a303fdc"
@@ -11771,11 +14290,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:0rjMg97yBDoOLaF46SnRThO6C38n4z8Yy0Efggpk-OnDf7CTrVWQJL_jIoHpvF6fjGFEPQyRnAaSO_hkffO6CQ"
+   "sig": "ed25519:0o4zFNHg3__aJpJpBVS_XtIcJHtZllfaHhoWDXJdZnSmrk8T1RVDoVrZLP_qssTxar7oAlK6oS-SB_m7_l5iDA"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_6598b674f54264d7007ecbdb",
+   "id": "d_144866f369690be8d5606c7f",
    "payment": {
     "id": "p_1",
     "hash": "sha256:4e460ca2c69e9429c93615523a5f4af21a10557111e50cea6109ba2405e4be9c"
@@ -11796,11 +14315,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:xJM49sJ_yujhCNDUAlz3n2OzeUQGowCwBejHDpFkvWd806-cHQZtsQpRdO_YBQK7B9e_0KXv5htpmE5F7BRsCQ"
+   "sig": "ed25519:zl8X76T7d8uPuRBjIxe-ZPGaqffnWxSxpoiOuowtdUrvCVVza2iL85y0A071kUMFCACxXO7gA8Jo7funvZDKDQ"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_59e9cc65cf4f99af0c5d15de",
+   "id": "d_da7305caa737c8a59fa2c7f6",
    "payment": {
     "id": "p_1",
     "hash": "sha256:4e460ca2c69e9429c93615523a5f4af21a10557111e50cea6109ba2405e4be9c"
@@ -11816,8 +14335,8 @@
     "signer_authorized:bank_kyb",
     "signer_authorized:bank_kyb",
     "signatures:2/2",
-    "not_revoked",
     "agent_signed",
+    "not_revoked",
     "payee_on_mandate",
     "within_payment_limit",
     "within_period_limit"
@@ -11827,11 +14346,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:FSpSG5bUn-twKdhYWkcZR5qjSTfRYgsLgqcYaYV7ZRK4Ulgp0zsbWxLf505CC7o-5WdBe2_Q47DFFDjoRNVLBA"
+   "sig": "ed25519:9u8jzsPMdECIQ11AK5aNFqCSkLuqF_4f3v4koSF52CZrtGbRp80hwWeLVUyNYOFg_MBMN_rAu2H4FJheUH0JDg"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_515cb0f04111fbef56410293",
+   "id": "d_9c3d8746b2f1f6b217dd218f",
    "payment": {
     "id": "p_1",
     "hash": "sha256:898dfdd53c9d2e2be1bc3bb350d3882907f7d423e3fefb1085709034e5cc215d"
@@ -11852,11 +14371,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:xPFruLaSQ68qmZ_nmiRaujBjQ_fpdEqU0JccM0FCv5ULSeZk9b0LSyS5ldQdfJtLCs6gIOBkuVeM15IbqvGXCw"
+   "sig": "ed25519:upze8bxWoiSKXCpkA0_MW3jOfSPNOwB5g1X3z8mmpECfzAIMloeg52JKT061eiSNHcBcBohdOHqhgbaogkIJBg"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_da1d066d29b58885ce2c0f29",
+   "id": "d_2ef496ec101073d76008baaa",
    "payment": {
     "id": "p_1",
     "hash": "sha256:898dfdd53c9d2e2be1bc3bb350d3882907f7d423e3fefb1085709034e5cc215d"
@@ -11875,11 +14394,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:ksdRauxZgd5w6Q2ojOv6iehZxcy_wVk3dFbmQvIQGJaGX-vCgLqjpYckSeQYRZSoAoN1tlU0JjgGPm1xFHygCw"
+   "sig": "ed25519:ZsYvG9UtOd4yX6RbzDczsJwGypydntNM9z-RCSgd8UOjrSPvnsDRzuPumC8Wa51hFghJ5Uxgq5D3Sp6uvC07CQ"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_66362cc918824f7e67850445",
+   "id": "d_ad22f430a93e6ef0d347bdae",
    "payment": {
     "id": "p_1",
     "hash": "sha256:2180db486264136cc4ba7913e0ed61362221018c11208271b0eb2604d89267a8"
@@ -11894,8 +14413,8 @@
     "mandate_valid",
     "delegation:1",
     "signer_authorized:bank_kyb",
-    "not_revoked",
     "agent_signed",
+    "not_revoked",
     "payee_on_mandate",
     "within_payment_limit",
     "within_period_limit"
@@ -11905,11 +14424,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:xdIrP_1xFZ4PHDi5diVn1f4u21KuZWR2SY7-doQ5vDvkcBkndgynSgU6a8fT8O0cdkrFJdryG7kCKfRTQ2o3Aw"
+   "sig": "ed25519:7X4-ZghnWStc0Wy27wH41_fXjXa55x88RKNjy2MtMrLvc-OdQWJx4YGmvEv4HWSTgpKv38OMrHmqd3ApunQ4Aw"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_65b6f13dd774e25794258b60",
+   "id": "d_6baa3dc37119d35484bc8059",
    "payment": {
     "id": "p_1",
     "hash": "sha256:18fd49666bd5cb54272eac82c1d7ed8b869a588cb9b771f1b6130fb4c6373ba0"
@@ -11924,8 +14443,8 @@
     "mandate_valid",
     "delegation:2",
     "signer_authorized:bank_kyb",
-    "not_revoked",
     "agent_signed",
+    "not_revoked",
     "payee_on_mandate",
     "within_payment_limit",
     "within_period_limit"
@@ -11935,11 +14454,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:xrKXCUixWSFUiSKCGZ_VKrksSCo8iVelYUXp2SXORi7Z3QLTZeYMxRxjX9RiW4X0eGhbdS2uLn7fJVg_MrooCQ"
+   "sig": "ed25519:Av4GYARhbViXFAK2IPIhTE0Co6x_pKcd9TZGBe4ABE0hcvjhRkgV3D45ZKsAvOUN9Q-wcY4m1GumDVPRZWpDBA"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_824092c4484e1df36fbc0e35",
+   "id": "d_92e0f42b20324c2d3e28c072",
    "payment": {
     "id": "p_1",
     "hash": "sha256:e47c00536bbcda8d000de8e81e1464510b615efa95b8cb35651d8edd026230ed"
@@ -11962,11 +14481,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:phy2ABRNsbYuZcmLdO0OZCY_vQhdGMzlHeVUcM6-tz80sgVUcXkqvinoi9uabIBC0YJGadomes3AXsSzuNsVCQ"
+   "sig": "ed25519:H6BvV_fU9eunCQfb8B-c9a4p2-B-_CZ0N2d8FQn18Vo8EF9F2TQY4TM3OlQQbpkwbEBUHbGDzxDhkjQ76EbFAw"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_0a92849ed85305dd557a7c23",
+   "id": "d_c682d52e63ec28a3db8f3bee",
    "payment": {
     "id": "p_1",
     "hash": "sha256:bf85d36f5ede8a83ce0a01af90a3d2af18923da3acd604a43f268eb6f0097f80"
@@ -11989,11 +14508,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:RwdXj3uglsjHP7xPiFmURDDZxvtW1Z5J8-OoJCQNXGFPzoWnq2gDrNQeokkBKVBJR2bQZan2XG9KgsnaD513CA"
+   "sig": "ed25519:yb_GkllL1bNnYAT30Ci_M1Xc87XNjceoAltiXeiF_N1mD5RQKcnGP2CT8xsHUoqmoHNQM_tANsfmJxB-FQzeAA"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_a3096acfb6ddf7c1e8848b10",
+   "id": "d_f05e85f009eb7a82a30af3d1",
    "payment": {
     "id": "p_1",
     "hash": "sha256:6ccab8138e4bda955bccc13710a40c1ee829b1d5808175098d071685a0cd04e6"
@@ -12016,11 +14535,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:zwKQzIIVgXvZPvQARuxi93bH9ay-nc4H18YUrL79w_-0OvxyD5xwQ22OMal2Mgux7Lz_WWEFXGBGGkcaxeRiAA"
+   "sig": "ed25519:0JXG1a8l8sVyP8n6EuGorwp_ahjI7xNAWnjYsNSXG0Wbg1-YF0OftDhUfeY3bA_aTeTsAyPYZA_rhYTVoQ3TBw"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_6a0b8d0cc53a92f49d0e851d",
+   "id": "d_7dd0d6038f31764c4aa895e6",
    "payment": {
     "id": "p_1",
     "hash": "sha256:38dc51ab3ae060a5183b99f7102d7126d5a5eaf3694703912d0d69b4a3723185"
@@ -12043,11 +14562,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:g9gOwgrj59VtxOz6kLdHjU_NwyAaKnVA-u578S17pkvPRYYjQdQ2uqkLBIbgateCtm1a3Qzd2rhPou00ONe1Bw"
+   "sig": "ed25519:idP5sbYQopFYFlKiwvfJpVJuk8cEqSYl48YpiGN-GoVB9k-9d7TT6DN1TKJby5hmQ6TVspvn4of4ZVVCg3FSAw"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_368045a542373a44d26e24b8",
+   "id": "d_e7b623a14b9cfb1619685f1c",
    "payment": {
     "id": "p_1",
     "hash": "sha256:bbe877e9b74f953ffc22af7c4de3b8bbfd3c7abd570e92416c5c801de4f64ca9"
@@ -12066,11 +14585,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:H9kSMQlCz0vsIyk4w_eOkaHGV72mDfELOvtDpprwMzkua7-Xv2eB91iSkML9d5C1XdMO_pnaaNKC3goZVZhyBw"
+   "sig": "ed25519:iYJdjiXRiprv3PBPnXuPohAbdPdB9iyhxcUaq3c21LPOUyjaH9iwxRDG-px-I3pF8B-CxDRFP7_IHHWAhWpQBQ"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_009d87648cf9f49121353359",
+   "id": "d_823d435618075f93e88db234",
    "payment": {
     "id": "p_1",
     "hash": "sha256:f8ea4d9ad8d50f020ffc1af73252d043c53e76cb74eea79dc89f46cf2005c746"
@@ -12089,11 +14608,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:zUKFz0_IkZLE43DEdQKEmZhCZ7-ENa0sQmoe0xIeBSs9zWveu4lJJ7oWg4qVejjzeisGrogjTke390OOVCazDg"
+   "sig": "ed25519:G7aRrvwyVc4Sav6erTMCnGEinPmO0Mi8q4B9_2uaKth_CS43yd4Wcfmza-31sVUU7f2zTmvG5eEZJoVGOIzPDw"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_ec9cee37b5808e6f3d7510b2",
+   "id": "d_2792b9c716dbe737ad271215",
    "payment": {
     "id": "p_1",
     "hash": "sha256:eb439aff812deb8df5a274ed6b473639f0c852fc0c992f8fda0692a65169fa4d"
@@ -12112,11 +14631,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:jd8nzEx3XfW_kRw_XooTPzkOH8XQ5JoVgEK1Ks7ynuVu7vjzrrEG-YDsJgg0J1fTtBioFlIrAJC4yUpR96-oBQ"
+   "sig": "ed25519:JrUyc7nPxbraSHW6zzGkfxSnGyXWJ-wDCUXEptsBbQpHqMlpQmVxUu7UTWxxEHnY7k1mHIp-yRtoVtze7s0DCw"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_cdbf211d06003de23b96889d",
+   "id": "d_11c90a728781996068979120",
    "payment": {
     "id": "p_1",
     "hash": "sha256:2180db486264136cc4ba7913e0ed61362221018c11208271b0eb2604d89267a8"
@@ -12137,11 +14656,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:XyGzfaHOXFjT-S6dwhlKzddn_vccV9p0xwf6Q33glkPo5w0NTR5CSqu4scI_1z0jrnatTk_PYg959ji4a3L-Cg"
+   "sig": "ed25519:1P53UjYu2lP48wYp9ozrtQ0c17OkI5-5LgTjlDlNuvSUylMOVLZkzhNxYarn0JFurNAoYGmwzz0HpvV9K_pbCQ"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_59d11bde414dfe3545e1ebdd",
+   "id": "d_c44b11e5f6dd47c7788ffe43",
    "payment": {
     "id": "p_1",
     "hash": "sha256:2180db486264136cc4ba7913e0ed61362221018c11208271b0eb2604d89267a8"
@@ -12162,11 +14681,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:AD_8N0glSGenXx4H2fF9af1OcikMZMb0XoWiUsvn-zqrvUknjwbWXR-WThfZ3hfvPUr8A82dngpq1nx-OMxRBA"
+   "sig": "ed25519:PAmeC8gREaw_EP2ZI8YtPlBXoHOLZOrePP5uqhkXJOaUsbWDOTrrjSN7_rPJ6gfXTQpLRYNgF4Ov2K77unk_Dw"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_c47747479c8243384b0e3b7f",
+   "id": "d_51c2c4266c0cc8351ce3c278",
    "payment": {
     "id": "p_1",
     "hash": "sha256:2180db486264136cc4ba7913e0ed61362221018c11208271b0eb2604d89267a8"
@@ -12187,11 +14706,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:3O4QtC0Sw4FHhRQu6h_NqWQ3fE0TcrLaQqDrTj4XvFwf9DCJ1rzddXgN_c1uWCPLFrGoPZ51Kaxni047-4UWDw"
+   "sig": "ed25519:f_LG3UXtggYNYVGnCgpWZc9QK-Q8eNbZHgVOdoqjJMgre8c0HNAIPXNPWurVH_nr6-T8qJXl4Pwfxtx3tH6HBg"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_2b5666f8ef09d0413c5f4563",
+   "id": "d_9a233bd61d7af80d65e2f7ae",
    "payment": {
     "id": "p_1",
     "hash": "sha256:2180db486264136cc4ba7913e0ed61362221018c11208271b0eb2604d89267a8"
@@ -12207,18 +14726,19 @@
    "checks": [
     "mandate_valid",
     "delegation:1",
-    "signer_authorized:bank_kyb"
+    "signer_authorized:bank_kyb",
+    "agent_signed"
    ],
    "checked_at": "2026-10-23T09:14:02.000Z",
    "checker": {
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:mRpzqIyi57TMc2YVDjHLIq_OqRMl9IVnPdVTXas07GMhaBGTuvFlCRvS__p1BZB2th76dSf0eZgTeCVq9uHSCA"
+   "sig": "ed25519:QgcLf_niOEmtkpWPyeM5krgr5AljtHVWiPE7bY-2ViJZSnOC3lvf0RApm3DYq7wg7KRW8lCq2sJ_RPTx2g57DQ"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_bcc5a5fff9cf635edf107afd",
+   "id": "d_5b45da239b61b90bd1c78f7b",
    "payment": {
     "id": "p_1",
     "hash": "sha256:2180db486264136cc4ba7913e0ed61362221018c11208271b0eb2604d89267a8"
@@ -12234,18 +14754,19 @@
    "checks": [
     "mandate_valid",
     "delegation:1",
-    "signer_authorized:bank_kyb"
+    "signer_authorized:bank_kyb",
+    "agent_signed"
    ],
    "checked_at": "2026-10-23T09:14:02.000Z",
    "checker": {
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:538HmNRxNQNIx0hJHdItz1n1CtmPeHMSHvTx2yueAxtA71CGTX3jckELfS1kH5bEgm0Ogy1W6OmimET55pMTAg"
+   "sig": "ed25519:x_CpgcvlRtDivDexrsXJuuy5Cq4jo1DzqCr8ZxnWan9NgaQ6gXgW9232daj70yC16PaK_BI1g8JnNkkl5eoCAQ"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_0b6eadf5063c762630e875d3",
+   "id": "d_317363af23652e1f7d766905",
    "payment": {
     "id": "p_1",
     "hash": "sha256:2180db486264136cc4ba7913e0ed61362221018c11208271b0eb2604d89267a8"
@@ -12260,8 +14781,8 @@
     "mandate_valid",
     "delegation:1",
     "signer_authorized:bank_kyb",
-    "not_revoked",
     "agent_signed",
+    "not_revoked",
     "payee_on_mandate",
     "within_payment_limit",
     "within_period_limit"
@@ -12271,11 +14792,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:l_k03Shfmj-xhGy4cQ9Ig2cTDijbHacJHctw4quoaRXjoIVrvuqcuTkT3voxA8PihMPq3M5_myiE5xiOvU30Bg"
+   "sig": "ed25519:si-yzZGjrcwLZzoSPXPsfVytEv-l7glEnk6bS09Rx6wbLDQW4zGyC5iVI-ZtuO_ucn_yFnn3GtbUvcL_2XcEDA"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_2bd46763a359bd02e16a8a00",
+   "id": "d_3168f20ef49a53309a75b5cc",
    "payment": {
     "id": "p_1",
     "hash": "sha256:898dfdd53c9d2e2be1bc3bb350d3882907f7d423e3fefb1085709034e5cc215d"
@@ -12296,11 +14817,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:MGB4CYr2clBRA3ni4PtM5zKGSJO0cdtoRXCNtMmoHsdqndazFp3VTsWEbM3LPFuwzo0uUf36MkiEcUmfJrejAg"
+   "sig": "ed25519:jIbguW6THFwmj1L7WFYJRcqK9reKE0YWfrKBgVEiKPuIEMIpFMadT_IZcWtEtRIlq46UnrEzJQR9mCG8ZmRJBQ"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_2376571740dd43e546d1126c",
+   "id": "d_fbcaa98e43711c1404208619",
    "payment": {
     "id": "p_1",
     "hash": "sha256:898dfdd53c9d2e2be1bc3bb350d3882907f7d423e3fefb1085709034e5cc215d"
@@ -12321,11 +14842,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:3LBlvUMh2_f64T7D_u6V0Zo-dabI3kd1o61GwT1eGPzpyjCVqK9G7zhtiMZHxZeKFwYAQr6NPNpfowOzVe3yDQ"
+   "sig": "ed25519:WnEmGqkumQAW_FnDu7RdKFrUkItKSrL7fz1cjWlNaxwkVPCFQWcMhtx3bIfo1udDHsp4dcC9ha6XfpudhGUZCQ"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_0affc6647d97621bfe94cfd1",
+   "id": "d_862ff791caf136964a90f274",
    "payment": {
     "id": "p_1",
     "hash": "sha256:898dfdd53c9d2e2be1bc3bb350d3882907f7d423e3fefb1085709034e5cc215d"
@@ -12339,8 +14860,8 @@
    "checks": [
     "mandate_valid",
     "signer_authorized:vlei",
-    "not_revoked",
     "agent_signed",
+    "not_revoked",
     "payee_on_mandate",
     "within_payment_limit",
     "within_period_limit"
@@ -12350,11 +14871,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:KEH02MiAy7j8a03gc6Au_8zcqhfKppUgQifqjCXIm0r5TGr2I8vKY9MTowxOtVxI6GBeeLaikDqeYXGyNXUCCw"
+   "sig": "ed25519:gTKmsDCJCMIatHIAHYXYs5GD-FKoNlOxx3Vg0AtuvexrtDLHgiMbARJGM9-l9S40rCF31-V8jpuBvHA5G0lgBg"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_7f2b51c0dee67b853ea1d994",
+   "id": "d_f5496c4f8f466626be7770f6",
    "payment": {
     "id": "p_1",
     "hash": "sha256:ec8d6a786fa20a774d51ec29e54892d381ae6c9aa2d2f88eb895912f651c98a1"
@@ -12368,8 +14889,8 @@
    "checks": [
     "mandate_valid",
     "signer_authorized:bank_kyb",
-    "not_revoked",
     "agent_signed",
+    "not_revoked",
     "payee_on_mandate",
     "within_payment_limit",
     "within_period_limit"
@@ -12379,11 +14900,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:8yXYftY7msfdP1OlzbeNRF1gPlwKa8asNOgnO0mDcO-UE-ixxy-RcVtlV4U6XBATBA3ElTgR-9O_7f4JdrLKDA"
+   "sig": "ed25519:6vJVdpekAmVkkqvFnW2M8a4fhIvfUujh5rGKauias1gRhnK-UFwtAchCAtBcWiictlO1vW4V0hrLaQRoquIUAw"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_6cad95e10689775a769f7b12",
+   "id": "d_7f55b8e93307de7a70bb1b1b",
    "payment": {
     "id": "p_1",
     "hash": "sha256:ec8d6a786fa20a774d51ec29e54892d381ae6c9aa2d2f88eb895912f651c98a1"
@@ -12402,11 +14923,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:R4u4pe1uPwdnZ0NFSViNKHdAgkcEO_ADj9y8ZFuUr2st-pIEHJPvzBnIrC-wGkKbIu6ieg5GbbewI_APni7XAA"
+   "sig": "ed25519:uFC6ZFB8m1XpKnBKZ9fPuNDGVkYQXAmu2TZImkwJFYCZAX8hbwzdJM7jNyI--lWRA9qvIAuu2OmsFnhqvW4NDQ"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_319578a80dd3205a25c73e2f",
+   "id": "d_6664adc1a4a1ad75a7e621f0",
    "payment": {
     "id": "p_1",
     "hash": "sha256:ec8d6a786fa20a774d51ec29e54892d381ae6c9aa2d2f88eb895912f651c98a1"
@@ -12425,11 +14946,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:oiYEmCDGTlFNzV3VDL6QMZnT-RAV82gg29aRPaL13PWvxbJrBfwTtpT4QeUYARxbYuMr_OIvWUxVmFZ_xYoyCg"
+   "sig": "ed25519:pUry5qU92WDiQJpAR0BtRglQPLZQxbSXRj5iZfcIUgQqsfjvqGHqKRuhs2UFZdfDm98HqwcaHHhvWVLe5O2KDQ"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_e2a1d4982708899c1e597e6d",
+   "id": "d_e121283fedd4df3366a613e7",
    "payment": {
     "id": "p_1",
     "hash": "sha256:ec8d6a786fa20a774d51ec29e54892d381ae6c9aa2d2f88eb895912f651c98a1"
@@ -12448,11 +14969,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:H2ILKTdhb8HcIJ6n_qEMyZ-aoElDXjsa5KKlR8nq4giNUKDIwnb_6MmSaG90QbgUZYPF0FJchVQi8gAh8KacAw"
+   "sig": "ed25519:M79oSF5dvsAlD_beO0Nfn5o_HIwwD1ROd9cG0TBNaHjFKPh74o-GHw0i92F9nGYZ7gOoSyAiUFyBMG6BgKQnCA"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_80884ff37919193594da1484",
+   "id": "d_49f00db5218621063c720c06",
    "payment": {
     "id": "p_1",
     "hash": "sha256:bca7a354877785829e43ff69c1f235a378f694915feb7abc7185f0abdb45f050"
@@ -12468,8 +14989,8 @@
     "signer_authorized:bank_kyb",
     "signer_authorized:bank_kyb",
     "signatures:2/2",
-    "not_revoked",
     "agent_signed",
+    "not_revoked",
     "payee_on_mandate",
     "within_payment_limit",
     "within_period_limit"
@@ -12479,7 +15000,309 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:ffxXtyrvofLiH-afoKs-tRjUuU1qutxp35o_Ma4L24i-t2Dhwi5urD5QH1movycKlDlXJN_CNV2oR_0aI58lAg"
+   "sig": "ed25519:_Vr2RXiwQCP7xRC60Q8ji14JukOCgJhMXXLH4UmkT8DaLKzb2YSyXFCZhSIbjH8brwfLMU2d3RBXd2aBASpCCA"
+  },
+  {
+   "v": "gleipnir/decision/0.2",
+   "id": "d_018db6876984078c2d57ab16",
+   "payment": {
+    "id": "p_1",
+    "hash": "sha256:e4badad04b59ad703f82b71b24dbc7b0d75f224d8d9c81b1b86d102231f279da"
+   },
+   "mandate": {
+    "id": "m_a",
+    "hash": "sha256:339ff27ca5c504a7fe72977b9ce2815aef0df8c5b80807d17def5c9c88dcbd40"
+   },
+   "outcome": "allow",
+   "reasons": [],
+   "checks": [
+    "mandate_valid",
+    "delegation:1",
+    "signer_authorized:bank_kyb",
+    "agent_signed",
+    "not_revoked",
+    "payee_on_mandate",
+    "within_payment_limit",
+    "within_period_limit"
+   ],
+   "checked_at": "2026-10-23T09:14:02.000Z",
+   "checker": {
+    "id": "bank:VECTORS",
+    "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
+   },
+   "sig": "ed25519:O9O9goub45zlVoLy0FkiAVw1wnbhqKwpbly_kl1ICrKFSAopWJzSxDbtQSNknytEl5HONx90xPj2Ttm90ixCAA"
+  },
+  {
+   "v": "gleipnir/decision/0.2",
+   "id": "d_bcf2f1e260e5e63ad9b18a7c",
+   "payment": {
+    "id": "p_1",
+    "hash": "sha256:898dfdd53c9d2e2be1bc3bb350d3882907f7d423e3fefb1085709034e5cc215d"
+   },
+   "mandate": {
+    "id": "m_vec",
+    "hash": "sha256:b9b31412f3a5b0f933dfa0773c84933831e7dae65a1a26bea38236fea1e38e9d"
+   },
+   "outcome": "block",
+   "reasons": [
+    "mandate_mismatch"
+   ],
+   "checks": [],
+   "checked_at": "2026-10-23T09:14:02.000Z",
+   "checker": {
+    "id": "bank:VECTORS",
+    "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
+   },
+   "sig": "ed25519:Pr5fNQBBx3fb2e41gKv9INxpvQ1ZOQT4wMgUjTU9bu8Au0qbWhDPg06F8bq8FkCGeBNpCukxY7xLQVMGkRq2CQ"
+  },
+  {
+   "v": "gleipnir/decision/0.2",
+   "id": "d_d9216545b89a7477b853e08d",
+   "payment": {
+    "id": "p_1",
+    "hash": "sha256:9608d84bd0c0488ccc215b9e080ce9b6c14e1e1b6c79de109c623f3342022def"
+   },
+   "mandate": {
+    "id": "m_vec",
+    "hash": "sha256:a5f2b787ff540eeae475c1155cae041123787952f9fb897c88176922b4828047"
+   },
+   "outcome": "block",
+   "reasons": [
+    "agent_bad_signature"
+   ],
+   "checks": [
+    "mandate_valid",
+    "signer_authorized:bank_kyb"
+   ],
+   "checked_at": "2026-10-23T09:14:02.000Z",
+   "checker": {
+    "id": "bank:VECTORS",
+    "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
+   },
+   "sig": "ed25519:EQs-UmqT5JgSCvqbbO-0fYqVaZBg2T34fpVfZMZdWti1m9QiwO6GHnvbZiC_cExnWDrhSG6wkiFYZ5EZr2fECA"
+  },
+  {
+   "v": "gleipnir/decision/0.2",
+   "id": "d_f792fe4dc3a9ba455836863e",
+   "payment": {
+    "id": "INV-1",
+    "hash": "sha256:9a9569f39ce9b76d4a72694543a7b56247858d9067ce458e0f62427c07b29ad6"
+   },
+   "mandate": {
+    "id": "m_vec",
+    "hash": "sha256:67be7e7a6d2a065fe306c3a6060cb316a6cef4fc3705d9d6f910fbf8d229b4dc"
+   },
+   "outcome": "block",
+   "reasons": [
+    "mandate_bad_signature"
+   ],
+   "checks": [],
+   "checked_at": "2026-10-23T09:14:02.000Z",
+   "checker": {
+    "id": "bank:VECTORS",
+    "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
+   },
+   "sig": "ed25519:gZlnRYN3QuIgv7dZ9X0RWkA9kDT-8LSBV8L-veNA3LSVkfaoADX-i4irVIvCHenXPSW3DqIMbKrtV72sfpXlDw"
+  },
+  {
+   "v": "gleipnir/decision/0.2",
+   "id": "d_c036616737276d00122568f2",
+   "payment": {
+    "id": "INV-1",
+    "hash": "sha256:f55403b211ff7d02779eef8e0bf9a4dc424a910047d0e6a8c8becc78ebab06cb"
+   },
+   "mandate": {
+    "id": "m_vec",
+    "hash": "sha256:a5f2b787ff540eeae475c1155cae041123787952f9fb897c88176922b4828047"
+   },
+   "outcome": "block",
+   "reasons": [
+    "agent_bad_signature"
+   ],
+   "checks": [
+    "mandate_valid",
+    "signer_authorized:bank_kyb"
+   ],
+   "checked_at": "2026-10-23T09:14:02.000Z",
+   "checker": {
+    "id": "bank:VECTORS",
+    "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
+   },
+   "sig": "ed25519:FelQkTnoBBHwdyg-1wIqHF05u2vjOtFl4viHs_cI0sTZh9QXnmII-liP1vW8k6yOzJZTNFlKeArjshNx81Z8DA"
+  },
+  {
+   "v": "gleipnir/decision/0.2",
+   "id": "d_97dfc7e94ce7b86e7e2467b3",
+   "payment": {
+    "id": "o_1",
+    "hash": "sha256:af9d3863f774730d72707fa8ac93e60550602f6f922cd5618557b16395162b5c"
+   },
+   "mandate": {
+    "id": "m_vec",
+    "hash": "sha256:698a27247e27e8f4bbe6e9f8a649216458118f2bbd57bbbc0d9096a976888c21"
+   },
+   "outcome": "allow",
+   "reasons": [],
+   "checks": [
+    "mandate_valid",
+    "signer_authorized:bank_kyb",
+    "agent_signed",
+    "not_revoked",
+    "payee_on_mandate",
+    "within_payment_limit",
+    "within_period_limit"
+   ],
+   "checked_at": "2026-10-23T09:14:02.000Z",
+   "checker": {
+    "id": "bank:VECTORS",
+    "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
+   },
+   "sig": "ed25519:zJJ0LB2rQr1eGw6KMJBsRCwhH6PdOTHZBoABUHA1T0SXbxDxjhAbvhxAoX3ATdtpZreVxQooBHsQPKP-TBkmCA"
+  },
+  {
+   "v": "gleipnir/decision/0.2",
+   "id": "d_c4c48e7589a098b93c8d9a22",
+   "payment": {
+    "id": "p_1",
+    "hash": "sha256:1672792e1123dbd3499ca825b473776f4379757d453160e6ffcfc1d8045d0608"
+   },
+   "mandate": {
+    "id": "m_vec",
+    "hash": "sha256:29292da7d3c8319345ab5bd7dee29742afb4802f5af2324076c49c816936de02"
+   },
+   "outcome": "block",
+   "reasons": [
+    "mandate_malformed"
+   ],
+   "checks": [],
+   "checked_at": "2026-10-23T09:14:02.000Z",
+   "checker": {
+    "id": "bank:VECTORS",
+    "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
+   },
+   "sig": "ed25519:YgyOircpao199uNj0Uhi0FW9Em6vV8XmjaH-JhjO3zTqrW7tVdGbwdqFnti6lRJCJ9ILdpeN_c7lWDcTKCJTCw"
+  },
+  {
+   "v": "gleipnir/decision/0.2",
+   "id": "d_fea1209b10269d0c5ee18f73",
+   "payment": {
+    "id": "p_1",
+    "hash": "sha256:6101ff173ca4aebeed1f97a84533b604d65047c8361c5157bb2926b0c1c6c740"
+   },
+   "mandate": {
+    "id": "m_vec",
+    "hash": "sha256:bad60c32a752d5e94bd40e56889731489aa9cd9d1596a04353ead0d2d6ccdc40"
+   },
+   "outcome": "block",
+   "reasons": [
+    "payment_malformed"
+   ],
+   "checks": [],
+   "checked_at": "2026-10-23T09:14:02.000Z",
+   "checker": {
+    "id": "bank:VECTORS",
+    "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
+   },
+   "sig": "ed25519:Kdo2qgw190nFZq64jP48NcT9dL6DM3TQ4cKOxFOepfmJUe7eFG4fo7zPBHV70ogDp-8VETStUTKIfJqNXTVOBQ"
+  },
+  {
+   "v": "gleipnir/decision/0.2",
+   "id": "d_76811e6697626c9a73aaae5a",
+   "payment": {
+    "id": "p_1",
+    "hash": "sha256:e59d968855c20868923578aba6ff64f3a0630935f204839115d3192df2bfe531"
+   },
+   "mandate": {
+    "id": "m_vec",
+    "hash": "sha256:33f0f91ba32c29856c30547e6d4d3c8e7d627bd4666aa6024e9efb206ff21319"
+   },
+   "outcome": "block",
+   "reasons": [
+    "delegation_broken"
+   ],
+   "checks": [],
+   "checked_at": "2026-10-23T09:14:02.000Z",
+   "checker": {
+    "id": "bank:VECTORS",
+    "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
+   },
+   "sig": "ed25519:bODceyYPcI1UxENtepS4kZ2BW9g4zWFMV2OM6pE2kr0KR5X50QZ4EUz3XzFN4sJTUp2JIN_IhzQOvwpMeq7RDw"
+  },
+  {
+   "v": "gleipnir/decision/0.2",
+   "id": "d_297599ca258a7a81fdf20876",
+   "payment": {
+    "id": "p_1",
+    "hash": "sha256:18fd49666bd5cb54272eac82c1d7ed8b869a588cb9b771f1b6130fb4c6373ba0"
+   },
+   "mandate": {
+    "id": "m_vec",
+    "hash": "sha256:530398ee9264f1d8f0d07f2575e4ad5fd85bd0a1d14f4dcb14c0708e44b9d124"
+   },
+   "outcome": "allow",
+   "reasons": [],
+   "checks": [
+    "mandate_valid",
+    "delegation:2",
+    "signer_authorized:bank_kyb",
+    "agent_signed",
+    "not_revoked",
+    "payee_on_mandate",
+    "within_payment_limit",
+    "within_period_limit"
+   ],
+   "checked_at": "2026-10-23T09:14:02.000Z",
+   "checker": {
+    "id": "bank:VECTORS",
+    "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
+   },
+   "sig": "ed25519:zw0TH00gG7v8OFc5PpYIsbSRyXgBeBcsr6j_SrOkP4VAHtjnPZIr7RwWhr8SjESKzhmVK_julKe7VQ_IukLsCA"
+  },
+  {
+   "v": "gleipnir/decision/0.2",
+   "id": "d_79edd7b613c164cba3e7bd9c",
+   "payment": {
+    "id": "p_1",
+    "hash": "sha256:898dfdd53c9d2e2be1bc3bb350d3882907f7d423e3fefb1085709034e5cc215d"
+   },
+   "mandate": {
+    "id": "m_vec",
+    "hash": "sha256:527d6b2e5b19dca750899b407588b84fedd3e45b5f825031f3dd6bfe459c4d8d"
+   },
+   "outcome": "block",
+   "reasons": [
+    "mandate_malformed"
+   ],
+   "checks": [],
+   "checked_at": "2026-10-23T09:14:02.000Z",
+   "checker": {
+    "id": "bank:VECTORS",
+    "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
+   },
+   "sig": "ed25519:iujTqCf_QJkGZaTD-jLDCseybwTcFVErBzehYDv676fBk8o8zze7txk9l63JmRWsC_FwKxF7AJCaHMIc45DnBA"
+  },
+  {
+   "v": "gleipnir/decision/0.2",
+   "id": "d_1054ac28fccb3ed781ee115f",
+   "payment": {
+    "id": "p_1",
+    "hash": "sha256:898dfdd53c9d2e2be1bc3bb350d3882907f7d423e3fefb1085709034e5cc215d"
+   },
+   "mandate": {
+    "id": "m_vec",
+    "hash": "sha256:1dd923973a2475f2938c76b66daee18dc7a5e135aacd70cae941b3d9f39a15bb"
+   },
+   "outcome": "block",
+   "reasons": [
+    "mandate_malformed"
+   ],
+   "checks": [],
+   "checked_at": "2026-10-23T09:14:02.000Z",
+   "checker": {
+    "id": "bank:VECTORS",
+    "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
+   },
+   "sig": "ed25519:ak22TxXy7rKhUNZDqkct-T-y73-lau2zyqRN5CnC44kfPD1qolt26NA6RXmrLGIb6wCQxNasJttLfkX85v9FBA"
   }
  ]
 }

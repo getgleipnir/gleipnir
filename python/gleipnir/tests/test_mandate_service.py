@@ -321,3 +321,42 @@ def test_ts_mcp_against_python_bank(server, world):
     out = json.loads(second.stdout)["result"]["structuredContent"]
     assert out["outcome"] == "allow"
     assert M.verify_decision(out["decision"], [bank.public_key])
+
+
+def test_audit_F8_revocations_survive_restart(server, world):
+    url, bank = server
+    mandate = json.loads(Path("mandate.json").read_text())
+    assert main(["mandate", "revoke", "mandate.json", "--key", "signer.pem", "--id", "r_x", "-o", "rev.json"]) == 0
+    assert post(url, json.loads(Path("rev.json").read_text()), "/revoke") == (200, {"ok": True})
+    restarted = Bank(bank_id="bank:test", bank_key="bank.pem", authority="kyb.json", state=bank.state)
+    t = tools(world)
+    p = call(t, "attach_mandate", {"payment_id": "INV-R", "amount": "1.00", "payee": PAYEE})["structuredContent"]
+    assert restarted.check(mandate, p["payment"])["reasons"] == ["mandate_revoked"]
+
+
+def test_audit_F15_checker_refuses_cross_site_posts(server):
+    url, _ = server
+    for headers, code in [({"Content-Type": "text/plain"}, 415), ({}, 415),
+                          ({"Content-Type": "application/json", "Origin": "https://evil.example"}, 403)]:
+        req = urllib.request.Request(url + "/check", data=b'{"mandate": {}, "payment": {}}', method="POST",
+                                     headers=headers)
+        with pytest.raises(urllib.error.HTTPError) as e:
+            urllib.request.urlopen(req, timeout=5)
+        assert e.value.code == code
+
+
+def test_audit_F9_hostile_json_gets_an_answer(server, world):
+    url, _ = server
+    assert post(url, b'{"mandate": ' + b"9" * 5000 + b', "payment": {}}')[0] == 400
+    t = tools(world)
+    bad_name = handle(t, {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": {"x": 1}}})
+    assert bad_name["error"]["code"] == -32602
+    weird = handle(t, {"jsonrpc": "2.0", "id": [1], "method": "tools/call", "params": {"name": "mandate_scope",
+                                                                                       "arguments": None}})
+    assert "result" in weird or "error" in weird
+    out = io.StringIO()
+    serve_stdio(t, io.StringIO('{"x": ' + "9" * 5000 + '}\n{"jsonrpc":"2.0","id":2,"method":"ping"}\n'), out)
+    lines = [json.loads(x) for x in out.getvalue().splitlines()]
+    assert lines[0]["error"]["code"] == -32700 and lines[1]["result"] == {}
+    Path("huge.json").write_text('{"v": ' + "9" * 5000 + "}")
+    assert main(["mandate", "sign", "huge.json", "--key", "signer.pem"]) == 2  # an error message, not a traceback

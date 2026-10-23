@@ -65,7 +65,7 @@ def loads_strict(text: str, what: str = "input") -> Any:
     """JSON with no duplicate keys and no NaN or Infinity (spec section 13)."""
     try:
         return json.loads(text, object_pairs_hook=_no_dupes, parse_constant=_bad_constant)
-    except json.JSONDecodeError as exc:
+    except ValueError as exc:  # JSONDecodeError, and integers beyond Python's digit limit
         raise CliError(f"{what} is not valid JSON: {exc}") from exc
     except RecursionError as exc:
         raise CliError(f"{what} is nested too deeply") from exc
@@ -118,7 +118,7 @@ class FileState:
 
     def __init__(self, path: Path) -> None:
         self.path = path
-        self.data: dict[str, Any] = {"payments": {}, "totals": {}}
+        self.data: dict[str, Any] = {"payments": {}, "totals": {}, "revocations": []}
 
     def __enter__(self) -> FileState:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -128,6 +128,8 @@ class FileState:
         text = self._fh.read()
         if text.strip():
             self.data = json.loads(text)
+            for k in ("payments", "totals", "revocations"):
+                self.data.setdefault(k, {} if k != "revocations" else [])
         return self
 
     def __exit__(self, *exc: object) -> None:
@@ -138,27 +140,40 @@ class FileState:
         fcntl.flock(self._fh, fcntl.LOCK_UN)
         self._fh.close()
 
-    # PaymentLog
-    def seen(self, payment_id: str, payment_hash: str) -> dict | str | None:
-        entry = self.data["payments"].get(payment_id)
-        if entry is None:
-            self.data["payments"][payment_id] = {"hash": payment_hash, "decision": None}
-            return None
-        if entry["hash"] != payment_hash:
-            return "duplicate"
-        return entry["decision"] or "duplicate"
+    # PaymentLog (spec 7): keyed by payer and payment id
+    def lookup(self, key: str, payment_hash: str) -> dict | None:
+        entry = self.data["payments"].get(key)
+        return entry["decision"] if entry and entry["hash"] == payment_hash else None
 
-    def remember(self, payment_id: str, decision: dict) -> None:
-        self.data["payments"][payment_id]["decision"] = decision
+    def register(self, key: str, payment_hash: str) -> bool:
+        if key in self.data["payments"]:
+            return False
+        self.data["payments"][key] = {"hash": payment_hash, "decision": None}
+        return True
 
-    # Ledger
-    def reserve(self, mandate_id: str, period: str, amount: Decimal, limit: Decimal, at: Any) -> bool:
-        key = f"{mandate_id}|{m.period_key(period, at)}"
-        total = Decimal(self.data["totals"].get(key, "0")) + amount
+    def remember(self, key: str, decision: dict) -> None:
+        self.data["payments"][key]["decision"] = decision
+
+    def forget(self, key: str) -> None:
+        self.data["payments"].pop(key, None)
+
+    # Ledger: keyed by "mandate:<hash>" or "delegation:<hash>" and the calendar period
+    def reserve(self, key: str, period: str, amount: Decimal, limit: Decimal, at: Any) -> bool:
+        k = f"{key}|{m.period_key(period, at)}"
+        total = Decimal(self.data["totals"].get(k, "0")) + amount
         if total > limit:
             return False
-        self.data["totals"][key] = str(total)
+        self.data["totals"][k] = str(total)
         return True
+
+    def release(self, key: str, period: str, amount: Decimal, at: Any) -> None:
+        k = f"{key}|{m.period_key(period, at)}"
+        self.data["totals"][k] = str(max(Decimal(0), Decimal(self.data["totals"].get(k, "0")) - amount))
+
+    # Revocations received by a running checker survive restarts
+    @property
+    def revocations(self) -> list[dict]:
+        return self.data.setdefault("revocations", [])
 
 
 def load_authority(path: str) -> m.Authority:

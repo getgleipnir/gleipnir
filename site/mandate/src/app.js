@@ -87,16 +87,19 @@ function render(m) {
   const sc = m.scope;
   const rows = [
     ["Company", `${m.company.name} (${m.company.country})`],
-    ["Agent", `${m.agent.name || m.agent.id}${m.agent.public_key ? " (must sign every payment with its own key)" : ""}`],
+    ["Agent", m.agent.public_key
+      ? `${m.agent.name || m.agent.id}\nmust sign every payment with key ${m.agent.public_key.slice(0, 20)}…`
+      : `${m.agent.name || m.agent.id}\nWARNING: no agent key, anyone holding this mandate can use it`],
     ["Signed by", m.signer ? m.signer.id : `${m.signers.threshold} of: ${m.signers.of.map((p) => p.id).join(", ")}`],
     ["Rails", sc.rails ? sc.rails.join(", ") : "any"],
     ["Per payment", `up to ${sc.max_per_payment} ${sc.currency}`],
     ["Per period", sc.max_per_period ? `up to ${sc.max_per_period.amount} ${sc.currency} per ${{ P1D: "day", P7D: "week", P1M: "month" }[sc.max_per_period.period]}` : "no period limit"],
     ["Payees", sc.payees ? sc.payees.map((p) => `${p.name || "?"}: ${p.account.iban || JSON.stringify(p.account)}`).join("\n") : "ANY payee (no list)"],
     ["Purpose", sc.purpose || "-"],
-    ["Valid", `from ${when(m.valid_from || m.issued_at)} until ${when(m.valid_until)}`],
+    ["Valid", `${m.valid_from ? `from ${when(m.valid_from)}` : "from the moment it is signed"} until ${when(m.valid_until)}`],
   ];
   if (m.delegation) rows.push(["Your authority", m.delegation.map((d) => `${d.from.id} -> ${d.to.id}`).join("\n")]);
+  if (m.status_url) rows.push(["Revocation status", `checked at ${m.status_url} on every payment`]);
   els.rows.replaceChildren(...rows.map(([k, v]) => {
     const tr = document.createElement("tr");
     const th = document.createElement("th");

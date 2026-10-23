@@ -8,7 +8,7 @@ from gleipnir_verify import mandate as M
 
 SK, PK = M.new_key()
 P = {"id": "a@x", "public_key": PK}
-Q = {"id": "b@x", "public_key": PK}
+Q = {"id": "b@x", "public_key": M.new_key()[1]}
 SCOPE = {"currency": "EUR", "max_per_payment": "10.00"}
 BASE = {"v": "gleipnir/mandate/0.2", "id": "m", "company": {"name": "X", "country": "AT"}, "agent": {"id": "a"},
         "scope": SCOPE, "valid_until": "2099-01-01T00:00:00.000Z"}
