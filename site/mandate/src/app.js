@@ -79,6 +79,21 @@ function when(ts) {
   return `${date}, ${time} UTC`;
 }
 
+/** An account as a signatory reads it: the scheme's own words, not JSON. */
+function account(a) {
+  const f = {
+    iban: () => a.iban,
+    us_aba: () => `US routing ${a.routing}, account ${a.account}`,
+    uk_sort_code: () => `UK sort code ${a.sort_code}, account ${a.account}`,
+    ca_eft: () => `Canada ${a.institution}-${a.transit}, account ${a.account}`,
+    au_bsb: () => `BSB ${a.bsb}, account ${a.account}`,
+    in_ifsc: () => `IFSC ${a.ifsc}, account ${a.account}`,
+    mx_clabe: () => `CLABE ${a.clabe}`,
+    swift: () => `SWIFT ${a.bic}, account ${a.account}`,
+  }[a.scheme];
+  return f ? f() : JSON.stringify(a);
+}
+
 function people(m) {
   return m.signer ? [m.signer] : m.signers.of;
 }
@@ -91,10 +106,11 @@ function render(m) {
       ? `${m.agent.name || m.agent.id}\nmust sign every payment with key ${m.agent.public_key.slice(0, 20)}…`
       : `${m.agent.name || m.agent.id}\nWARNING: no agent key, anyone holding this mandate can use it`],
     ["Signed by", m.signer ? m.signer.id : `${m.signers.threshold} of: ${m.signers.of.map((p) => p.id).join(", ")}`],
+    ["Pays from", sc.from_accounts.map(account).join("\n")],
     ["Rails", sc.rails ? sc.rails.join(", ") : "any"],
     ["Per payment", `up to ${sc.max_per_payment} ${sc.currency}`],
     ["Per period", sc.max_per_period ? `up to ${sc.max_per_period.amount} ${sc.currency} per ${{ P1D: "day", P7D: "week", P1M: "month" }[sc.max_per_period.period]}` : "no period limit"],
-    ["Payees", sc.payees ? sc.payees.map((p) => `${p.name || "?"}: ${p.account.iban || JSON.stringify(p.account)}`).join("\n") : "ANY payee (no list)"],
+    ["Payees", sc.payees ? sc.payees.map((p) => `${p.name || "?"}: ${account(p.account)}`).join("\n") : "ANY payee (no list)"],
     ["Purpose", sc.purpose || "-"],
     ["Valid", `${m.valid_from ? `from ${when(m.valid_from)}` : "from the moment it is signed"} until ${when(m.valid_until)}`],
   ];

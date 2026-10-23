@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   Checker,
   InMemoryLedger,
+  InMemoryPaymentLog,
   attach,
   issue,
   newSeed,
@@ -13,6 +14,9 @@ import {
   combine,
   cosign,
   delegate,
+  iban,
+  makeOverride,
+  signOverride,
   parseStrict,
   paymentKey,
   revoke,
@@ -29,10 +33,18 @@ interface Vector {
   mandate: unknown;
   payments: unknown[];
   now: string[];
-  authority: { company: string; signer: string; source: string; keys: string[]; may_sign: boolean; joint?: number }[];
+  authority: {
+    company: string; signer: string; source: string; keys: string[]; may_sign: boolean; joint?: number;
+    retired?: Record<string, string>;
+  }[];
   revocations: unknown[];
-  status: string | null;
+  status: unknown;
   ledger: boolean;
+  holds: { company: string; account: J }[];
+  policy: { require_payees?: boolean };
+  officers: string[];
+  ops?: ("check" | { resolve: { of: number; id: string; outcome: "allow" | "block"; decided_at: string; reason?: string;
+    decision_hash?: string; signers: { seed: string; id: string }[] } })[];
   expect: J[];
   receipt: J;
   webauthn: { rp_id?: string; origins?: string[] };
@@ -51,8 +63,13 @@ async function run(c: Vector): Promise<J[]> {
     seed: seedFromHex(DATA.bank.seed_hex),
     authority: (company, signerId) => {
       const row = c.authority.find((r) => r.company === company.name && r.signer === signerId);
-      return row ? { source: row.source, keys: row.keys, maySign: row.may_sign, joint: row.joint ?? 1 } : null;
+      return row ? { source: row.source, keys: row.keys, maySign: row.may_sign, joint: row.joint ?? 1,
+        retired: row.retired ?? {} } : null;
     },
+    holds: (company, account) => c.holds.some((r) => r.company === company.name
+      && JSON.stringify(sortKeys(r.account)) === JSON.stringify(sortKeys(account))),
+    requirePayees: c.policy.require_payees ?? false,
+    officers: c.officers,
     ledger: c.ledger ? new InMemoryLedger() : null,
     revocations: c.revocations,
     status:
@@ -60,7 +77,7 @@ async function run(c: Vector): Promise<J[]> {
         ? null
         : async (url) => {
             if (c.status === "error") throw new Error(`unreachable ${url}`);
-            return c.status!;
+            return c.status;
           },
     clock: () => new Date(now),
     webauthn: { rpId: c.webauthn.rp_id, origins: c.webauthn.origins },
@@ -69,15 +86,42 @@ async function run(c: Vector): Promise<J[]> {
   for (let i = 0; i < c.payments.length; i++) {
     now = c.now[i]!;
     const mandates = c.mandates ?? [c.mandate];
-    out.push(await checker.check(mandates[(c.which ?? [])[i] ?? 0], c.payments[i]));
+    const md = mandates[(c.which ?? [])[i] ?? 0];
+    const op = (c.ops ?? [])[i] ?? "check";
+    if (op === "check") out.push(await checker.check(md, c.payments[i]));
+    else {
+      const d = out[op.resolve.of]!;
+      out.push(await checker.resolve(md, c.payments[i], d, buildOverride(op, d)));
+    }
   }
   return out;
+}
+
+function sortKeys(v: unknown): unknown {
+  if (Array.isArray(v)) return v.map(sortKeys);
+  if (v && typeof v === "object") return Object.fromEntries(Object.keys(v).sort().map((k) => [k, sortKeys((v as J)[k])]));
+  return v;
+}
+
+/** An override as a resolve op describes it, signed with Ed25519 seeds (deterministic in both languages). */
+function buildOverride(spec: NonNullable<Vector["ops"]>[number] & object, d: J): J {
+  const r = (spec as { resolve: { id: string; outcome: "allow" | "block"; decided_at: string; reason?: string;
+    decision_hash?: string; signers: { seed: string; id: string }[] } }).resolve;
+  let o = makeOverride(d, { outcome: r.outcome, id: r.id, reason: r.reason ?? "", decidedAt: r.decided_at });
+  if (r.decision_hash) o = { ...o, decision: { ...(o.decision as J), hash: r.decision_hash } };
+  for (const s of r.signers) {
+    const seed = seedFromHex(s.seed);
+    o = signOverride(o, seed, { id: s.id, public_key: publicKeyOf(seed) });
+  }
+  return o;
 }
 
 function expected(decisions: J[]): J[] {
   const first = new Map<unknown, number>();
   return decisions.map((d, i) => {
     let row: J = Object.fromEntries(Object.entries(d).filter(([k]) => k !== "id" && k !== "sig"));
+    if (row.escalation) row.escalation = { step: first.get((row.escalation as J).id) ?? null };
+    if (row.override) row.override = { id: (row.override as J).id };
     if (first.has(d.id)) row = { same_as: first.get(d.id) };
     if (!first.has(d.id)) first.set(d.id, i);
     return row;
@@ -118,14 +162,16 @@ describe("mandate conformance vectors (shared with the Python reference)", () =>
 
 describe("mandate flow in TypeScript", () => {
   const signerSeed = newSeed(), agentSeed = newSeed(), bankSeed = newSeed();
-  const brenner = { name: "Brenner Stahl AG", account: { iban: "AT611904300234573201" } };
+  const debtor = iban("AT48 3200 0000 1234 5864");
+  const holds = (_c: J, a: J) => a.iban === debtor.iban;
+  const brenner = { name: "Brenner Stahl AG", account: iban("AT611904300234573201") };
   const m = signMandate(
     issue({
       id: "m_ts",
       company: { name: "Nordhafen Logistik GmbH", country: "AT" },
       agent: { id: "ap-agent", public_key: publicKeyOf(agentSeed) },
       signer: { id: "kberger@nordhafen.at", public_key: publicKeyOf(signerSeed) },
-      scope: { rails: ["sepa"], currency: "EUR", max_per_payment: "25000.00", payees: [brenner] },
+      scope: { rails: ["sepa"], currency: "EUR", max_per_payment: "25000.00", payees: [brenner], from_accounts: [debtor] },
       validUntil: "2099-01-01T00:00:00.000Z",
     }),
     signerSeed,
@@ -133,7 +179,7 @@ describe("mandate flow in TypeScript", () => {
   const kyb = (): AuthorityResult => ({ source: "bank_kyb", keys: [publicKeyOf(signerSeed)] });
 
   it("allows, blocks a revoked mandate, and verifies", async () => {
-    const bank = new Checker({ id: "bank:ts", seed: bankSeed, authority: kyb });
+    const bank = new Checker({ id: "bank:ts", seed: bankSeed, authority: kyb, holds });
     const p = attach(m, { id: "p_1", rail: "sepa", amount: "18400.00", currency: "EUR", payee: brenner, agentSeed });
     const d = await bank.check(m, p);
     expect(d.outcome).toBe("allow");
@@ -149,9 +195,11 @@ describe("mandate flow in TypeScript", () => {
     const down = new Checker({ id: "b", seed: bankSeed, authority: async () => { throw new Error("kyb down"); } });
     expect((await down.check(m, p)).reasons).toEqual(["checker_unavailable"]);
     const weird = new Checker({ id: "b", seed: bankSeed, authority: () => 42 as unknown as AuthorityResult });
-    expect((await weird.check(m, { ...p, id: "p_2" })).reasons).toEqual(["checker_unavailable"]);
-    const ok = new Checker({ id: "b", seed: bankSeed, authority: kyb });
-    for (const junk of [undefined, null, 1, [], { v: "gleipnir/payment/0.1" }, { ...p, amount: 1e400 }]) {
+    const p2 = attach(m, { id: "p_2", rail: "sepa", amount: "1.00", currency: "EUR", payee: brenner, agentSeed });
+    expect((await weird.check(m, p2)).reasons).toEqual(["checker_unavailable"]);
+    const ok = new Checker({ id: "b", seed: bankSeed, authority: kyb, holds });
+    for (const junk of [undefined, null, 1, [], { v: "gleipnir/payment/0.1" }, { ...p, amount: 1e400 },
+      { ...p, payee: { account: { scheme: {} } } }, { ...p, from_account: { scheme: "iban", iban: ["x"] } }]) {
       expect((await ok.check(m, junk)).outcome).toBe("block");
     }
     expect((await ok.check(undefined, p)).reasons).toEqual(["mandate_malformed"]);
@@ -162,14 +210,14 @@ describe("mandate flow in TypeScript", () => {
     const berger = { id: "kberger@nordhafen.at", public_key: publicKeyOf(signerSeed) };
     const hofer = { id: "mhofer@nordhafen.at", public_key: publicKeyOf(hoferSeed) };
     const company = { name: "Nordhafen Logistik GmbH", country: "AT" };
-    const scope = { rails: ["sepa"], currency: "EUR", max_per_payment: "25000.00", payees: [brenner] };
+    const scope = { rails: ["sepa"], currency: "EUR", max_per_payment: "25000.00", payees: [brenner], from_accounts: [debtor] };
     let joint = issue({ id: "m_joint", company, agent: { id: "ap-agent", public_key: publicKeyOf(agentSeed) },
       signers: { threshold: 2, of: [berger, hofer] }, scope, validUntil: "2099-01-01T00:00:00.000Z" });
     joint = cosign(cosign(joint, signerSeed, berger.id), hoferSeed, hofer.id);
     const kyb = (_c: Record<string, unknown>, id: string): AuthorityResult | null =>
       id === berger.id ? { source: "bank_kyb", keys: [berger.public_key] }
         : id === hofer.id ? { source: "bank_kyb", keys: [hofer.public_key] } : null;
-    const bank = new Checker({ id: "bank:ts", seed: bankSeed, authority: kyb });
+    const bank = new Checker({ id: "bank:ts", seed: bankSeed, authority: kyb, holds });
     const p = attach(joint, { id: "p_j", rail: "sepa", amount: "100.00", currency: "EUR", payee: brenner, agentSeed });
     const d = await bank.check(joint, p);
     expect(d.checks).toContain("signatures:2/2");
@@ -184,7 +232,7 @@ describe("mandate flow in TypeScript", () => {
       (_c, id) => (id === ceo.id ? { source: "bank_kyb", keys: [ceo.public_key] } : null),
       async (_c, id) => (id === berger.id ? { source: "vlei", keys: [berger.public_key], maySign: false } : null),
     );
-    const second = new Checker({ id: "bank:second", seed: bankSeed, authority: people });
+    const second = new Checker({ id: "bank:second", seed: bankSeed, authority: people, holds });
     const pc = attach(viaChain, { id: "p_c", rail: "sepa", amount: "100.00", currency: "EUR", payee: brenner });
     expect((await second.check(viaChain, pc)).checks).toContain("delegation:1");
     second.revocations.push(revoke(link, { signer: ceo, seed: ceoSeed, id: "r_g1", revokedAt: "2000-01-01T00:00:00.000Z" }));
@@ -219,14 +267,16 @@ describe("mandate flow in TypeScript", () => {
 describe("second audit regressions (TS-specific)", () => {
   const bankSeed = newSeed();
   const signerSeed = newSeed();
-  const brenner = { name: "Brenner Stahl AG", account: { iban: "AT611904300234573201" } };
+  const brenner = { name: "Brenner Stahl AG", account: iban("AT611904300234573201") };
+  const debtor = iban("AT483200000012345864");
+  const holds = () => true;
   const m = signMandate(issue({ id: "m_p", company: { name: "X GmbH", country: "AT" }, agent: { id: "a" },
     signer: { id: "s", public_key: publicKeyOf(signerSeed) }, validUntil: "2099-01-01T00:00:00.000Z",
-    scope: { currency: "EUR", max_per_payment: "100.00", payees: [brenner] } }), signerSeed);
+    scope: { currency: "EUR", max_per_payment: "100.00", payees: [brenner], from_accounts: [debtor] } }), signerSeed);
   const kyb = () => ({ source: "bank_kyb", keys: [publicKeyOf(signerSeed)] });
 
   it("F2: a __proto__ key never throws and never hides from the hash", async () => {
-    const bank = new Checker({ id: "b", seed: bankSeed, authority: kyb });
+    const bank = new Checker({ id: "b", seed: bankSeed, authority: kyb, holds });
     const p = attach(m, { id: "p1", rail: "sepa", amount: "1.00", currency: "EUR", payee: brenner });
     const added = JSON.parse(JSON.stringify(m).replace(/^\{/, '{"__proto__":"x",')) as Record<string, unknown>;
     expect(Object.keys(added)).toContain("__proto__");
@@ -250,7 +300,7 @@ describe("second audit regressions (TS-specific)", () => {
   });
 
   it("F3: non-integer numbers in objects are not I-JSON", async () => {
-    const bank = new Checker({ id: "b", seed: bankSeed, authority: kyb });
+    const bank = new Checker({ id: "b", seed: bankSeed, authority: kyb, holds });
     const p = attach(m, { id: "p9", rail: "sepa", amount: "1.00", currency: "EUR", payee: brenner });
     expect((await bank.check({ ...m, extra: 2.5 }, p)).reasons).toEqual(["mandate_malformed"]);
     expect((await bank.check({ ...m, extra: 2 ** 60 }, p)).reasons).toEqual(["mandate_malformed"]);
@@ -258,8 +308,78 @@ describe("second audit regressions (TS-specific)", () => {
 
   it.each([{ maySign: null }, { maySign: "yes" }, { joint: "2" }, { joint: 0 }, { keys: [1] }])(
     "F10: odd authority answer %j fails closed", async (bad) => {
-      const bank = new Checker({ id: "b", seed: bankSeed, authority: () => ({ ...kyb(), ...bad }) as never });
+      const bank = new Checker({ id: "b", seed: bankSeed, authority: () => ({ ...kyb(), ...bad }) as never, holds });
       const p = attach(m, { id: `p_${JSON.stringify(bad)}`, rail: "sepa", amount: "1.00", currency: "EUR", payee: brenner });
       expect((await bank.check(m, p)).reasons).toEqual(["checker_unavailable"]);
     });
+});
+
+
+describe("0.3 in TypeScript", () => {
+  const seeds = { signer: newSeed(), agent: newSeed(), bank: newSeed(), ops: newSeed() };
+  const debtor = iban("AT48 3200 0000 1234 5864");
+  const brenner = { name: "Brenner Stahl AG", account: iban("AT61 1904 3002 3457 3201") };
+  const berger = { id: "kberger@nordhafen.at", public_key: publicKeyOf(seeds.signer) };
+  const m = signMandate(issue({ id: "m_v3", company: { name: "Nordhafen Logistik GmbH", country: "AT" },
+    agent: { id: "a", public_key: publicKeyOf(seeds.agent) }, signer: berger, validUntil: "2099-01-01T00:00:00.000Z",
+    scope: { rails: ["sepa"], currency: "EUR", max_per_payment: "25000.00", payees: [brenner], from_accounts: [debtor] } }),
+  seeds.signer);
+  const bank = () => new Checker({ id: "bank:v3", seed: seeds.bank, holds: (_c, a) => a.iban === debtor.iban,
+    authority: (_c, id) => (id === berger.id ? { source: "bank_kyb", keys: [berger.public_key] } : null),
+    officers: [publicKeyOf(seeds.ops)] });
+
+  it("a signatory's override resolves an over-limit escalation, and the receipt shows who", async () => {
+    const b = bank();
+    const p = attach(m, { id: "p_big", rail: "sepa", amount: "30000.00", currency: "EUR", payee: brenner, agentSeed: seeds.agent });
+    const d = await b.check(m, p);
+    expect(d.reasons).toEqual(["over_payment_limit"]);
+    const o = signOverride(makeOverride(d, { outcome: "allow", id: "o_1" }), seeds.signer, berger);
+    const final = await b.resolve(m, p, d, o);
+    expect(final.outcome).toBe("allow");
+    expect(await b.check(m, p)).toEqual(final);
+    const r = verifyReceipt(m, p, final, [b.publicKey], { override: o });
+    expect(r.valid).toBe(true);
+    expect(r.approved_by).toEqual([berger.id]);
+    expect(verifyReceipt(m, p, final, [b.publicKey]).problems).toEqual(["override_missing"]);
+  });
+
+  it("the payee and debtor accounts must be canonical and fit the rail", async () => {
+    const b = bank();
+    const pay = (id: string, extra: J) => ({ ...attach(m, { id, rail: "sepa", amount: "1.00", currency: "EUR", payee: brenner,
+      agentSeed: seeds.agent }), ...extra });
+    expect((await b.check(m, pay("p1", { from_account: { scheme: "iban", iban: "at48 3200 0000 1234 5864" } }))).reasons)
+      .toEqual(["payment_malformed"]);
+    const gb = { scheme: "uk_sort_code", sort_code: "601613", account: "31926819" };
+    const p2 = attach(m, { id: "p2", rail: "sepa", amount: "1.00", currency: "EUR", payee: { account: gb }, agentSeed: seeds.agent });
+    expect((await b.check(m, p2)).reasons).toEqual(["rail_mismatch"]);
+    expect(() => iban("AT62 1904 3002 3457 3201")).toThrow(/check digits/);
+  });
+});
+
+describe("0.3 concurrency", () => {
+  it("concurrent overrides of one held escalation re-check once (PaymentLog.take)", async () => {
+    const seeds = { signer: newSeed(), bank: newSeed() };
+    const debtor = iban("AT483200000012345864");
+    const brenner = { name: "B", account: iban("AT611904300234573201") };
+    const signer = { id: "s", public_key: publicKeyOf(seeds.signer) };
+    const m = signMandate(issue({ id: "m", company: { name: "X", country: "AT" }, agent: { id: "a" }, signer,
+      validUntil: "2099-01-01T00:00:00.000Z", scope: { currency: "EUR", max_per_payment: "10.00", payees: [brenner],
+        from_accounts: [debtor], max_per_period: { amount: "100.00", period: "P1M" } } }), seeds.signer);
+    class SlowLog extends InMemoryPaymentLog {
+      override async lookup(key: string, h: string) {
+        await new Promise((r) => setTimeout(r, 5));
+        return super.lookup(key, h);
+      }
+    }
+    const ledger = new InMemoryLedger();
+    const bank = new Checker({ id: "b", seed: seeds.bank, holds: () => true, ledger, payments: new SlowLog(),
+      authority: () => ({ source: "kyb", keys: [signer.public_key] }) });
+    const p = attach(m, { id: "p", rail: "sepa", amount: "20.00", currency: "EUR", payee: brenner });
+    const d = await bank.check(m, p);
+    expect(d.reasons).toEqual(["over_payment_limit"]);
+    const o = signOverride(makeOverride(d, { outcome: "allow", id: "o" }), seeds.signer, signer);
+    const out = await Promise.all(Array.from({ length: 8 }, () => bank.resolve(m, p, d, o)));
+    expect(new Set(out.filter((x) => x.outcome === "allow").map((x) => x.id)).size).toBe(1);
+    expect([...ledger.totals.values()]).toEqual([2000n]);
+  });
 });

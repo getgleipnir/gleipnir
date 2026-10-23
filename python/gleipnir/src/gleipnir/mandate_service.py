@@ -2,9 +2,10 @@
 
 ``gleipnir mandate serve`` (bank side, reference only):
 
-    POST /check   {"mandate": {...}, "payment": {...}}  -> the signed decision (200), or {"error": ...} (400)
-    GET  /keys    -> {"checker": id, "keys": [public key]}: what companies and auditors verify decisions with
-    POST /revoke  a signed revocation; the checker still verifies it on every payment before it counts
+    POST /check    {"mandate": {...}, "payment": {...}}  -> the signed decision (200), or {"error": ...} (400)
+    POST /resolve  {"mandate", "payment", "decision", "override"} -> the decision after a signed override
+    GET  /keys     -> {"checker": id, "keys": [public key]}: what companies and auditors verify decisions with
+    POST /revoke   a signed revocation; the checker still verifies it on every payment before it counts
 
 Binds to 127.0.0.1 by default. Bodies are strict JSON (no duplicate keys, no NaN), at most 1 MiB. There is
 no authentication: put it behind the bank's own API gateway. State (period ledger, payment log) is the dev
@@ -16,7 +17,7 @@ tools and the current mandate as a resource (``gleipnir://mandate/current``).
 - ``mandate_scope``: what the agent may pay under the loaded mandate.
 - ``request_mandate``: draft an unsigned mandate for a person to review and sign in their bank's app (or with
   ``gleipnir mandate sign``). The agent never signs a mandate itself.
-- ``attach_mandate``: build a payment under the loaded mandate, signed with the agent's key.
+- ``attach_mandate``: build a payment under the loaded mandate, from one of its accounts, signed with the agent's key.
 - ``check_payment``: ask the bank's checker (``--bank-url``) whether a payment would pass, before submitting it;
   with ``--bank-key`` and ``--authority`` instead, a local demo checker answers.
 """
@@ -41,9 +42,13 @@ from .mandate_cli import (
     CliError,
     FileState,
     load_authority,
+    load_holds,
     load_key,
     loads_strict,
+    make_status_fetcher,
+    parse_account,
     parse_payee,
+    public_key,
     read_json,
     webauthn_of,
 )
@@ -59,21 +64,33 @@ class Bank:
     """A Checker wired to the dev file state, safe to call from several HTTP threads."""
 
     def __init__(self, *, bank_id: str, bank_key: str, authority: str, state: Path,
-                 revocations: list[str] | None = None, webauthn: dict | None = None) -> None:
+                 revocations: list[str] | None = None, webauthn: dict | None = None, officers: list[str] | None = None,
+                 require_payees: bool = False, status_hosts: list[str] | None = None) -> None:
         self.webauthn = webauthn or {}
         self.id = bank_id
         self.sk = load_key(bank_key)
         self.public_key = m.public_key_of(self.sk)
         self.authority = load_authority(authority)
+        self.holds = load_holds(authority)
+        self.officers = officers or []
+        self.require_payees = require_payees
+        self.status = make_status_fetcher(status_hosts)
         self.state = state
         self.revocations: list[dict] = [read_json(r) for r in revocations or []]
         self._lock = threading.Lock()
 
+    def _checker(self, st: FileState) -> m.Checker:
+        return m.Checker(id=self.id, sk=self.sk, authority=self.authority, holds=self.holds, ledger=st, payments=st,
+                         revocations=[*self.revocations, *st.revocations], webauthn=self.webauthn,
+                         status=self.status, officers=self.officers, require_payees=self.require_payees)
+
     def check(self, mandate: Any, payment: Any) -> dict[str, Any]:
         with self._lock, FileState(self.state) as st:
-            checker = m.Checker(id=self.id, sk=self.sk, authority=self.authority, ledger=st, payments=st,
-                                revocations=[*self.revocations, *st.revocations], webauthn=self.webauthn)
-            return checker.check(mandate, payment)
+            return self._checker(st).check(mandate, payment)
+
+    def resolve(self, mandate: Any, payment: Any, decision: Any, override: Any) -> dict[str, Any]:
+        with self._lock, FileState(self.state) as st:
+            return self._checker(st).resolve(mandate, payment, decision, override)
 
     def add_revocation(self, r: Any) -> None:
         """Store a signed revocation in the state file; the checker verifies it on every payment."""
@@ -93,7 +110,7 @@ class Bank:
 
 def make_handler(bank: Bank, allow_origins: frozenset[str] = frozenset()) -> type[BaseHTTPRequestHandler]:
     class Handler(BaseHTTPRequestHandler):
-        server_version = "gleipnir-checker/0.2"
+        server_version = f"gleipnir-checker/{m.V}"
 
         def log_message(self, fmt: str, *args: Any) -> None:  # quiet by default
             pass
@@ -140,6 +157,12 @@ def make_handler(bank: Bank, allow_origins: frozenset[str] = frozenset()) -> typ
                     if not isinstance(body, dict) or set(body) != {"mandate", "payment"}:
                         raise CliError('expected {"mandate": ..., "payment": ...}')
                     self._send(200, bank.check(body["mandate"], body["payment"]))
+                elif self.path == "/resolve":
+                    body = self._body()
+                    if not isinstance(body, dict) or set(body) != {"mandate", "payment", "decision", "override"}:
+                        raise CliError('expected {"mandate", "payment", "decision", "override"}')
+                    self._send(200, bank.resolve(body["mandate"], body["payment"], body["decision"],
+                                                 body["override"]))
                 elif self.path == "/revoke":
                     bank.add_revocation(self._body())
                     self._send(200, {"ok": True})
@@ -162,10 +185,13 @@ def make_server(bank: Bank, host: str = "127.0.0.1", port: int = 8787,
 def cmd_serve(args: argparse.Namespace) -> int:
     state = Path(args.state) if args.state else Path(args.home) / "mandate-state" / "state.json"
     bank = Bank(bank_id=args.bank_id, bank_key=args.bank_key, authority=args.authority, state=state,
-                revocations=args.revocation, webauthn=webauthn_of(args))
+                revocations=args.revocation, webauthn=webauthn_of(args),
+                officers=[public_key(k) for k in args.officer or []], require_payees=args.require_payees,
+                status_hosts=args.status_host)
     srv = make_server(bank, args.host, args.port, args.allow_origin)
     print(f"gleipnir: checker {bank.id} on http://{args.host}:{srv.server_address[1]} "
-          f"(POST /check, GET /keys, POST /revoke). Reference server, no auth: keep it behind your gateway.",
+          "(POST /check, POST /resolve, GET /keys, POST /revoke). Reference server, no auth: keep it behind your "
+          "gateway.",
           file=sys.stderr)
     try:
         srv.serve_forever()
@@ -197,10 +223,12 @@ TOOLS = [
          "signer_public_key": {"type": "string"},
          "currency": {"type": "string"}, "max_per_payment": {"type": "string", "description": "e.g. 25000.00"},
          "max_per_month": {"type": "string"},
-         "payees": {"type": "array", "items": {"type": "string", "description": "NAME=IBAN"}},
+         "payees": {"type": "array", "items": {"type": "string", "description": "NAME=ACCOUNT"}},
+         "from_accounts": {"type": "array", "items": {"type": "string"},
+                           "description": "the company's accounts to pay from: IBAN, or SCHEME:FIELD/FIELD"},
          "valid_until": {"type": "string", "description": "RFC 3339 UTC"}, "purpose": {"type": "string"},
      }, ["company", "country", "signer_id", "signer_public_key", "currency", "max_per_payment", "payees",
-         "valid_until"]),
+         "from_accounts", "valid_until"]),
      "annotations": {"title": "Ask a person for a mandate", "readOnlyHint": False, "destructiveHint": False,
                      "openWorldHint": False}},
     {"name": "attach_mandate",
@@ -209,7 +237,11 @@ TOOLS = [
      "inputSchema": _schema({
          "payment_id": {"type": "string", "description": "unique per payer, e.g. the invoice number"},
          "amount": {"type": "string", "description": "e.g. 18400.00"},
-         "payee": {"type": "string", "description": "NAME=IBAN, exactly as on the invoice"},
+         "payee": {"type": "string", "description": "NAME=ACCOUNT exactly as on the invoice: an IBAN, or "
+                                                    "SCHEME:FIELD/FIELD (us_aba:ROUTING/ACCOUNT, "
+                                                    "uk_sort_code:SORT_CODE/ACCOUNT, ...)"},
+         "from_account": {"type": "string", "description": "which mandate account to pay from (default: the "
+                                                           "only one)"},
          "reference": {"type": "string"}, "rail": {"type": "string"},
      }, ["payment_id", "amount", "payee"]),
      "annotations": {"title": "Prepare a payment", "readOnlyHint": True, "openWorldHint": False}},
@@ -217,7 +249,8 @@ TOOLS = [
      "description": "Submit a payment built by attach_mandate to the bank's check. This is the real check, not a "
                     "dry run: an allowed payment is recorded under its id and counts against the limits, so "
                     "call it only for a payment you intend to make. Returns allow, block or escalate with a "
-                    "reason. Never pay on block; on escalate, ask a person. To retry, resubmit the same payment.",
+                    "reason. Never pay on block; on escalate, ask a person (they sign an override at the bank). "
+                    "To retry, resubmit the same payment; after a block you may correct it and reuse the id.",
      "inputSchema": _schema({"payment": {"type": "object"}}, ["payment"]),
      "annotations": {"title": "Ask the bank", "readOnlyHint": False, "destructiveHint": False,
                      "idempotentHint": True, "openWorldHint": True}},
@@ -273,6 +306,7 @@ class MandateTools:
                 "agent": md.get("agent", {}).get("id"), "currency": sc.get("currency"),
                 "max_per_payment": sc.get("max_per_payment"), "max_per_period": sc.get("max_per_period"),
                 "rails": sc.get("rails", "any"), "payees": sc.get("payees", "any payee"),
+                "from_accounts": sc.get("from_accounts"),
                 "valid_from": md.get("valid_from"), "valid_until": md.get("valid_until"), "signed_by": signed_by,
                 "delegation": [f"{d['from']['id']} -> {d['to']['id']}" for d in md.get("delegation", [])],
                 "problem": m.mandate_problem(md)}
@@ -280,7 +314,8 @@ class MandateTools:
     def request_mandate(self, a: dict) -> dict:
         scope: dict[str, Any] = {"rails": ["sepa", "sepa_instant"], "currency": a["currency"],
                                  "max_per_payment": a["max_per_payment"],
-                                 "payees": [parse_payee(p) for p in a["payees"]]}
+                                 "payees": [parse_payee(p) for p in a["payees"]],
+                                 "from_accounts": [parse_account(x) for x in a["from_accounts"]]}
         if a.get("max_per_month"):
             scope["max_per_period"] = {"amount": a["max_per_month"], "period": "P1M"}
         if a.get("purpose"):
@@ -310,6 +345,7 @@ class MandateTools:
             rails = mandate["scope"].get("rails") or ["sepa"]
             p = m.attach(mandate, id=a["payment_id"], rail=a.get("rail") or rails[0],
                          amount=a["amount"], currency=mandate["scope"]["currency"], payee=parse_payee(a["payee"]),
+                         from_account=parse_account(a["from_account"]) if a.get("from_account") else None,
                          reference=a.get("reference", ""), agent_sk=self.agent_sk)
         except (KeyError, IndexError, TypeError) as exc:
             raise CliError(f"cannot use the loaded mandate: {exc}") from exc
@@ -438,7 +474,7 @@ def make_mcp_http(tools: MandateTools, host: str = "127.0.0.1", port: int = 8788
     lock = threading.Lock()
 
     class Handler(BaseHTTPRequestHandler):
-        server_version = "gleipnir-mandate-mcp/0.2"
+        server_version = f"gleipnir-mandate-mcp/{m.V}"
 
         def log_message(self, fmt: str, *args: Any) -> None:
             pass
@@ -522,17 +558,13 @@ def cmd_mcp(args: argparse.Namespace) -> int:
 
 
 def add_arguments(sub: argparse._SubParsersAction) -> None:
-    s = sub.add_parser("serve", help="reference bank checker over HTTP: POST /check, GET /keys, POST /revoke")
-    s.add_argument("--authority", required=True, help="KYB file (see `gleipnir mandate kyb`)")
-    s.add_argument("--bank-key", required=True)
-    s.add_argument("--bank-id", default="bank:local")
-    s.add_argument("--revocation", action="append")
-    s.add_argument("--state")
+    from .mandate_cli import add_checker_arguments
+
+    s = sub.add_parser("serve", help="reference bank checker over HTTP: POST /check, /resolve, /revoke; GET /keys")
+    add_checker_arguments(s)
     s.add_argument("--host", default="127.0.0.1")
     s.add_argument("--port", type=int, default=8787)
     s.add_argument("--allow-origin", action="append", help="browser origin allowed to call the checker")
-    s.add_argument("--rp-id", help="passkey relying party id, for mandates signed with a passkey")
-    s.add_argument("--origin", action="append", help="allowed passkey origin (default https://<rp-id>)")
     s.set_defaults(mandate_fn=cmd_serve)
 
     c = sub.add_parser("mcp", help="MCP server (stdio) for an agent: request_mandate, attach_mandate, check_payment")

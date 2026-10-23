@@ -15,13 +15,14 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
+from kit import DEBTOR, holds
 
 from gleipnir_verify import mandate as M
 
 sync_api = pytest.importorskip("playwright.sync_api")
 
 SITE = Path(__file__).resolve().parents[3] / "site" / "mandate"
-BRENNER = {"name": "Brenner Stahl AG", "account": {"iban": "AT611904300234573201"}}
+BRENNER = {"name": "Brenner Stahl AG", "account": {"scheme": "iban", "iban": "AT611904300234573201"}}
 
 
 @pytest.fixture(scope="module")
@@ -37,7 +38,8 @@ def page_url():
 def draft(**kw) -> dict:
     return M.issue(id="m_page", company={"name": "Nordhafen Logistik GmbH", "country": "AT"},
                    agent={"id": "ap-agent", "name": "Accounts payable agent"},
-                   scope={"rails": ["sepa"], "currency": "EUR", "max_per_payment": "25000.00", "payees": [BRENNER]},
+                   scope={"rails": ["sepa"], "currency": "EUR", "max_per_payment": "25000.00", "payees": [BRENNER],
+                          "from_accounts": [DEBTOR]},
                    valid_until="2026-12-31T23:59:59.000Z", **kw)
 
 
@@ -70,13 +72,14 @@ def test_sign_mandate_with_passkey_in_browser(page_url):
         page.dispatch_event("#draft", "change")
         text = page.inner_text("#scope-rows")
         assert "Brenner Stahl AG: AT611904300234573201" in text and "up to 25000.00 EUR" in text
+        assert "AT483200000012345864" in text  # the account it pays from
         page.click("#sign")
         page.wait_for_selector(".status.ok")
         signed = json.loads(page.input_value("#out"))
         assert signed["sig"]["type"] == "webauthn"
 
         # 3. A draft with a duplicate key is refused before anything is shown or signed.
-        page.fill("#draft", '{"v": "gleipnir/mandate/0.2", "v": "x"}')
+        page.fill("#draft", '{"v": "gleipnir/mandate/0.3", "v": "x"}')
         page.dispatch_event("#draft", "change")
         assert 'Duplicate key "v"' in page.inner_text("#draft-error")
         assert page.is_hidden("#summary")
@@ -87,6 +90,7 @@ def test_sign_mandate_with_passkey_in_browser(page_url):
     bank_sk, _ = M.new_key()
     kyb = {"kberger@nordhafen.at": M.AuthorityResult("bank_kyb", (enrolled["public_key"],))}
     checker = M.Checker(id="bank:test", sk=bank_sk, authority=lambda c, pid: kyb.get(pid), clock=lambda: now,
+                        holds=holds,
                         webauthn={"rp_id": "localhost", "origins": [page_url.rsplit("/", 1)[0]]})
     pay = M.attach(signed, id="p_1", rail="sepa", amount="100.00", currency="EUR", payee=BRENNER,
                    requested_at=M.fmt_ts(now))

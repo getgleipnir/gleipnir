@@ -7,14 +7,22 @@
         --signer-id kberger@nordhafen.at --signer-name "K. Berger" --signer-key berger.pem \\
         --agent-id ap-agent --agent-key agent.pem --rail sepa --currency EUR \\
         --max-per-payment 25000.00 --max-per-period 100000.00/P1M \\
+        --from-account AT483200000012345864 \\
         --payee "Brenner Stahl AG=AT611904300234573201" -o mandate.json
     gleipnir mandate sign mandate.json --key berger.pem
     gleipnir mandate pay mandate.json --id p_1 --amount 18400.00 \\
         --payee "Brenner Stahl AG=AT611904300234573201" --agent-key agent.pem -o payment.json
     gleipnir mandate kyb mandate.json -o kyb.json               # dev only: trust the mandate's signer
     gleipnir mandate check mandate.json payment.json --authority kyb.json --bank-key bank.pem
+    gleipnir mandate override decision.json --key berger.pem --signer-id kberger@nordhafen.at -o override.json
+    gleipnir mandate resolve mandate.json payment.json decision.json override.json --authority kyb.json \\
+        --bank-key bank.pem
     gleipnir mandate revoke mandate.json --key berger.pem --id r_1 -o revocation.json
     gleipnir mandate verify decision.json --bank-pub ed25519:...
+
+Accounts are an IBAN (spaces allowed), or SCHEME:FIELD/FIELD/... in the scheme's field order:
+us_aba:ROUTING/ACCOUNT, uk_sort_code:SORT_CODE/ACCOUNT, ca_eft:INSTITUTION/TRANSIT/ACCOUNT,
+au_bsb:BSB/ACCOUNT, in_ifsc:IFSC/ACCOUNT, mx_clabe:CLABE, swift:BIC/ACCOUNT.
 
 ``check`` prints the signed decision and exits 0 for allow, 1 for block, 3 for escalate (2 is a usage
 error). Period totals and seen payment ids are kept in ``<home>/mandate-state`` so repeated runs
@@ -25,8 +33,14 @@ from __future__ import annotations
 
 import argparse
 import fcntl
+import ipaddress
 import json
+import secrets
+import socket
 import sys
+import urllib.error
+import urllib.parse
+import urllib.request
 from datetime import timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -104,11 +118,29 @@ def public_key(text: str) -> str:
     return text
 
 
+def parse_account(text: str) -> dict[str, str]:
+    """An IBAN ("AT61 1904 ..."), or SCHEME:FIELD/FIELD in the scheme's field order ("us_aba:021000021/1234")."""
+    scheme, sep, rest = text.strip().partition(":")
+    if not sep:
+        scheme, rest = "iban", text
+    scheme = scheme.strip().lower()
+    if scheme not in m.SCHEMES:
+        raise CliError(f"unknown account scheme {scheme!r}: one of {', '.join(m.SCHEMES)}")
+    names = list(m.SCHEMES[scheme])
+    parts = rest.split("/")
+    if len(parts) != len(names):
+        raise CliError(f"a {scheme} account is {scheme}:{'/'.join(n.upper() for n in names)}, got {text!r}")
+    try:
+        return m.account(scheme, **dict(zip(names, parts, strict=True)))
+    except ValueError as exc:
+        raise CliError(f"bad account {text!r}: {exc}") from exc
+
+
 def parse_payee(text: str) -> dict[str, Any]:
-    name, sep, iban = text.rpartition("=")
-    if not sep or not name or not iban:
-        raise CliError(f"payee must be NAME=IBAN, got {text!r}")
-    return {"name": name.strip(), "account": {"iban": iban.strip()}}
+    name, sep, acc = text.rpartition("=")
+    if not sep or not name or not acc:
+        raise CliError(f"payee must be NAME=ACCOUNT, got {text!r}")
+    return {"name": name.strip(), "account": parse_account(acc)}
 
 
 # ---------- file-backed state for repeated local runs ----------
@@ -157,11 +189,19 @@ class FileState:
     def forget(self, key: str) -> None:
         self.data["payments"].pop(key, None)
 
+    def take(self, key: str, payment_hash: str, decision_id: str) -> bool:
+        entry = self.data["payments"].get(key)
+        if not entry or entry["hash"] != payment_hash or not isinstance(entry["decision"], dict) \
+                or entry["decision"].get("id") != decision_id:
+            return False
+        entry["decision"] = None
+        return True
+
     # Ledger: keyed by "mandate:<hash>" or "delegation:<hash>" and the calendar period
-    def reserve(self, key: str, period: str, amount: Decimal, limit: Decimal, at: Any) -> bool:
+    def reserve(self, key: str, period: str, amount: Decimal, limit: Decimal | None, at: Any) -> bool:
         k = f"{key}|{m.period_key(period, at)}"
         total = Decimal(self.data["totals"].get(k, "0")) + amount
-        if total > limit:
+        if limit is not None and total > limit:
             return False
         self.data["totals"][k] = str(total)
         return True
@@ -177,12 +217,13 @@ class FileState:
 
 
 def load_authority(path: str) -> m.Authority:
-    """A KYB file: {"source": "bank_kyb", "signers": [{"company", "signer", "keys", "may_sign"}]}."""
+    """A KYB file: {"source": "bank_kyb", "signers": [{"company", "signer", "keys", "may_sign", "joint",
+    "retired"}], "accounts": [{"company", "account"}]}."""
     doc = read_json(path)
     try:
         source = doc.get("source", "bank_kyb")
         table = {(s["company"], s["signer"]): m.AuthorityResult(source, tuple(s["keys"]), s.get("may_sign", True),
-                                                                s.get("joint", 1))
+                                                                s.get("joint", 1), s.get("retired", {}))
                  for s in doc["signers"]}
     except (AttributeError, KeyError, TypeError) as exc:
         raise CliError(f"{path}: expected {{'signers': [{{'company', 'signer', 'keys'}}]}}") from exc
@@ -191,6 +232,61 @@ def load_authority(path: str) -> m.Authority:
         return table.get((company.get("name"), signer_id))
 
     return authority
+
+
+def load_holds(path: str) -> Any:
+    """The accounts the bank holds, from the KYB file's "accounts": [{"company", "account"}]."""
+    doc = read_json(path)
+    try:
+        rows = [(a["company"], m.canonicalize(a["account"])) for a in doc.get("accounts", [])]
+    except (AttributeError, KeyError, TypeError) as exc:
+        raise CliError(f"{path}: expected \"accounts\": [{{'company', 'account'}}]") from exc
+    held = set(rows)
+
+    def holds(company: dict, account: dict) -> bool:
+        return (company.get("name"), m.canonicalize(account)) in held
+
+    return holds
+
+
+MAX_STATUS = 64 * 1024
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args: Any, **kw: Any) -> None:
+        return None  # a status URL that redirects is not an answer
+
+
+def make_status_fetcher(allow_hosts: list[str] | None = None) -> Any:
+    """status(url) for the Checker: GET over https only, no redirects, 5 s, 64 KiB, strict JSON.
+
+    The URL comes from the company, so this is a request the bank makes on a customer's behalf: with
+    ``allow_hosts`` only those hosts are fetched; without, hosts that resolve to loopback, private, link-local
+    or reserved addresses are refused, so a mandate cannot point the bank at its own internal network.
+    """
+    allowed = set(allow_hosts or [])
+    opener = urllib.request.build_opener(_NoRedirect)
+
+    def status(url: str) -> Any:
+        u = urllib.parse.urlsplit(url)
+        if u.scheme != "https" or not u.hostname:
+            raise CliError("status_url must be https")
+        if allowed:
+            if u.hostname not in allowed:
+                raise CliError(f"status host {u.hostname} is not allowed")
+        else:
+            for info in socket.getaddrinfo(u.hostname, u.port or 443, proto=socket.IPPROTO_TCP):
+                ip = ipaddress.ip_address(info[4][0])
+                if not ip.is_global:
+                    raise CliError(f"status host {u.hostname} resolves to a non-public address")
+        req = urllib.request.Request(url, headers={"Accept": "application/json"})
+        with opener.open(req, timeout=5) as resp:  # noqa: S310 - https only, checked above
+            body = resp.read(MAX_STATUS + 1)
+        if len(body) > MAX_STATUS:
+            raise CliError("status response too large")
+        return loads_strict(body.decode("utf-8"), "status response")
+
+    return status
 
 
 # ---------- commands ----------
@@ -212,6 +308,8 @@ def build_scope(args: argparse.Namespace) -> dict[str, Any]:
                              "max_per_payment": args.max_per_payment}
     if args.payee:
         scope["payees"] = [parse_payee(p) for p in args.payee]
+    if getattr(args, "from_account", None):
+        scope["from_accounts"] = [parse_account(a) for a in args.from_account]
     if args.max_per_period:
         amount, sep, period = args.max_per_period.partition("/")
         if not sep:
@@ -322,9 +420,13 @@ def cmd_revoke(args: argparse.Namespace) -> int:
 def cmd_pay(args: argparse.Namespace) -> int:
     mandate = read_json(args.mandate)
     agent_sk = load_key(args.agent_key) if args.agent_key else None
-    payment = m.attach(mandate, id=args.id, rail=args.rail or mandate["scope"]["rails"][0], amount=args.amount,
-                       currency=args.currency or mandate["scope"]["currency"], payee=parse_payee(args.payee),
-                       reference=args.reference or "", agent_sk=agent_sk)
+    try:
+        payment = m.attach(mandate, id=args.id, rail=args.rail or mandate["scope"]["rails"][0], amount=args.amount,
+                           currency=args.currency or mandate["scope"]["currency"], payee=parse_payee(args.payee),
+                           from_account=parse_account(args.from_account) if args.from_account else None,
+                           reference=args.reference or "", agent_sk=agent_sk)
+    except ValueError as exc:
+        raise CliError(str(exc)) from exc
     problem = m.payment_problem(payment)
     if problem:
         raise CliError(f"payment rejected: {problem}")
@@ -343,23 +445,72 @@ def cmd_kyb(args: argparse.Namespace) -> int:
     else:
         rows = [(p, True) for p in ([mandate["signer"]] if "signer" in mandate else mandate["signers"]["of"])]
     doc = {"source": "bank_kyb", "signers": [{"company": company, "signer": p["id"], "keys": [p["public_key"]],
-                                              "may_sign": may} for p, may in rows]}
+                                              "may_sign": may} for p, may in rows],
+           "accounts": [{"company": company, "account": a} for a in mandate["scope"].get("from_accounts", [])]}
     write_json(doc, args.output)
     return 0
 
 
-def cmd_check(args: argparse.Namespace) -> int:
-    mandate, payment = read_json(args.mandate), read_json(args.payment)
+def checker_of(args: argparse.Namespace, state: FileState) -> m.Checker:
     revocations = [read_json(r) for r in args.revocation or []]
-    state_path = Path(args.state) if args.state else Path(args.home) / "mandate-state" / "state.json"
-    with FileState(state_path) as state:
-        checker = m.Checker(id=args.bank_id, sk=load_key(args.bank_key), authority=load_authority(args.authority),
-                            ledger=state, payments=state, revocations=revocations, webauthn=webauthn_of(args))
-        decision = checker.check(mandate, payment)
-    write_json(decision, args.output)
-    if args.output and args.output != "-":
+    return m.Checker(id=args.bank_id, sk=load_key(args.bank_key), authority=load_authority(args.authority),
+                     holds=load_holds(args.authority), ledger=state, payments=state,
+                     revocations=[*revocations, *state.revocations], webauthn=webauthn_of(args),
+                     status=make_status_fetcher(args.status_host), officers=[public_key(k) for k in args.officer or []],
+                     require_payees=args.require_payees)
+
+
+def _decided(decision: dict, output: str | None) -> int:
+    write_json(decision, output)
+    if output and output != "-":
         print(f"{decision['outcome']} {','.join(decision['reasons']) or '-'}", file=sys.stderr)
     return EXIT[decision["outcome"]]
+
+
+def state_of(args: argparse.Namespace) -> Path:
+    return Path(args.state) if args.state else Path(args.home) / "mandate-state" / "state.json"
+
+
+def cmd_check(args: argparse.Namespace) -> int:
+    mandate, payment = read_json(args.mandate), read_json(args.payment)
+    with FileState(state_of(args)) as state:
+        decision = checker_of(args, state).check(mandate, payment)
+    return _decided(decision, args.output)
+
+
+def cmd_resolve(args: argparse.Namespace) -> int:
+    """The bank applies a signed override to one of its escalate decisions."""
+    mandate, payment = read_json(args.mandate), read_json(args.payment)
+    decision, override = read_json(args.decision), read_json(args.override)
+    with FileState(state_of(args)) as state:
+        final = checker_of(args, state).resolve(mandate, payment, decision, override)
+    return _decided(final, args.output)
+
+
+def cmd_override(args: argparse.Namespace) -> int:
+    """A person signs an override of an escalate decision; with --add, co-signs an existing override."""
+    sk = load_key(args.key)
+    me = {"id": args.signer_id, "public_key": m.public_key_of(sk)}
+    if args.add:
+        o = read_json(args.add)
+    else:
+        decision = read_json(args.decision)
+        if not isinstance(decision, dict) or decision.get("outcome") != "escalate":
+            raise CliError("only an escalate decision can be overridden")
+        o = m.make_override(decision, outcome=args.outcome, id=args.id or "o_" + secrets.token_hex(8),
+                            reason=args.reason or "")
+    write_json(m.sign_override(o, sk, me), args.output)
+    return 0
+
+
+def cmd_status(args: argparse.Namespace) -> int:
+    """What a status_url serves: a signed, timed statement that this mandate is active or revoked."""
+    mandate = read_json(args.mandate)
+    sk = load_key(args.key)
+    write_json(m.status_response(mandate, status=args.status, signer={"id": args.signer_id,
+                                                                      "public_key": m.public_key_of(sk)}, sk=sk),
+               args.output)
+    return 0
 
 
 def webauthn_of(args: argparse.Namespace) -> dict[str, Any]:
@@ -375,6 +526,21 @@ def cmd_verify(args: argparse.Namespace) -> int:
     ok = m.verify_decision(decision, keys)
     print(f"{'VALID' if ok else 'INVALID'} {decision.get('outcome', '?') if ok else ''}".strip())
     return 0 if ok else 1
+
+
+def add_checker_arguments(c: argparse.ArgumentParser) -> None:
+    """The bank's checker settings, shared by check, resolve and serve."""
+    c.add_argument("--authority", required=True, help="KYB file: who may sign, with which keys; accounts held")
+    c.add_argument("--bank-key", required=True, help="the bank's (checker's) private key PEM")
+    c.add_argument("--bank-id", default="bank:local")
+    c.add_argument("--revocation", action="append", help="revocation file (repeatable)")
+    c.add_argument("--state", help="state file (default: <home>/mandate-state/state.json)")
+    c.add_argument("--rp-id", help="passkey relying party id, for mandates signed with a passkey")
+    c.add_argument("--origin", action="append", help="allowed passkey origin (default https://<rp-id>)")
+    c.add_argument("--officer", action="append", metavar="KEY", help="bank officer key allowed to sign overrides")
+    c.add_argument("--require-payees", action="store_true", help="policy: block mandates without a payee list")
+    c.add_argument("--status-host", action="append", metavar="HOST",
+                   help="only fetch status_url on these hosts (default: any public host)")
 
 
 def add_subcommands(p: argparse.ArgumentParser) -> None:
@@ -400,7 +566,9 @@ def add_subcommands(p: argparse.ArgumentParser) -> None:
     i.add_argument("--currency", required=True)
     i.add_argument("--max-per-payment", required=True, help="e.g. 25000.00")
     i.add_argument("--max-per-period", help="AMOUNT/PERIOD, period one of P1D, P7D, P1M")
-    i.add_argument("--payee", action="append", required=True, help="NAME=IBAN (repeatable)")
+    i.add_argument("--payee", action="append", help="NAME=ACCOUNT (repeatable); recommended")
+    i.add_argument("--from-account", action="append", required=True, metavar="ACCOUNT",
+                   help="the company's account the agent may pay from (repeatable)")
     i.add_argument("--purpose")
     i.add_argument("--cosigner", action="append", metavar="ID=KEY",
                    help="another signatory (repeatable): makes a multi-signature (joint signing) mandate")
@@ -433,7 +601,9 @@ def add_subcommands(p: argparse.ArgumentParser) -> None:
     g.add_argument("--currency", required=True)
     g.add_argument("--max-per-payment", required=True)
     g.add_argument("--max-per-period")
-    g.add_argument("--payee", action="append", help="NAME=IBAN (repeatable); omit for any payee")
+    g.add_argument("--payee", action="append", help="NAME=ACCOUNT (repeatable); omit for any payee")
+    g.add_argument("--from-account", action="append", metavar="ACCOUNT",
+                   help="accounts the delegate may pay from (required with --max-per-period)")
     g.add_argument("--valid-from")
     g.add_argument("--valid-until")
     g.add_argument("--days", type=int, default=90)
@@ -453,7 +623,8 @@ def add_subcommands(p: argparse.ArgumentParser) -> None:
     y.add_argument("mandate")
     y.add_argument("--id", required=True, help="payment id, unique per payer")
     y.add_argument("--amount", required=True)
-    y.add_argument("--payee", required=True, help="NAME=IBAN")
+    y.add_argument("--payee", required=True, help="NAME=ACCOUNT")
+    y.add_argument("--from-account", metavar="ACCOUNT", help="default: the mandate's only from_account")
     y.add_argument("--rail", choices=sorted(m.RAILS), help="default: first rail on the mandate")
     y.add_argument("--currency", help="default: the mandate's currency")
     y.add_argument("--reference")
@@ -469,15 +640,35 @@ def add_subcommands(p: argparse.ArgumentParser) -> None:
     c = sub.add_parser("check", help="check a payment against its mandate as the bank; prints the signed decision")
     c.add_argument("mandate")
     c.add_argument("payment")
-    c.add_argument("--authority", required=True, help="KYB file: who may sign for which company, with which keys")
-    c.add_argument("--bank-key", required=True, help="the bank's (checker's) private key PEM")
-    c.add_argument("--bank-id", default="bank:local")
-    c.add_argument("--revocation", action="append", help="revocation file (repeatable)")
-    c.add_argument("--state", help="state file (default: <home>/mandate-state/state.json)")
-    c.add_argument("--rp-id", help="passkey relying party id, for mandates signed with a passkey")
-    c.add_argument("--origin", action="append", help="allowed passkey origin (default https://<rp-id>)")
+    add_checker_arguments(c)
     c.add_argument("-o", "--output")
     c.set_defaults(mandate_fn=cmd_check)
+
+    rs = sub.add_parser("resolve", help="the bank applies a signed override to an escalate decision")
+    for name in ("mandate", "payment", "decision", "override"):
+        rs.add_argument(name)
+    add_checker_arguments(rs)
+    rs.add_argument("-o", "--output")
+    rs.set_defaults(mandate_fn=cmd_resolve)
+
+    o = sub.add_parser("override", help="sign an override of an escalate decision (allow or block)")
+    o.add_argument("decision", nargs="?", help="the escalate decision (not needed with --add)")
+    o.add_argument("--key", required=True)
+    o.add_argument("--signer-id", required=True, help="you, as the bank knows you")
+    o.add_argument("--outcome", choices=["allow", "block"], default="allow")
+    o.add_argument("--id")
+    o.add_argument("--reason")
+    o.add_argument("--add", metavar="OVERRIDE", help="co-sign this existing override instead")
+    o.add_argument("-o", "--output")
+    o.set_defaults(mandate_fn=cmd_override)
+
+    st = sub.add_parser("status", help="write the signed answer a status_url serves (active or revoked)")
+    st.add_argument("mandate")
+    st.add_argument("--key", required=True)
+    st.add_argument("--signer-id", required=True)
+    st.add_argument("--status", choices=["active", "revoked"], default="active")
+    st.add_argument("-o", "--output")
+    st.set_defaults(mandate_fn=cmd_status)
 
     from .mandate_service import add_arguments as add_service
 

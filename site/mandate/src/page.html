@@ -74,7 +74,7 @@ select { width: 100%; font: inherit; padding: .5rem; border-radius: 6px; border:
   <h2>The mandate</h2>
   <div class="field">
     <label for="draft">Mandate draft (JSON)</label>
-    <textarea id="draft" spellcheck="false" aria-describedby="draft-help" placeholder='{"v": "gleipnir/mandate/0.2", ...}'></textarea>
+    <textarea id="draft" spellcheck="false" aria-describedby="draft-help" placeholder='{"v": "gleipnir/mandate/0.3", ...}'></textarea>
     <span class="help" id="draft-help">From <code>gleipnir mandate issue</code>, the agent's <code>request_mandate</code>, or the link you were sent.</span>
     <span class="err" id="draft-error" hidden></span>
   </div>
@@ -106,7 +106,7 @@ select { width: 100%; font: inherit; padding: .5rem; border-radius: 6px; border:
     <div class="actions"><button type="button" id="copy">Copy</button></div>
   </div>
 
-  <footer><p>Gleipnir mandates (spec 0.2). The passkey signs SHA-256("gleipnir/mandate/v0.2\n" + mandate hash), so this signature is valid for this mandate and nothing else. The bank checks the signature, the origin and the relying party, and who you are, from its own KYB records.</p></footer>
+  <footer><p>Gleipnir mandates (spec 0.3). The passkey signs SHA-256("gleipnir/mandate/v0.3\n" + mandate hash), so this signature is valid for this mandate and nothing else. The bank checks the signature, the origin and the relying party, and who you are, from its own KYB records.</p></footer>
 </main>
 <script type="module">__SCRIPT__</script>
 </body>

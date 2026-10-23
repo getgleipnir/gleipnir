@@ -1,16 +1,19 @@
-"""Mandates for AI agents that pay: issue, sign, delegate, revoke, attach to a payment, check. See spec/mandate.md.
+"""Mandates for AI agents that pay: issue, sign, delegate, revoke, attach to a payment, check, override.
 
-A company signatory (or a threshold of signatories) signs a mandate for one agent, possibly on the strength of
-a signed delegation chain (CEO -> CFO). The bank checks every payment the agent starts against it and signs
-a decision: allow, block or escalate.
+See spec/mandate.md. A company signatory (or a threshold of signatories) signs a mandate for one agent, possibly
+on the strength of a signed delegation chain (CEO -> CFO). The bank checks every payment the agent starts against
+it and signs a decision: allow, block or escalate. An escalation is resolved by a signed override.
 
-Wiring a Checker (all three are the bank's own systems):
+Wiring a Checker (all are the bank's own systems):
 
 - ``authority(company, person_id) -> AuthorityResult | None``: who may sign for the company, how (alone or
   jointly) and with which keys, from the bank's KYB records, a company register or vLEI. Never from the
   mandate. ``combine(kyb, vlei)`` asks several sources in order.
+- ``holds(company, account) -> bool``: does this company hold this account at this bank (the debtor side).
 - ``payments``: payment log for idempotency (``InMemoryPaymentLog`` for tests; persistent in production).
 - ``ledger``: atomic period ledger (``InMemoryLedger`` for tests). Required for mandates with a period limit.
+- ``status(url) -> dict``: fetches a signed status response, for mandates with a ``status_url``.
+- ``officers``: public keys of bank staff who may sign overrides.
 
 Gleipnir does not verify identities: the bank or a vLEI issuer binds keys to people (spec section 3).
 """
@@ -20,7 +23,7 @@ from __future__ import annotations
 import re
 import secrets
 import threading
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -33,24 +36,121 @@ from .canon import canonicalize, hash_to_bytes, sha256_tagged
 from .crypto import b64u, decode_public_key, encode_public_key, verify_signature
 from .verifier import parse_time
 
-V = "0.2"
-RAILS = {"sepa", "sepa_instant", "ach", "wire", "faster_payments", "fednow", "rtp"}
+V = "0.3"
+
+# ---------- accounts and rails (spec section 6) ----------
+
+_D = re.compile
+# Each scheme: its fields and their canonical grammar. Accounts are compared exactly, so producers normalize
+# (``account()``, ``iban()``) and checkers refuse anything not in canonical form.
+SCHEMES: dict[str, dict[str, re.Pattern[str]]] = {
+    "iban": {"iban": _D(r"[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}")},
+    "us_aba": {"routing": _D(r"[0-9]{9}"), "account": _D(r"[0-9]{1,17}")},
+    "uk_sort_code": {"sort_code": _D(r"[0-9]{6}"), "account": _D(r"[0-9]{8}")},
+    "ca_eft": {"institution": _D(r"[0-9]{3}"), "transit": _D(r"[0-9]{5}"), "account": _D(r"[0-9]{7,12}")},
+    "au_bsb": {"bsb": _D(r"[0-9]{6}"), "account": _D(r"[0-9]{5,10}")},
+    "in_ifsc": {"ifsc": _D(r"[A-Z]{4}0[A-Z0-9]{6}"), "account": _D(r"[0-9]{9,18}")},
+    "mx_clabe": {"clabe": _D(r"[0-9]{18}")},
+    "swift": {"bic": _D(r"[A-Z]{6}[A-Z0-9]{2}([A-Z0-9]{3})?"), "account": _D(r"[A-Z0-9]{1,34}")},
+}
+_ALL = frozenset(SCHEMES)
+# rail -> (account schemes it can carry, the only currency it can carry or None for any)
+RAIL_RULES: dict[str, tuple[frozenset[str], str | None]] = {
+    "sepa": (frozenset({"iban"}), "EUR"),
+    "sepa_instant": (frozenset({"iban"}), "EUR"),
+    "ach": (frozenset({"us_aba"}), "USD"),
+    "fednow": (frozenset({"us_aba"}), "USD"),
+    "rtp": (frozenset({"us_aba"}), "USD"),
+    "faster_payments": (frozenset({"uk_sort_code"}), "GBP"),
+    "bacs": (frozenset({"uk_sort_code"}), "GBP"),
+    "chaps": (frozenset({"uk_sort_code"}), "GBP"),
+    "ca_eft": (frozenset({"ca_eft"}), "CAD"),
+    "npp": (frozenset({"au_bsb"}), "AUD"),
+    "becs": (frozenset({"au_bsb"}), "AUD"),
+    "neft": (frozenset({"in_ifsc"}), "INR"),
+    "rtgs": (frozenset({"in_ifsc"}), "INR"),
+    "imps": (frozenset({"in_ifsc"}), "INR"),
+    "spei": (frozenset({"mx_clabe"}), "MXN"),
+    "wire": (_ALL, None),
+}
+RAILS = set(RAIL_RULES)
 PERIODS = {"P1D", "P7D", "P1M"}
-# ISO 4217 minor units of the currencies supported in 0.2.
+# ISO 4217 minor units of the currencies supported in 0.3.
 MINOR_UNITS = {"EUR": 2, "USD": 2, "GBP": 2, "CHF": 2, "SEK": 2, "NOK": 2, "DKK": 2, "PLN": 2, "CZK": 2,
-               "HUF": 2, "JPY": 0}
-_AMOUNT_RE = {0: re.compile(r"(0|[1-9][0-9]*)"), 2: re.compile(r"(0|[1-9][0-9]*)\.[0-9]{2}")}
+               "HUF": 2, "RON": 2, "CAD": 2, "AUD": 2, "NZD": 2, "SGD": 2, "HKD": 2, "INR": 2, "MXN": 2, "JPY": 0}
+_AMOUNT_RE = {0: _D(r"(0|[1-9][0-9]*)"), 2: _D(r"(0|[1-9][0-9]*)\.[0-9]{2}")}
+
 ESCALATE = {"signer_unknown", "status_unavailable", "over_payment_limit", "over_period_limit", "ledger_missing",
-            "checker_unavailable"}
+            "checker_unavailable", "override_invalid", "override_not_authorized"}
+# Escalations that keep the payment id while a person decides (spec 7, "Idempotency"). Every other non-allow
+# outcome of a check releases the id, so a corrected payment may use it again.
+HOLDS = {"signer_unknown", "over_payment_limit"}
+# Escalations a company signatory may resolve; every escalation may be resolved by a bank officer.
+COMPANY_OVERRIDABLE = {"over_payment_limit", "over_period_limit"}
 MANDATE_SIG_FIELDS = ("sig", "sigs")
-# Outcomes the payment log never caches: a retry is checked afresh once the dependency is back, the mandate
-# becomes valid, or a new period starts.
-TRANSIENT = {"checker_unavailable", "status_unavailable", "ledger_missing", "mandate_not_yet_valid",
-             "over_period_limit"}
-_COUNTRY_RE = re.compile(r"[A-Z]{2}")
-_IBAN_RE = re.compile(r"[A-Za-z0-9 ]+")
+_COUNTRY_RE = _D(r"[A-Z]{2}")
 _MAX_INT = 2 ** 53 - 1
 MAX_DELEGATION_DEPTH = 5
+MAX_URL = 2048
+
+
+def _iban_checksum_ok(text: str) -> bool:
+    digits = "".join(str(int(c, 36)) for c in text[4:] + text[:4])
+    return int(digits) % 97 == 1
+
+
+def _aba_checksum_ok(r: str) -> bool:
+    d = [int(c) for c in r]
+    return (3 * (d[0] + d[3] + d[6]) + 7 * (d[1] + d[4] + d[7]) + (d[2] + d[5] + d[8])) % 10 == 0
+
+
+def _clabe_checksum_ok(c: str) -> bool:
+    w = [3, 7, 1] * 6
+    s = sum((int(c[i]) * w[i]) % 10 for i in range(17))
+    return (10 - s % 10) % 10 == int(c[17])
+
+
+def account_problem(acc: Any) -> str | None:
+    """Why this is not a canonical account object of a known scheme, or None."""
+    if not isinstance(acc, dict):
+        return "an account must be an object"
+    scheme = acc.get("scheme")
+    if not isinstance(scheme, str) or scheme not in SCHEMES:
+        return f"unknown account scheme: {scheme!r}"
+    want = SCHEMES[scheme]
+    if set(acc) != {"scheme", *want}:
+        return f"a {scheme} account has exactly the fields {sorted(want)}"
+    for name, grammar in want.items():
+        v = acc[name]
+        if not isinstance(v, str) or not v.isascii() or not grammar.fullmatch(v):
+            return f"{scheme}.{name} is not in canonical form"
+    if scheme == "iban" and not _iban_checksum_ok(acc["iban"]):
+        return "IBAN check digits are wrong"
+    if scheme == "us_aba" and not _aba_checksum_ok(acc["routing"]):
+        return "ABA routing number check digit is wrong"
+    if scheme == "mx_clabe" and not _clabe_checksum_ok(acc["clabe"]):
+        return "CLABE check digit is wrong"
+    return None
+
+
+def account(scheme: str, **fields: str) -> dict[str, str]:
+    """A canonical account from human input: spaces and hyphens removed, letters uppercased. ValueError if bad."""
+    acc = {"scheme": scheme, **{k: re.sub(r"[\s-]", "", v).upper() for k, v in fields.items()}}
+    problem = account_problem(acc)
+    if problem:
+        raise ValueError(problem)
+    return acc
+
+
+def iban(text: str) -> dict[str, str]:
+    """``account("iban", iban=text)``: accepts "AT61 1904 3002 3457 3201"."""
+    return account("iban", iban=text)
+
+
+def rail_fits(rail: str, currency: str, accounts: Iterable[dict]) -> bool:
+    """True if the rail can carry this currency between accounts of these schemes."""
+    schemes, cur = RAIL_RULES[rail]
+    return (cur is None or cur == currency) and all(a["scheme"] in schemes for a in accounts)
 
 
 # ---------- hashing and signing ----------
@@ -68,6 +168,11 @@ def mandate_hash(mandate: dict[str, Any]) -> str:
 
 def delegation_hash(delegation: dict[str, Any]) -> str:
     return obj_hash(delegation)
+
+
+def override_hash(override: dict[str, Any]) -> str:
+    """The hash every override signature covers: the override minus ``sigs``."""
+    return obj_hash(override, "sigs")
 
 
 def message(kind: str, h: str) -> bytes:
@@ -126,31 +231,14 @@ def parse_amount(text: Any, currency: Any) -> Decimal:
     return d
 
 
-def norm_account(acc: dict[str, Any]) -> dict[str, Any]:
-    """Account fields are strings (checked by _account_problem); IBANs ASCII, uppercased without spaces."""
-    if "iban" in acc:
-        return {"iban": acc["iban"].replace(" ", "").upper()}
-    return {k: v.replace(" ", "") for k, v in sorted(acc.items())}
-
-
-def _account_problem(acc: Any) -> str | None:
-    if not isinstance(acc, dict) or not acc:
-        return "every payee needs an account object"
-    if not all(isinstance(v, str) and v for v in acc.values()):
-        return "account fields must be non-empty strings"
-    if "iban" in acc and not _IBAN_RE.fullmatch(acc["iban"]):
-        return "IBAN must be ASCII letters, digits and spaces"
-    return None
-
-
 # ---------- issuing ----------
 
 def issue(*, company: dict, agent: dict, scope: dict, valid_until: str, id: str, signer: dict | None = None,
           signers: dict | None = None, delegation: list[dict] | None = None, valid_from: str | None = None,
-          status_url: str | None = None) -> dict[str, Any]:
+          status_url: str | None = None, issued_at: str | None = None) -> dict[str, Any]:
     """An unsigned mandate: one ``signer`` (sign with sign_mandate) or ``signers`` {threshold, of} (cosign)."""
     m: dict[str, Any] = {"v": f"gleipnir/mandate/{V}", "id": id, "company": company, "agent": agent,
-                         "scope": scope, "valid_until": valid_until, "issued_at": now()}
+                         "scope": scope, "valid_until": valid_until, "issued_at": issued_at or now()}
     if signer is not None:
         m["signer"] = signer
     if signers is not None:
@@ -226,17 +314,52 @@ def revoke(target: dict, *, signer: dict, sk: Ed25519PrivateKey, id: str, reason
 
 
 def attach(mandate: dict, *, id: str, rail: str, amount: str, currency: str, payee: dict, reference: str = "",
-           agent_sk: Ed25519PrivateKey | None = None, requested_at: str | None = None) -> dict[str, Any]:
-    """A payment that relies on this mandate, signed by the agent when the mandate names an agent key."""
+           from_account: dict | None = None, agent_sk: Ed25519PrivateKey | None = None,
+           requested_at: str | None = None) -> dict[str, Any]:
+    """A payment that relies on this mandate, signed by the agent when the mandate names an agent key.
+
+    ``from_account`` defaults to the mandate's only debtor account; it is required when the mandate lists several.
+    """
+    if from_account is None:
+        accounts = mandate.get("scope", {}).get("from_accounts", [])
+        if len(accounts) != 1:
+            raise ValueError("the mandate lists several from_accounts: pass from_account")
+        from_account = accounts[0]
     p: dict[str, Any] = {"v": f"gleipnir/payment/{V}", "id": id,
                          "mandate": {"id": mandate["id"], "hash": mandate_hash(mandate)},
-                         "rail": rail, "amount": amount, "currency": currency, "payee": payee,
-                         "requested_at": requested_at or now()}
+                         "rail": rail, "amount": amount, "currency": currency, "from_account": from_account,
+                         "payee": payee, "requested_at": requested_at or now()}
     if reference:
         p["reference"] = reference
     if agent_sk is not None:
         p = _sign(agent_sk, "payment", p, "agent_sig")
     return p
+
+
+def status_response(mandate: dict, *, status: str, signer: dict, sk: Ed25519PrivateKey,
+                    at: str | None = None) -> dict[str, Any]:
+    """What a ``status_url`` answers: a signed, timed statement about exactly this mandate (spec 9.1)."""
+    s = {"v": f"gleipnir/status/{V}", "mandate": {"id": mandate["id"], "hash": mandate_hash(mandate)},
+         "status": status, "at": at or now(), "signer": signer}
+    return _sign(sk, "status", s)
+
+
+def make_override(decision: dict, *, outcome: str, id: str, reason: str = "",
+                  decided_at: str | None = None) -> dict[str, Any]:
+    """An unsigned override of an escalate decision; add signatures with sign_override (spec 7.1)."""
+    o: dict[str, Any] = {"v": f"gleipnir/override/{V}", "id": id,
+                         "decision": {"id": decision.get("id"), "hash": obj_hash(decision)},
+                         "outcome": outcome, "decided_at": decided_at or now(), "sigs": []}
+    if reason:
+        o["reason"] = reason
+    return o
+
+
+def sign_override(override: dict, sk: Ed25519PrivateKey, signer: dict) -> dict[str, Any]:
+    """Add (or replace) one signature on an override. ``signer``: {id, public_key} of the person signing."""
+    entry = {"signer": signer, "sig": _sig_text(sk, "override", override_hash(override))}
+    sigs = [s for s in override.get("sigs", []) if _get(s, "signer.id") != signer["id"]] + [entry]
+    return {**override, "sigs": sigs}
 
 
 # ---------- validation ----------
@@ -287,13 +410,25 @@ def _person_problem(p: Any, what: str) -> str | None:
     return None
 
 
-def _scope_problem(sc: dict) -> str | None:
+def _accounts_problem(accs: Any, what: str) -> str | None:
+    if not isinstance(accs, list) or not accs:
+        return f"{what} must be a non-empty list of accounts"
+    for a in accs:
+        bad = account_problem(a)
+        if bad:
+            return f"{what}: {bad}"
+    if len({canonicalize(a) for a in accs}) != len(accs):
+        return f"{what} lists an account twice"
+    return None
+
+
+def _scope_problem(sc: dict, *, debtor_required: bool) -> str | None:
     """Scope rules shared by mandates and delegations."""
     try:
         parse_amount(sc["max_per_payment"], sc["currency"])
         if "max_per_period" in sc:
             per = sc["max_per_period"]
-            if not isinstance(per, dict) or per.get("period") not in PERIODS:
+            if not isinstance(per, dict) or not isinstance(per.get("period"), str) or per["period"] not in PERIODS:
                 return "max_per_period needs a period of P1D, P7D or P1M"
             parse_amount(per.get("amount"), sc["currency"])
     except ValueError as e:
@@ -303,11 +438,17 @@ def _scope_problem(sc: dict) -> str | None:
         return "rails must be a list of strings"
     if set(rails) - RAILS:
         return f"unknown rails: {sorted(set(rails) - RAILS)}"
-    payees = sc.get("payees", [])
-    if not isinstance(payees, list) or not all(isinstance(x, dict) for x in payees):
-        return "every payee needs an account object"
-    for x in payees:
-        bad = _account_problem(x.get("account"))
+    if "payees" in sc:
+        payees = sc["payees"]
+        if not isinstance(payees, list) or not payees or not all(isinstance(x, dict) for x in payees):
+            return "payees must be a non-empty list of {name, account}"
+        bad = _accounts_problem([x.get("account") for x in payees], "payees")
+        if bad:
+            return bad
+    if "from_accounts" in sc or debtor_required or "max_per_period" in sc:
+        if "from_accounts" not in sc:
+            return "from_accounts is required" + ("" if debtor_required else " with a period limit")
+        bad = _accounts_problem(sc["from_accounts"], "from_accounts")
         if bad:
             return bad
     return None
@@ -316,6 +457,7 @@ def _scope_problem(sc: dict) -> str | None:
 def _validity_problem(obj: dict) -> str | None:
     try:
         until = _ts(obj["valid_until"])
+        _ts(obj["issued_at"])
         if "valid_from" in obj and _ts(obj["valid_from"]) > until:
             return "valid_from is after valid_until"
     except ValueError as e:
@@ -362,18 +504,20 @@ def mandate_problem(m: Any) -> str | None:
     if not isinstance(m, dict) or m.get("v") != f"gleipnir/mandate/{V}":
         return "unknown mandate version"
     bad = _str_fields(m, ("id", "company.name", "company.country", "agent.id", "scope.currency",
-                          "scope.max_per_payment", "valid_until"))
+                          "scope.max_per_payment", "valid_until", "issued_at"))
     if bad:
         return bad
     if not _jcs_ok(m):
         return "mandate is not valid I-JSON"
     if not _COUNTRY_RE.fullmatch(m["company"]["country"]):
         return "company.country must be an ISO 3166-1 alpha-2 code"
-    bad = _signers_problem(m) or _scope_problem(m["scope"]) or _validity_problem(m)
+    bad = _signers_problem(m) or _scope_problem(m["scope"], debtor_required=True) or _validity_problem(m)
     if bad:
         return bad
-    if "status_url" in m and not isinstance(m["status_url"], str):
-        return "status_url must be a string"
+    if "status_url" in m:
+        url = m["status_url"]
+        if not isinstance(url, str) or not url.startswith("https://") or len(url) > MAX_URL or not url.isascii():
+            return "status_url must be an https URL"
     if "delegation" in m:
         chain = m["delegation"]
         if not isinstance(chain, list) or not 1 <= len(chain) <= MAX_DELEGATION_DEPTH:
@@ -390,14 +534,14 @@ def delegation_problem(d: Any) -> str | None:
     if not isinstance(d, dict) or d.get("v") != f"gleipnir/delegation/{V}":
         return "unknown delegation version"
     bad = _str_fields(d, ("id", "company.name", "from.id", "from.public_key", "to.id", "to.public_key",
-                          "scope.currency", "scope.max_per_payment", "valid_until"))
+                          "scope.currency", "scope.max_per_payment", "valid_until", "issued_at"))
     if bad:
         return bad
     if not _jcs_ok(d):
         return "delegation is not valid I-JSON"
     if "parent" in d and _str_fields(d["parent"], ("id", "hash")):
         return "parent needs id and hash"
-    return _scope_problem(d["scope"]) or _validity_problem(d)
+    return _scope_problem(d["scope"], debtor_required=False) or _validity_problem(d)
 
 
 def payment_problem(p: Any) -> str | None:
@@ -407,15 +551,18 @@ def payment_problem(p: Any) -> str | None:
     bad = _str_fields(p, ("id", "mandate.id", "mandate.hash", "rail", "currency", "requested_at"))
     if bad:
         return bad
-    if not isinstance(_get(p, "payee.account"), dict) or not p["payee"]["account"]:
-        return "missing payee.account"
+    if not isinstance(p.get("payee"), dict):
+        return "missing payee"
     if not _jcs_ok(p):
         return "payment is not valid I-JSON"
     if p["rail"] not in RAILS:
         return f"unknown rail: {p['rail']!r}"
-    bad = _account_problem(p["payee"]["account"])
+    bad = account_problem(p["payee"].get("account"))
     if bad:
-        return bad
+        return f"payee.account: {bad}"
+    bad = account_problem(p.get("from_account"))
+    if bad:
+        return f"from_account: {bad}"
     try:
         parse_amount(p.get("amount"), p["currency"])
         _ts(p["requested_at"])
@@ -440,6 +587,48 @@ def revocation_problem(r: Any) -> str | None:
     return None
 
 
+def status_problem(s: Any) -> str | None:
+    if not isinstance(s, dict) or s.get("v") != f"gleipnir/status/{V}":
+        return "unknown status version"
+    bad = _str_fields(s, ("mandate.id", "mandate.hash", "status", "at", "signer.id", "signer.public_key"))
+    if bad or not _jcs_ok(s):
+        return bad or "status is not valid I-JSON"
+    if s["status"] not in ("active", "revoked"):
+        return "status must be active or revoked"
+    try:
+        _ts(s["at"])
+    except ValueError as e:
+        return str(e)
+    return None
+
+
+def override_problem(o: Any) -> str | None:
+    if not isinstance(o, dict) or o.get("v") != f"gleipnir/override/{V}":
+        return "unknown override version"
+    bad = _str_fields(o, ("id", "decision.id", "decision.hash", "outcome", "decided_at"))
+    if bad or not _jcs_ok(o):
+        return bad or "override is not valid I-JSON"
+    if o["outcome"] not in ("allow", "block"):
+        return "outcome must be allow or block"
+    if "reason" in o and not isinstance(o["reason"], str):
+        return "reason must be a string"
+    sigs = o.get("sigs")
+    if not isinstance(sigs, list) or not sigs:
+        return "an override needs at least one signature"
+    for s in sigs:
+        if not isinstance(s, dict) or _person_problem(s.get("signer"), "sigs[].signer") \
+                or not isinstance(s.get("sig"), (str, dict)):
+            return "every sigs entry needs a signer {id, public_key} and a sig"
+    if len({s["signer"]["id"] for s in sigs}) != len(sigs) \
+            or len({s["signer"]["public_key"] for s in sigs}) != len(sigs):
+        return "one signature per person and per key"
+    try:
+        _ts(o["decided_at"])
+    except ValueError as e:
+        return str(e)
+    return None
+
+
 def _signatures(m: dict) -> tuple[list[tuple[dict, Any]], int]:
     """(signer, signature) pairs present on a well-formed mandate, and the mandate's threshold."""
     if "signer" in m:
@@ -449,9 +638,11 @@ def _signatures(m: dict) -> tuple[list[tuple[dict, Any]], int]:
 
 
 def _verify(kind: str, h: str, sig: Any, pub_text: Any, webauthn: dict) -> bool:
+    """A signature over message(kind, h). Passkey (WebAuthn) signatures are accepted for what people sign in
+    the bank's app: mandates and overrides."""
     try:
         pub = decode_public_key(pub_text)
-        if isinstance(sig, dict) and sig.get("type") == "webauthn" and kind == "mandate":
+        if isinstance(sig, dict) and sig.get("type") == "webauthn" and kind in ("mandate", "override"):
             return webauthn_problem(sig, pub, sha256_tagged(message(kind, h)), webauthn.get("rp_id", ""),
                                     webauthn.get("origins", []), None) is None
         return verify_signature(pub, message(kind, h), sig)
@@ -489,6 +680,10 @@ def _chain_problem(m: dict, chain: list[dict], webauthn: dict) -> str | None:
     return None
 
 
+def _key(acc: dict) -> bytes:
+    return canonicalize(acc)
+
+
 def _within(child: dict, parent: dict) -> bool:
     """True if the child's scope and validity are no wider than the parent's (spec section 5, step 4)."""
     cs, ps = child["scope"], parent["scope"]
@@ -500,8 +695,12 @@ def _within(child: dict, parent: dict) -> bool:
     if "rails" in ps and ("rails" not in cs or not set(cs["rails"]) <= set(ps["rails"])):
         return False
     if "payees" in ps:
-        allowed = [norm_account(x["account"]) for x in ps["payees"]]
-        if "payees" not in cs or any(norm_account(x["account"]) not in allowed for x in cs["payees"]):
+        allowed = {_key(x["account"]) for x in ps["payees"]}
+        if "payees" not in cs or any(_key(x["account"]) not in allowed for x in cs["payees"]):
+            return False
+    if "from_accounts" in ps:
+        allowed = {_key(a) for a in ps["from_accounts"]}
+        if "from_accounts" not in cs or any(_key(a) not in allowed for a in cs["from_accounts"]):
             return False
     if "max_per_period" in ps:
         pp, cp = ps["max_per_period"], cs.get("max_per_period")
@@ -521,9 +720,11 @@ def _within(child: dict, parent: dict) -> bool:
 class AuthorityResult:
     """What an authority source (bank KYB, register, vLEI) says about one person at one company."""
     source: str                  # "bank_kyb", "register", "vlei"
-    keys: tuple[str, ...]        # public keys the source binds to this person (enrollment, spec section 3)
+    keys: tuple[str, ...]        # current public keys the source binds to this person (enrollment, spec section 3)
     may_sign: bool = True        # signing power of their own; False for a person known only as a delegate
     joint: int = 1               # signatures their power requires, including their own (joint with one other: 2)
+    # Rotated-out keys -> retirement time: still accepted for objects issued before that time (spec 8).
+    retired: Mapping[str, str] = field(default_factory=dict)
 
 
 # authority(company, person_id) -> AuthorityResult, or None if no source knows the person.
@@ -545,23 +746,28 @@ class PaymentLog(Protocol):
     """Idempotency per payer (spec 7). ``key`` is payment_key(company, payment id)."""
 
     def lookup(self, key: str, payment_hash: str) -> dict | None:
-        """The earlier final decision for this key and this exact payment, or None."""
+        """The decision this key holds for this exact payment, or None."""
 
     def register(self, key: str, payment_hash: str) -> bool:
         """Atomically claim the key. False if it is already claimed (by any payment)."""
 
     def remember(self, key: str, decision: dict) -> None:
-        """Store the final decision for a claimed key."""
+        """Store the decision a claimed key holds (an allow, or an escalation waiting for a person)."""
 
     def forget(self, key: str) -> None:
-        """Release a claim without a decision (a transient failure), so a retry is checked afresh."""
+        """Release a claim, so the payment id may be used again."""
+
+    def take(self, key: str, payment_hash: str, decision_id: str) -> bool:
+        """Atomically take over a held escalation for resolving: if the key holds the decision ``decision_id``
+        for this payment, clear it (claimed, being checked) and return True; otherwise False. Two concurrent
+        overrides of one escalation must not both re-check it."""
 
 
 class Ledger(Protocol):
     """Period totals (spec 7). ``key`` is "mandate:<hash>" or "delegation:<hash>"; ``at`` picks the period."""
 
-    def reserve(self, key: str, period: str, amount: Decimal, limit: Decimal, at: datetime) -> bool:
-        """Atomically add amount to the period total if the total stays within limit."""
+    def reserve(self, key: str, period: str, amount: Decimal, limit: Decimal | None, at: datetime) -> bool:
+        """Atomically add amount to the period total if the total stays within limit (None: an override, add)."""
 
     def release(self, key: str, period: str, amount: Decimal, at: datetime) -> None:
         """Give back a reservation (a later step failed, or the bank did not execute)."""
@@ -602,6 +808,15 @@ class InMemoryPaymentLog:
         with self._lock:
             self._items.pop(key, None)
 
+    def take(self, key: str, payment_hash: str, decision_id: str) -> bool:
+        with self._lock:
+            entry = self._items.get(key)
+            if not entry or entry[0] != payment_hash or not isinstance(entry[1], dict) \
+                    or entry[1].get("id") != decision_id:
+                return False
+            self._items[key] = (payment_hash, None)
+            return True
+
 
 def period_key(period: str, at: datetime) -> str:
     at = at.astimezone(timezone.utc)
@@ -622,11 +837,11 @@ class InMemoryLedger:
         self._lock = threading.Lock()
         self.totals: dict[tuple[str, str], Decimal] = {}
 
-    def reserve(self, key: str, period: str, amount: Decimal, limit: Decimal, at: datetime) -> bool:
+    def reserve(self, key: str, period: str, amount: Decimal, limit: Decimal | None, at: datetime) -> bool:
         k = (key, period_key(period, at))
         with self._lock:
             total = self.totals.get(k, Decimal(0)) + amount
-            if total > limit:
+            if limit is not None and total > limit:
                 return False
             self.totals[k] = total
             return True
@@ -642,6 +857,12 @@ class _Stop(Exception):
         self.reason = reason
 
 
+def _holds_id(decision: dict) -> bool:
+    """Whether the payment log keeps this decision (and so the payment id): spec 7, "Idempotency"."""
+    return decision["outcome"] == "allow" or decision["reasons"] in (["signer_unknown"], ["over_payment_limit"],
+                                                                    ["blocked_by_override"])
+
+
 # ---------- checking ----------
 
 @dataclass
@@ -649,17 +870,32 @@ class Checker:
     id: str
     sk: Ed25519PrivateKey
     authority: Authority
+    # holds(company, account) -> bool: the company holds this account at this bank. Required.
+    holds: Callable[[dict, dict], bool] | None = None
     ledger: Ledger | None = None
     payments: PaymentLog = field(default_factory=InMemoryPaymentLog)
     revocations: list[dict] = field(default_factory=list)
-    # status(url) -> "active" | "revoked"; raises when unreachable.
-    status: Callable[[str], str] | None = None
+    # status(url) -> the signed status response (a dict); raises when unreachable.
+    status: Callable[[str], Any] | None = None
     clock: Callable[[], datetime] = utcnow
     max_skew: timedelta = timedelta(seconds=60)
+    status_max_age: timedelta = timedelta(minutes=5)
+    override_window: timedelta = timedelta(hours=72)
+    officers: Iterable[str] = ()  # public keys of bank staff who may sign overrides
+    require_payees: bool = False  # policy: block mandates without a payee list (payees_required)
     webauthn: dict = field(default_factory=dict)  # {"rp_id": ..., "origins": [...]}
 
-    def _authorized(self, company: dict, person: dict, need_power: bool = True) -> AuthorityResult:
-        """The source's answer for this person, checked against the key they used. Raises _Stop."""
+    @property
+    def public_key(self) -> str:
+        return public_key_of(self.sk)
+
+    def _authorized(self, company: dict, person: dict, need_power: bool = True,
+                    issued: str | None = None) -> AuthorityResult:
+        """The source's answer for this person, checked against the key they used. Raises _Stop.
+
+        ``issued``: when the object this key signed was issued; a retired key counts only for objects issued
+        before its retirement. None: current keys only.
+        """
         try:
             res = self.authority(company, person["id"])
         except Exception as e:  # noqa: BLE001
@@ -667,14 +903,36 @@ class Checker:
         if res is None:
             raise _Stop("signer_unknown")
         if not isinstance(res, AuthorityResult) or type(res.joint) is not int or res.joint < 1 \
-                or type(res.may_sign) is not bool or not isinstance(res.keys, (tuple, list)):
+                or type(res.may_sign) is not bool or not isinstance(res.keys, (tuple, list)) \
+                or not isinstance(res.retired, Mapping):
             raise _Stop("checker_unavailable")
-        if person.get("public_key") not in res.keys or (need_power and not res.may_sign):
+        key = person.get("public_key")
+        ok = key in res.keys
+        if not ok and issued is not None and key in res.retired:
+            try:
+                ok = _ts(issued) < _ts(res.retired[key])
+            except ValueError as e:
+                raise _Stop("checker_unavailable") from e
+        if not ok or (need_power and not res.may_sign):
             raise _Stop("signer_not_authorized")
         return res
 
     def check(self, mandate: Any, payment: Any) -> dict[str, Any]:
         """Check one payment against one mandate. Never raises on input; always returns a signed decision."""
+        return self._checked(mandate, payment, lambda p_hash, at, checks, state: self._run(
+            mandate, payment, p_hash, at, checks, state))
+
+    def resolve(self, mandate: Any, payment: Any, decision: Any, override: Any) -> dict[str, Any]:
+        """Apply a signed override to one of this checker's escalate decisions (spec 7.1). Never raises on input.
+
+        Returns the final decision (allow or block, signed, naming the escalation and the override), a later
+        escalation if re-checking hit another one, or an escalate ``override_invalid`` / ``override_not_authorized``
+        when the override does not count.
+        """
+        return self._checked(mandate, payment, lambda p_hash, at, checks, state: self._resolve(
+            mandate, payment, decision, override, p_hash, at, checks, state), resolving=(decision, override))
+
+    def _checked(self, mandate: Any, payment: Any, run: Callable, resolving: tuple | None = None) -> dict[str, Any]:
         at = self.clock()
         checks: list[str] = []
         state: dict[str, Any] = {}
@@ -685,26 +943,27 @@ class Checker:
         except Exception:  # noqa: BLE001
             p_hash = None
         try:
-            reason = self._run(mandate, payment, p_hash, at, checks, state)
+            reason = run(p_hash, at, checks, state)
         except _Stop as s:
             reason = s.reason
         except Exception:  # noqa: BLE001 - last line of defence: unexpected input never allows
             reason = "payment_malformed"
-        if isinstance(reason, dict):  # idempotent retry: the earlier decision, unchanged
+        if isinstance(reason, dict):  # idempotent retry: the decision the log holds, unchanged
             return reason
-        d = self._decision(mandate, payment, p_hash, reason, checks, at)
+        extra = state.get("refs", {})
+        d = self._decision(mandate, payment, p_hash, reason, checks, at, extra)
         if state.get("registered"):
             try:
-                if reason in TRANSIENT:
-                    self.payments.forget(state["key"])
-                else:
+                if _holds_id(d):
                     self.payments.remember(state["key"], d)
+                else:
+                    self.payments.forget(state["key"])
             except Exception:  # noqa: BLE001 - the decision still stands; the log is the bank's to fix
                 pass
         return d
 
     def _decision(self, m: Any, p: Any, p_hash: str | None, reason: str | None, checks: list[str],
-                  at: datetime) -> dict[str, Any]:
+                  at: datetime, extra: dict) -> dict[str, Any]:
         outcome = "allow" if reason is None else "escalate" if reason in ESCALATE else "block"
         pid = p.get("id") if isinstance(p, dict) and isinstance(p.get("id"), str) else None
         mid = m.get("id") if isinstance(m, dict) and isinstance(m.get("id"), str) else None
@@ -712,12 +971,24 @@ class Checker:
         d = {"v": f"gleipnir/decision/{V}", "id": "d_" + secrets.token_hex(12),
              "payment": {"id": pid, "hash": p_hash}, "mandate": {"id": mid, "hash": mh},
              "outcome": outcome, "reasons": [reason] if reason else [], "checks": checks,
-             "checked_at": fmt_ts(at), "checker": {"id": self.id, "public_key": public_key_of(self.sk)}}
+             "checked_at": fmt_ts(at), "checker": {"id": self.id, "public_key": self.public_key}, **extra}
         return _sign(self.sk, "decision", d)
 
-    def _signers_ok(self, m: dict, sigs: list[tuple[dict, Any]], threshold: int, checks: list[str]) -> None:
-        """Steps 8-10: every signer through authority separately, then threshold and joint. Raises _Stop."""
+    def _person(self, company: dict, person: dict, need_power: bool, issued: str | None,
+                waive: frozenset[str]) -> AuthorityResult | None:
+        """_authorized, except that an unknown person is None when a bank override waived signer_unknown."""
+        try:
+            return self._authorized(company, person, need_power, issued)
+        except _Stop as s:
+            if s.reason == "signer_unknown" and "signer_unknown" in waive:
+                return None
+            raise
+
+    def _signers_ok(self, m: dict, sigs: list[tuple[dict, Any]], threshold: int, checks: list[str],
+                    waive: frozenset[str]) -> None:
+        """Steps 9-11: every signer through authority separately, then threshold and joint. Raises _Stop."""
         counted: list[AuthorityResult] = []
+        vouched = 0
         unknown = False
         seen_keys: set[str] = set()
         for signer, _ in sigs:
@@ -725,52 +996,51 @@ class Checker:
                 continue
             seen_keys.add(signer["public_key"])
             try:
-                counted.append(self._authorized(m["company"], signer))
+                res = self._person(m["company"], signer, True, m["issued_at"], waive)
             except _Stop as s:
                 if s.reason != "signer_unknown":
                     raise
                 unknown = True
+                continue
+            if res is None:
+                vouched += 1  # unknown to every source, vouched for by a bank officer's override
+            else:
+                counted.append(res)
         needed = max([threshold] + [r.joint for r in counted])
-        if len(counted) < needed:
+        if len(counted) + vouched < needed:
             if unknown:
                 raise _Stop("signer_unknown")
-            raise _Stop("joint_signature_required" if len(counted) >= threshold else "signature_threshold_not_met")
+            raise _Stop("joint_signature_required" if len(counted) + vouched >= threshold
+                        else "signature_threshold_not_met")
         checks.extend(f"signer_authorized:{r.source}" for r in counted)
+        checks.extend(["signer_authorized:override"] * vouched)
         if "signers" in m:
-            checks.append(f"signatures:{len(counted)}/{needed}")
+            checks.append(f"signatures:{len(counted) + vouched}/{needed}")
 
-    def _chain_ok(self, m: dict, chain: list[dict], checks: list[str]) -> str | None:
+    def _chain_ok(self, m: dict, chain: list[dict], checks: list[str], waive: frozenset[str]) -> str | None:
         """Section 5, steps 3-4: authority per link and narrowing. Raises _Stop; returns a reason or None."""
-        root = self._authorized(m["company"], chain[0]["from"])
-        if root.joint > 1:
+        root = self._person(m["company"], chain[0]["from"], True, chain[0]["issued_at"], waive)
+        if root is not None and root.joint > 1:
             raise _Stop("joint_signature_required")
-        for d in chain:
-            self._authorized(m["company"], d["to"], need_power=False)
-        checks.extend([f"delegation:{len(chain)}", f"signer_authorized:{root.source}"])
+        # Each delegate's key is checked as of the object it signed next: the next link, or the mandate.
+        for d, signed in zip(chain, [*chain[1:], m], strict=True):
+            self._person(m["company"], d["to"], False, signed["issued_at"], waive)
+        checks.extend([f"delegation:{len(chain)}", f"signer_authorized:{root.source if root else 'override'}"])
         for parent, child in zip(chain, [*chain[1:], m], strict=True):
             if not _within(child, parent):
                 return "scope_exceeds_delegation"
         return None
 
-    def _run(self, m: Any, p: Any, p_hash: str | None, at: datetime, checks: list[str],
-             state: dict[str, Any]) -> str | dict | None:
+    def _authentic(self, m: Any, p: Any, p_hash: str | None) -> str | None:
+        """Steps 1-6: parse, then every signature on the objects themselves. No external system is asked."""
         if mandate_problem(m):
             return "mandate_malformed"
         if p_hash is None or payment_problem(p):
             return "payment_malformed"
-        key = payment_key(m["company"], p["id"])
-        try:
-            prior = self.payments.lookup(key, p_hash)
-        except Exception:  # noqa: BLE001
-            return "checker_unavailable"
-        if isinstance(prior, dict):
-            return prior  # idempotent retry, read-only: unknown payers cannot write to the log
         mh = mandate_hash(m)
         if p["mandate"]["hash"] != mh:
             return "mandate_mismatch"
-        if abs(_ts(p["requested_at"]) - at) > self.max_skew:
-            return "clock_skew"
-        sigs, threshold = _signatures(m)
+        sigs, _ = _signatures(m)
         if not sigs or not all(_verify("mandate", mh, sig, s["public_key"], self.webauthn) for s, sig in sigs):
             return "mandate_bad_signature"
         chain = m.get("delegation", [])
@@ -778,25 +1048,52 @@ class Checker:
             bad = _chain_problem(m, chain, self.webauthn)
             if bad:
                 return bad
+        if "public_key" in m["agent"] and \
+                not _verify("payment", p_hash, p.get("agent_sig"), m["agent"]["public_key"], self.webauthn):
+            return "agent_bad_signature"
+        return None
+
+    def _run(self, m: Any, p: Any, p_hash: str | None, at: datetime, checks: list[str],
+             state: dict[str, Any], waive: frozenset[str] = frozenset(), claimed: bool | None = None,
+             ) -> str | dict | None:
+        """The check (spec 7). ``claimed`` is set when resolving an override: True if this payment already holds
+        its id, False if it must claim it; then the lookup and the clock-skew step are skipped."""
+        bad = self._authentic(m, p, p_hash)
+        if bad:
+            return bad
+        mh = mandate_hash(m)
+        key = payment_key(m["company"], p["id"])
+        if claimed is None:
+            try:
+                prior = self.payments.lookup(key, p_hash)
+            except Exception:  # noqa: BLE001
+                return "checker_unavailable"
+            if isinstance(prior, dict):
+                return prior  # idempotent retry, read-only, and only for an authentic payment
+            if abs(_ts(p["requested_at"]) - at) > self.max_skew:
+                return "clock_skew"
         checks.append("mandate_valid")
+        if "public_key" in m["agent"]:
+            checks.append("agent_signed")
+        sigs, threshold = _signatures(m)
+        chain = m.get("delegation", [])
         if chain:
-            bad = self._chain_ok(m, chain, checks)
+            bad = self._chain_ok(m, chain, checks, waive)
             if bad:
                 return bad
         else:
-            self._signers_ok(m, sigs, threshold, checks)
-        if "public_key" in m["agent"]:
-            if not _verify("payment", p_hash, p.get("agent_sig"), m["agent"]["public_key"], self.webauthn):
-                return "agent_bad_signature"
-            checks.append("agent_signed")
-        # Authentic from here on: only now may the payment id be claimed (spec 7, step 13).
-        try:
-            claimed = self.payments.register(key, p_hash)
-        except Exception:  # noqa: BLE001
-            return "checker_unavailable"
-        if not claimed:
-            return "duplicate_payment"
-        state["registered"], state["key"] = True, key
+            self._signers_ok(m, sigs, threshold, checks, waive)
+        # Authentic and authorized from here on: only now may the payment id be claimed (step 13).
+        if claimed:
+            state["registered"], state["key"] = True, key
+        else:
+            try:
+                ok = self.payments.register(key, p_hash)
+            except Exception:  # noqa: BLE001
+                return "checker_unavailable"
+            if not ok:
+                return "duplicate_payment"
+            state["registered"], state["key"] = True, key
         if "valid_from" in m and at < _ts(m["valid_from"]):
             return "mandate_not_yet_valid"
         if at > _ts(m["valid_until"]):
@@ -805,36 +1102,74 @@ class Checker:
         if revoked:
             return revoked
         if "status_url" in m:
-            if self.status is None:
-                return "status_unavailable"
-            try:
-                st = self.status(m["status_url"])
-            except Exception:  # noqa: BLE001
-                return "status_unavailable"
+            st = self._status(m, mh, chain, sigs, at)
             if st == "revoked":
                 return "mandate_revoked"
-            if st != "active":
+            if st == "active":
+                checks.append("status_active")
+            elif "status_unavailable" in waive:
+                checks.append("status_unavailable_approved")  # a bank officer confirmed it another way
+            else:
                 return "status_unavailable"
         checks.append("not_revoked")
         sc = m["scope"]
+        fa = p["from_account"]
+        if _key(fa) not in {_key(a) for a in sc["from_accounts"]}:
+            return "account_not_on_mandate"
+        bad = self._held(m, chain, fa)
+        if bad:
+            return bad
+        checks.append("account_held")
         if "rails" in sc and p["rail"] not in sc["rails"]:
             return "rail_not_allowed"
+        if not rail_fits(p["rail"], p["currency"], [fa, p["payee"]["account"]]):
+            return "rail_mismatch"
         if p["currency"] != sc["currency"]:
             return "currency_mismatch"
         if "payees" in sc:
-            if norm_account(p["payee"]["account"]) not in [norm_account(x["account"]) for x in sc["payees"]]:
+            if _key(p["payee"]["account"]) not in {_key(x["account"]) for x in sc["payees"]}:
                 return "payee_not_on_mandate"
             checks.append("payee_on_mandate")
+        elif self.require_payees:
+            return "payees_required"
         amt = parse_amount(p["amount"], p["currency"])
         if amt > parse_amount(sc["max_per_payment"], sc["currency"]):
-            return "over_payment_limit"
-        checks.append("within_payment_limit")
-        return self._reserve(m, mh, chain, amt, at, checks)
+            if "over_payment_limit" not in waive:
+                return "over_payment_limit"
+            checks.append("over_payment_limit_approved")
+        else:
+            checks.append("within_payment_limit")
+        return self._reserve(m, mh, chain, amt, at, checks, force="over_period_limit" in waive)
+
+    def _held(self, m: dict, chain: list[dict], fa: dict) -> str | None:
+        """Step 17: the company holds the debtor account here, and so does every account a period-limited
+        object lists (a period limit is enforced by one bank's ledger, so it cannot span banks)."""
+        if self.holds is None:
+            return "checker_unavailable"
+        wanted = [fa]
+        for obj in [m, *chain]:
+            if "max_per_period" in obj["scope"]:
+                wanted += obj["scope"]["from_accounts"]
+        seen: set[bytes] = set()
+        for acc in wanted:
+            if _key(acc) in seen:
+                continue
+            seen.add(_key(acc))
+            try:
+                ok = self.holds(m["company"], acc)
+            except Exception:  # noqa: BLE001
+                return "checker_unavailable"
+            if type(ok) is not bool:
+                return "checker_unavailable"
+            if not ok:
+                return "account_not_held"
+        return None
 
     def _reserve(self, m: dict, mh: str, chain: list[dict], amt: Decimal, at: datetime,
-                 checks: list[str]) -> str | None:
-        """Step 21: reserve the amount against the mandate's period limit and against every delegation link's
-        own period limit (a link's limit is shared by all mandates under it), all or nothing."""
+                 checks: list[str], force: bool = False) -> str | None:
+        """Step 23: reserve the amount against the mandate's period limit and against every delegation link's
+        own period limit (a link's limit is shared by all mandates under it), all or nothing. ``force``: an
+        override approved going over, so the amount is added without the limit and the totals stay true."""
         wanted = [(f"mandate:{mh}", m["scope"])] if "max_per_period" in m["scope"] else []
         wanted += [(f"delegation:{delegation_hash(d)}", d["scope"]) for d in chain if "max_per_period" in d["scope"]]
         if not wanted:
@@ -845,14 +1180,15 @@ class Checker:
         try:
             for key, sc in wanted:
                 per = sc["max_per_period"]
-                if not self.ledger.reserve(key, per["period"], amt, parse_amount(per["amount"], sc["currency"]), at):
+                limit = None if force else parse_amount(per["amount"], sc["currency"])
+                if not self.ledger.reserve(key, per["period"], amt, limit, at):
                     self._release(done, amt, at)
                     return "over_period_limit"
                 done.append((key, per["period"]))
         except Exception:  # noqa: BLE001
             self._release(done, amt, at)
             return "checker_unavailable"
-        checks.append("within_period_limit")
+        checks.append("over_period_limit_approved" if force else "within_period_limit")
         return None
 
     def _release(self, done: list[tuple[str, str]], amt: Decimal, at: datetime) -> None:
@@ -862,18 +1198,36 @@ class Checker:
             except Exception:  # noqa: BLE001, S110 - best effort; the bank reconciles its ledger
                 pass
 
-    def _revoked(self, m: dict, mh: str, chain: list[dict], sigs: list[tuple[dict, Any]], at: datetime) -> str | None:
-        """Section 9: a valid revocation of the mandate or of any delegation link, by an allowed person."""
+    @staticmethod
+    def _parties(chain: list[dict], sigs: list[tuple[dict, Any]]) -> tuple[set, dict]:
         def people(links: list[dict]) -> set[tuple[str, str]]:
             out: set[tuple[str, str]] = set()
             for d in links:
                 out |= {(d["from"]["id"], d["from"]["public_key"]), (d["to"]["id"], d["to"]["public_key"])}
             return out
-
         # The line of authority of each target: the mandate's own signers and its whole chain; for a link,
         # that link and the links above it (a delegate below cannot cut their delegator's authority).
         mandate_parties = {(s["id"], s["public_key"]) for s, _ in sigs} | people(chain)
         link_parties = {delegation_hash(d): people(chain[: i + 1]) for i, d in enumerate(chain)}
+        return mandate_parties, link_parties
+
+    def _may_revoke(self, m: dict, signer: dict, parties: set, issued: str | None) -> bool:
+        """Known with that key, and either may sign for the company or is in the line of authority. Raises
+        _Stop("checker_unavailable") if the source is down; any other refusal is False."""
+        try:
+            res = self._authorized(m["company"], signer, need_power=False, issued=issued)
+        except _Stop as s:
+            if s.reason == "checker_unavailable":
+                raise
+            return False
+        return res.may_sign or (signer["id"], signer["public_key"]) in parties
+
+    def _revoked(self, m: dict, mh: str, chain: list[dict], sigs: list[tuple[dict, Any]], at: datetime) -> str | None:
+        """Section 9: a valid revocation of the mandate or of any delegation link, by an allowed person.
+
+        One signatory of a jointly signed mandate may revoke it alone: switching off needs no co-signer.
+        """
+        mandate_parties, link_parties = self._parties(chain, sigs)
         for r in self.revocations:
             if revocation_problem(r) or _ts(r["revoked_at"]) > at:
                 continue
@@ -887,15 +1241,111 @@ class Checker:
                 continue
             if not _verify("revocation", obj_hash(r), r.get("sig"), r["signer"]["public_key"], self.webauthn):
                 continue
-            try:
-                res = self._authorized(m["company"], r["signer"], need_power=False)
-            except _Stop as s:
-                if s.reason == "checker_unavailable":
-                    raise
-                continue
-            if res.may_sign or (r["signer"]["id"], r["signer"]["public_key"]) in parties:
+            if self._may_revoke(m, r["signer"], parties, r["revoked_at"]):
                 return reason
         return None
+
+    def _status(self, m: dict, mh: str, chain: list[dict], sigs: list[tuple[dict, Any]], at: datetime) -> str | None:
+        """Step 16: "active" or "revoked" from a valid, fresh status response signed by someone who could revoke
+        the mandate; None if there is no such answer."""
+        if self.status is None:
+            return None
+        try:
+            s = self.status(m["status_url"])
+        except Exception:  # noqa: BLE001
+            return None
+        if status_problem(s) or s["mandate"] != {"id": m["id"], "hash": mh}:
+            return None
+        t = _ts(s["at"])
+        if t > at + self.max_skew or at - t > self.status_max_age:
+            return None
+        if not _verify("status", obj_hash(s), s.get("sig"), s["signer"]["public_key"], self.webauthn):
+            return None
+        mandate_parties, _ = self._parties(chain, sigs)
+        if not self._may_revoke(m, s["signer"], mandate_parties, None):
+            return None
+        return s["status"]
+
+    def _resolve(self, m: Any, p: Any, d: Any, o: Any, p_hash: str | None, at: datetime, checks: list[str],
+                 state: dict[str, Any]) -> str | dict | None:
+        bad = self._authentic(m, p, p_hash)
+        if bad:
+            return bad
+        mh = mandate_hash(m)
+        if override_problem(o) or not verify_decision(d, [self.public_key]) or d.get("outcome") != "escalate" \
+                or not isinstance(d.get("reasons"), list) or len(d["reasons"]) != 1 \
+                or d.get("payment") != {"id": p["id"], "hash": p_hash} or _get(d, "mandate.hash") != mh \
+                or o["decision"] != {"id": d.get("id"), "hash": obj_hash(d)}:
+            return "override_invalid"
+        escalated, decided = _ts(d["checked_at"]), _ts(o["decided_at"])
+        if at - escalated > self.override_window or decided < escalated or decided > at + self.max_skew:
+            return "override_invalid"
+        oh = override_hash(o)
+        if not all(_verify("override", oh, s["sig"], s["signer"]["public_key"], self.webauthn) for s in o["sigs"]):
+            return "override_invalid"
+        reason = d["reasons"][0]
+        # Overrides add up: a re-check after one override can escalate again, and the next override keeps the
+        # earlier waivers (recorded in the escalation this checker signed).
+        earlier = d.get("waived", [])
+        if not isinstance(earlier, list) or not all(isinstance(x, str) for x in earlier):
+            return "override_invalid"
+        waive = frozenset({*earlier, reason})
+        officers = set(self.officers)
+        if any(s["signer"]["public_key"] in officers for s in o["sigs"]):
+            who = "override:bank"
+        elif reason in COMPANY_OVERRIDABLE:
+            who = self._company_override(m, o)
+        else:
+            return "override_not_authorized"
+        state["refs"] = {"escalation": {"id": d["id"], "hash": obj_hash(d)}, "override": {"id": o["id"], "hash": oh},
+                         "waived": sorted(waive)}
+        checks.append(who)
+        key = payment_key(m["company"], p["id"])
+        try:
+            prior = self.payments.lookup(key, p_hash)
+        except Exception:  # noqa: BLE001
+            return "checker_unavailable"
+        held = isinstance(prior, dict) and prior.get("id") == d["id"]
+        if isinstance(prior, dict) and not held:
+            return prior  # already resolved: the same answer again, never a second reservation
+        if held:
+            try:
+                took = self.payments.take(key, p_hash, d["id"])
+            except Exception:  # noqa: BLE001
+                return "checker_unavailable"
+            if not took:  # another override of this escalation got there first
+                try:
+                    again = self.payments.lookup(key, p_hash)
+                except Exception:  # noqa: BLE001
+                    return "checker_unavailable"
+                return again if isinstance(again, dict) else "duplicate_payment"
+        if o["outcome"] == "block":
+            if not held:
+                try:
+                    if not self.payments.register(key, p_hash):
+                        return "duplicate_payment"
+                except Exception:  # noqa: BLE001
+                    return "checker_unavailable"
+            state["registered"], state["key"] = True, key
+            return "blocked_by_override"
+        return self._run(m, p, p_hash, at, checks, state, waive=waive, claimed=held)
+
+    def _company_override(self, m: dict, o: dict) -> str:
+        """Company signatories resolving an over-limit escalation: as many authorized signers as the mandate
+        itself needed (its threshold and every signer's joint rule). Raises _Stop."""
+        _, threshold = _signatures(m)
+        counted: list[AuthorityResult] = []
+        for s in o["sigs"]:
+            try:
+                counted.append(self._authorized(m["company"], s["signer"], need_power=True))
+            except _Stop as e:
+                if e.reason == "checker_unavailable":
+                    raise
+                raise _Stop("override_not_authorized") from e
+        needed = max([threshold] + [r.joint for r in counted])
+        if len(counted) < needed:
+            raise _Stop("override_not_authorized")
+        return f"override:company:{len(counted)}/{needed}"
 
 
 def verify_decision(decision: Any, checker_keys: Iterable[str]) -> bool:
@@ -915,12 +1365,14 @@ def verify_decision(decision: Any, checker_keys: Iterable[str]) -> bool:
 
 
 def verify_receipt(mandate: Any, payment: Any, decision: Any, checker_keys: Iterable[str], *,
-                   webauthn: dict | None = None) -> dict[str, Any]:
+                   override: Any = None, webauthn: dict | None = None) -> dict[str, Any]:
     """Check a receipt offline, months later, without the bank: who authorized this payment, what was decided.
 
     Verifies the decision against the bank's known keys, that it names exactly this mandate and payment, and
-    every signature in the mandate, its delegation chain and the payment. It cannot re-run the bank's authority
-    check; the decision's ``signer_authorized:<source>`` checks record which source the bank relied on.
+    every signature in the mandate, its delegation chain and the payment. A decision made on an override also
+    needs that override: its hash must match and its signatures must be valid. It cannot re-run the bank's
+    authority check; the decision's ``signer_authorized:<source>`` and ``override:<who>`` checks record what the
+    bank relied on.
 
     For mandates signed with a passkey, pass the bank's passkey settings (``{"rp_id": ..., "origins": [...]}``);
     without them a passkey signature cannot be checked and the receipt reports ``mandate_bad_signature``.
@@ -929,6 +1381,7 @@ def verify_receipt(mandate: Any, payment: Any, decision: Any, checker_keys: Iter
     problems: list[str] = []
     signed_by: list[str] = []
     chain_view: list[str] = []
+    approved_by: list[str] = []
     if not verify_decision(decision, checker_keys):
         problems.append("decision_bad_signature")
     m_ok = mandate_problem(mandate) is None
@@ -959,8 +1412,22 @@ def verify_receipt(mandate: Any, payment: Any, decision: Any, checker_keys: Iter
             agent_key = mandate["agent"].get("public_key")
             if agent_key is not None and not _verify("payment", ph, payment.get("agent_sig"), agent_key, wa):
                 problems.append("agent_bad_signature")
+    ref = _get(decision, "override")
+    if ref is not None or override is not None:
+        if override is None:
+            problems.append("override_missing")
+        elif override_problem(override) or not isinstance(ref, dict) \
+                or ref != {"id": override["id"], "hash": override_hash(override)} \
+                or override["decision"] != _get(decision, "escalation"):
+            problems.append("override_mismatch")
+        else:
+            oh = override_hash(override)
+            approved_by = [s["signer"]["id"] for s in override["sigs"]
+                           if _verify("override", oh, s["sig"], s["signer"]["public_key"], wa)]
+            if len(approved_by) != len(override["sigs"]):
+                problems.append("override_bad_signature")
     checks = _get(decision, "checks")
-    authority = [c for c in checks if isinstance(c, str) and c.startswith("signer_authorized:")] \
+    authority = [c for c in checks if isinstance(c, str) and c.startswith(("signer_authorized:", "override:"))] \
         if isinstance(checks, list) else []
     return {
         "valid": not problems,
@@ -974,6 +1441,8 @@ def verify_receipt(mandate: Any, payment: Any, decision: Any, checker_keys: Iter
         "signed_by": signed_by,
         "delegation": chain_view,
         "authority": authority,
+        "approved_by": approved_by,
         "payment": {"id": _get(payment, "id"), "amount": _get(payment, "amount"),
-                    "currency": _get(payment, "currency"), "payee": _get(payment, "payee.account")},
+                    "currency": _get(payment, "currency"), "from": _get(payment, "from_account"),
+                    "payee": _get(payment, "payee.account")},
     }

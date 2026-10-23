@@ -8,12 +8,13 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from kit import DEBTOR, holds
 
 from gleipnir_verify import mandate as M
 
 NOW = datetime(2026, 10, 23, 9, 14, 2, tzinfo=timezone.utc)
 CO = {"name": "Nordhafen Logistik GmbH", "country": "AT"}
-BRENNER = {"name": "Brenner Stahl AG", "account": {"iban": "AT611904300234573201"}}
+BRENNER = {"name": "Brenner Stahl AG", "account": {"scheme": "iban", "iban": "AT611904300234573201"}}
 UNTIL = "2026-12-31T23:59:59.000Z"
 
 
@@ -35,12 +36,13 @@ def w():
 def bank(w, **kw):
     return M.Checker(id="bank:t", sk=w["k"]["bank"].sk, authority=lambda c, pid: w["kyb"].get(pid)
                      if c.get("name") == CO["name"] else None, ledger=kw.pop("ledger", M.InMemoryLedger()),
-                     clock=lambda: NOW, **kw)
+                     clock=lambda: NOW, holds=kw.pop("holds", holds), **kw)
 
 
 def scope(**kw):
     s = {"rails": ["sepa"], "currency": "EUR", "max_per_payment": "200000.00",
-         "max_per_period": {"amount": "200000.00", "period": "P1M"}, "payees": [BRENNER], **kw}
+         "max_per_period": {"amount": "200000.00", "period": "P1M"}, "payees": [BRENNER],
+         "from_accounts": [DEBTOR], **kw}
     return {k: v for k, v in s.items() if v is not None}
 
 
@@ -102,17 +104,19 @@ def test_F5_transient_failure_is_not_cached(w):
         if not up["ok"]:
             raise TimeoutError
         return w["kyb"].get(pid)
-    b = M.Checker(id="b", sk=w["k"]["bank"].sk, authority=kyb, ledger=M.InMemoryLedger(), clock=lambda: NOW)
+    b = M.Checker(id="b", sk=w["k"]["bank"].sk, authority=kyb, ledger=M.InMemoryLedger(), clock=lambda: NOW,
+                  holds=holds)
     m = mandate(w)
     p = pay(w, m, "INV-9")
     assert b.check(m, p)["reasons"] == ["checker_unavailable"]
     up["ok"] = True
     assert b.check(m, p)["outcome"] == "allow"
-    s = mandate(w, mid="m_s", status_url="https://s")
+    s = mandate(w, mid="m_s", status_url="https://s.example")
     b.status = lambda url: (_ for _ in ()).throw(ConnectionError())
     ps = pay(w, s, "INV-10")
     assert b.check(s, ps)["reasons"] == ["status_unavailable"]
-    b.status = lambda url: "active"
+    b.status = lambda url: M.status_response(s, status="active", signer=w["p"]["berger"], sk=w["k"]["berger"].sk,
+                                             at=M.fmt_ts(NOW))
     assert b.check(s, ps)["outcome"] == "allow"
 
 
@@ -169,7 +173,7 @@ def test_F3_numbers_outside_i_json_are_malformed(w, value):
 
 
 @pytest.mark.parametrize("account", [{"routing": 21000021}, {"routing": "021000021", "nested": {"a": "b"}},
-                                     {"iban": "AT61ƕ1904"}, {"iban": ""}])
+                                     {"scheme": "iban", "iban": "AT61ƕ1904"}, {"scheme": "iban", "iban": ""}])
 def test_F3_F16_account_fields_are_ascii_strings(w, account):
     assert M.mandate_problem({**mandate(w), "scope": scope(payees=[{"name": "x", "account": account}])}) is not None
     m = mandate(w, scope=scope(payees=None))
@@ -218,7 +222,7 @@ def test_N1_payment_keys_cannot_be_crafted_to_collide():
 def test_R2_time_dependent_blocks_are_not_cached(w):
     clock = {"t": datetime(2026, 10, 31, 23, 59, 40, tzinfo=timezone.utc)}
     b = M.Checker(id="b", sk=w["k"]["bank"].sk, authority=lambda c, pid: w["kyb"].get(pid),
-                  ledger=M.InMemoryLedger(), clock=lambda: clock["t"], max_skew=timedelta(days=2))
+                  ledger=M.InMemoryLedger(), clock=lambda: clock["t"], max_skew=timedelta(days=2), holds=holds)
     m = mandate(w, valid_from="2026-11-01T00:00:00.000Z")
     p = M.attach(m, id="p", rail="sepa", amount="100.00", currency="EUR", payee=BRENNER, agent_sk=w["k"]["agent"].sk,
                  requested_at="2026-10-31T23:59:40.000Z")
