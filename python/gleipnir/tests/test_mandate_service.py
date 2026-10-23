@@ -300,3 +300,24 @@ def test_mcp_http_no_streams(mcp_http):
     with pytest.raises(urllib.error.HTTPError) as e:
         urllib.request.urlopen(req, timeout=5)
     assert e.value.code == 400
+
+
+TS_MCP = Path(__file__).resolve().parents[3] / "typescript/packages/sdk/dist/mandate-mcp.js"
+
+
+@pytest.mark.skipif(not TS_MCP.exists() or not __import__("shutil").which("node"), reason="TS MCP not built")
+def test_ts_mcp_against_python_bank(server, world):
+    """Interop: the npx MCP server (TypeScript) asks the reference bank checker (Python) over HTTP."""
+    url, bank = server
+    calls = [{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "attach_mandate", "arguments": {
+        "payment_id": "INV-TS", "amount": "18400.00", "payee": PAYEE}}}]
+    first = subprocess.run(["node", str(TS_MCP), "--mandate", "mandate.json", "--agent-key", "agent.pem"],
+                           input=json.dumps(calls[0]) + "\n", capture_output=True, text=True, timeout=60, cwd=world)
+    payment = json.loads(first.stdout)["result"]["structuredContent"]["payment"]
+    check = {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+             "params": {"name": "check_payment", "arguments": {"payment": payment}}}
+    second = subprocess.run(["node", str(TS_MCP), "--mandate", "mandate.json", "--bank-url", url],
+                            input=json.dumps(check) + "\n", capture_output=True, text=True, timeout=60, cwd=world)
+    out = json.loads(second.stdout)["result"]["structuredContent"]
+    assert out["outcome"] == "allow"
+    assert M.verify_decision(out["decision"], [bank.public_key])

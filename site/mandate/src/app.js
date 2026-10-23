@@ -5,7 +5,7 @@
 import { b64uDecode, b64uEncode } from "../../../typescript/packages/verify/src/bytes.js";
 import { decodePublicKey, encodeP256PublicKey } from "../../../typescript/packages/verify/src/crypto.js";
 import { webauthnProblem } from "../../../typescript/packages/verify/src/approvals.js";
-import { mandateHash, mandateProblem, passkeyChallenge, passkeyDigest } from "../../../typescript/packages/verify/src/mandate.ts";
+import { duplicateKey, mandateHash, mandateProblem, parseStrict, passkeyChallenge, passkeyDigest } from "../../../typescript/packages/verify/src/mandate.ts";
 
 const $ = (id) => document.getElementById(id);
 const els = {
@@ -50,9 +50,10 @@ function currentMandate() {
   if (!text) return null;
   let m;
   try {
-    m = JSON.parse(text); // refuses NaN and Infinity
+    JSON.parse(text); // syntax first, so the message says what is wrong
     const dup = duplicateKey(text);
     if (dup !== null) return fail(`Duplicate key "${dup}": different systems would read this mandate differently. Do not sign.`);
+    m = parseStrict(text);
   } catch (exc) {
     return fail(`Not valid JSON: ${exc.message}`);
   }
@@ -60,34 +61,6 @@ function currentMandate() {
   if (problem) return fail(`Not a valid mandate: ${problem}. Do not sign; ask whoever sent it.`);
   render(m);
   return m;
-}
-
-/** The first key that appears twice in one JSON object, or null (spec section 13). Input is valid JSON. */
-function duplicateKey(text) {
-  const stack = []; // one Set of keys per open object, null for arrays
-  let i = 0;
-  while (i < text.length) {
-    const c = text[i];
-    if (c === "{") stack.push(new Set());
-    else if (c === "[") stack.push(null);
-    else if (c === "}" || c === "]") stack.pop();
-    else if (c === '"') {
-      let j = i + 1;
-      while (text[j] !== '"') j += text[j] === "\\" ? 2 : 1;
-      const raw = text.slice(i, j + 1);
-      let k = j + 1;
-      while (" \t\n\r".includes(text[k])) k++;
-      const top = stack[stack.length - 1];
-      if (text[k] === ":" && top) {
-        const key = JSON.parse(raw);
-        if (top.has(key)) return key;
-        top.add(key);
-      }
-      i = j;
-    }
-    i++;
-  }
-  return null;
 }
 
 function fail(text) {
