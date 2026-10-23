@@ -1,6 +1,31 @@
 # Gleipnir
 
-Verifiable action records for AI agents.
+Know Your Agent (KYA) for bank payments. Gleipnir lets a bank verify that an AI agent is authorized by a company before it executes the agent's transfer (SEPA, SEPA Instant, ACH, wire).
+
+A company signatory signs a **mandate** for the agent: which rails, currency, per-payment and per-period limits, which payees. The agent attaches the mandate to each payment it starts. The bank checks the payment against the mandate and against its own KYB records (who may sign for the company), and signs a **decision**: allow, block or escalate. Registers, LEI and vLEI are optional extra proof; the base is the KYB the bank already has. Spec: [spec/mandate.md](spec/mandate.md) (v0.1 draft).
+
+## Quickstart: from nothing to a signed decision
+
+```bash
+git clone https://github.com/getgleipnir/gleipnir && cd gleipnir && alias g="uv run gleipnir mandate"
+for k in signer agent bank; do g keygen -o $k.pem; done
+g issue --id m_ap --company "Nordhafen Logistik GmbH" --country AT --signer-id kberger@nordhafen.at --signer-key signer.pem \
+  --agent-id ap-agent --agent-key agent.pem --currency EUR --max-per-payment 25000.00 \
+  --max-per-period 100000.00/P1M --payee "Brenner Stahl AG=AT611904300234573201" -o mandate.json
+g sign mandate.json --key signer.pem && g kyb mandate.json -o kyb.json   # kyb: dev stand-in for the bank's records
+g pay mandate.json --id p_1 --amount 18400.00 --payee "Brenner Stahl AG=AT611904300234573201" --agent-key agent.pem -o p1.json
+g check mandate.json p1.json --authority kyb.json --bank-key bank.pem -o decision.json   # allow, exit 0
+```
+
+Change the IBAN in `pay` and `check` blocks it (`payee_not_on_mandate`, exit 1). Go over 25 000.00 and it escalates (`over_payment_limit`, exit 3). Resend `p_1` and you get the same decision back, booked once. `g revoke mandate.json --key signer.pem --id r_1 -o rev.json`, then `check ... --revocation rev.json` blocks with `mandate_revoked`. `g verify decision.json --bank-pub bank.pem` checks the bank's signature; an edited decision is INVALID.
+
+The same flow in Python: [examples/mandate_demo.py](examples/mandate_demo.py) (`uv run python examples/mandate_demo.py`). Library: `gleipnir_verify.mandate` (`issue`, `sign_mandate`, `attach`, `revoke`, `Checker`, `verify_decision`).
+
+The CLI keeps period totals and seen payment ids in `.gleipnir/mandate-state/` so repeated runs act like one bank. That file is for development; a bank plugs in its own ledger and payment log (`Ledger.reserve`, `PaymentLog.seen`).
+
+## Action records for AI agents
+
+The earlier part of this repo: signed, anchored records of what an agent did, verifiable by a third party.
 
 AI agent vendors get stuck in their buyers' security reviews because they can't prove what their agent did: their logs are self-written, so the buyer can't verify them. Gleipnir records each agent action together with the real outcome in the external system, signs it, anchors it outside the vendor, and lets the buyer, auditor or insurer verify it independently.
 
