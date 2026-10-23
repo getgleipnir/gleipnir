@@ -135,14 +135,13 @@ def test_ok_webauthn_not_accepted_for_payment_or_revocation(w):
     assert w["checker"].check(w["m"], pay(w))["outcome"] == "allow"
 
 
-@pytest.mark.xfail(strict=True, reason="M1 open: passkey challenge not domain-separated (spec 0.2)")
-def test_M1_passkey_challenge_has_no_domain_separation(w):
+def test_M1_passkey_challenge_is_domain_separated(w):
     """The mandate passkey challenge is the bare mandate hash, the same shape as an approval challenge
     (approvals.approval_challenge). One signing page could be used to make a signatory approve 'an action'
     that is really a mandate. The challenge should be bound to 'gleipnir/mandate/v0.1'."""
     from gleipnir_verify.approvals import approval_challenge
-    h = M.obj_hash(w["m"])
-    assert M.passkey_challenge(w["m"]) != approval_challenge(h)
+    h = M.mandate_hash(w["m"])
+    assert M.passkey_challenge(w["m"]) != approval_challenge(h)  # fixed: challenge = SHA-256(domain || hash)
 
 
 # ---------------------------------------------------------------- 2. replay and time

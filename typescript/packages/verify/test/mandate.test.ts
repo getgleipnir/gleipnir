@@ -33,6 +33,7 @@ interface Vector {
   ledger: boolean;
   expect: J[];
   receipt: J;
+  webauthn: { rp_id?: string; origins?: string[] };
 }
 
 const DATA = JSON.parse(
@@ -58,6 +59,7 @@ async function run(c: Vector): Promise<J[]> {
             return c.status!;
           },
     clock: () => new Date(now),
+    webauthn: { rpId: c.webauthn.rp_id, origins: c.webauthn.origins },
   });
   const out: J[] = [];
   for (let i = 0; i < c.payments.length; i++) {
@@ -82,7 +84,9 @@ describe("mandate conformance vectors (shared with the Python reference)", () =>
     const decisions = await run(c);
     expect(expected(decisions)).toEqual(c.expect);
     for (const d of decisions) expect(verifyDecision(d, [DATA.bank.public_key])).toBe(true);
-    const receipt: J = { ...verifyReceipt(c.mandate, c.payments[0], decisions[0], [DATA.bank.public_key]) };
+    const receipt: J = { ...verifyReceipt(c.mandate, c.payments[0], decisions[0], [DATA.bank.public_key], {
+      webauthn: { rpId: c.webauthn.rp_id, origins: c.webauthn.origins },
+    }) };
     delete receipt.checked_at;
     expect(receipt).toEqual(c.receipt);
   });

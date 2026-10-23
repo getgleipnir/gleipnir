@@ -3,7 +3,8 @@
  * Build the static pages, each one self-contained file:
  *
  * - site/verify/index.html: the browser verifier;
- * - site/approve/index.html: passkey approval of one exact agent action (no backend).
+ * - site/approve/index.html: passkey approval of one exact agent action (no backend);
+ * - site/mandate/index.html: a signatory reviews a mandate and signs it with a passkey (no backend).
  *
  * Bundles site/<page>/src/app.js with @getgleipnir/verify (from source) using esbuild, and
  * inlines the result into site/<page>/src/page.html. The Content-Security-Policy allows only
@@ -20,7 +21,7 @@ import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-export const PAGES = ["verify", "approve"];
+export const PAGES = ["verify", "approve", "mandate"];
 
 /** A page's HTML, built from its sources (deterministic). */
 export async function buildPage(name = "verify") {

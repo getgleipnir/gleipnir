@@ -130,7 +130,8 @@ def test_uc02_two_signers(w):
     any1 = M.cosign({**unsigned, "signers": {**unsigned["signers"], "threshold": 1}}, w.sk("berger"),
                     w.p("berger")["id"])
     assert outcome(w.bank.check(any1, w.pay(any1))) == ("block", ["joint_signature_required"])
-    assert outcome(w.bank.check(w.mandate(), w.pay(w.mandate()))) == ("block", ["joint_signature_required"])
+    single = w.mandate()
+    assert outcome(w.bank.check(single, w.pay(single))) == ("block", ["joint_signature_required"])
 
 
 def test_uc03_delegation(w):

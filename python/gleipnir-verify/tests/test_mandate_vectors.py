@@ -16,7 +16,8 @@ DATA = json.loads(V.OUT.read_text(encoding="utf-8"))
 def test_vector(c):
     decisions = V.run(c)
     assert V.expected(decisions) == c["expect"]
-    receipt = M.verify_receipt(c["mandate"], c["payments"][0], decisions[0], [DATA["bank"]["public_key"]])
+    receipt = M.verify_receipt(c["mandate"], c["payments"][0], decisions[0], [DATA["bank"]["public_key"]],
+                               webauthn=c["webauthn"])
     assert {k: v for k, v in receipt.items() if k != "checked_at"} == c["receipt"]
 
 
