@@ -143,6 +143,12 @@ def cmd_approve(args: argparse.Namespace) -> int:
     return run(args, args.approve_parser)
 
 
+def cmd_mandate(args: argparse.Namespace) -> int:
+    from .mandate_cli import run
+
+    return run(args)
+
+
 def cmd_demo(args: argparse.Namespace) -> int:
     from .demo import run
 
@@ -202,6 +208,11 @@ def build_parser() -> argparse.ArgumentParser:
     ap = sub.add_parser("approve", help="signed approvals: print the digest to approve, sign it, check a signature")
     add_subcommands(ap)
     ap.set_defaults(fn=cmd_approve, approve_parser=ap)
+    from .mandate_cli import add_subcommands as add_mandate
+
+    md = sub.add_parser("mandate", help="KYA for bank payments: issue, sign, revoke mandates; check payments")
+    add_mandate(md)
+    md.set_defaults(fn=cmd_mandate)
     from .mcp_proxy import add_arguments
 
     m = sub.add_parser("mcp-proxy", help="run an MCP server behind a recording stdio proxy",
