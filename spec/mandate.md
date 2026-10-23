@@ -6,7 +6,28 @@ Gleipnir does not move money and does not verify identities. The bank executes t
 
 Encoding, key formats and signature formats are the same as in [format.md](format.md): RFC 8785 (JCS) canonical JSON, SHA-256, Ed25519 or ECDSA P-256, `base64url-nopad`, strict RFC 3339 timestamps, optional fields omitted rather than `null`.
 
-Changes from 0.1: multi-signature mandates (section 4.2), delegation chains (section 5), enrollment (section 3), revocation of delegations, receipt verification (section 10), threat model (section 11). All `v` strings and signature prefixes move to `0.2`; 0.1 objects are not accepted.
+## At a glance
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant S as Signatory (company)
+    participant A as AI agent
+    participant B as Bank / PSP checker
+    Note over S,B: Once: the bank knows the company (KYB) and has enrolled the signatory's passkey
+    S->>A: mandate signed with a passkey: payees, limits, rails, valid until
+    A->>B: payment signed with the agent key + the mandate
+    B->>B: 21 checks: signatures · own KYB · revoked · scope · limits
+    B-->>A: signed decision: allow / block / escalate
+    Note over A,B: allow → execute · block → do not · escalate → a person decides
+```
+
+- **Who signs what.** A person who may sign for the company signs the mandate (alone, or several together). The agent signs each payment. The bank signs each decision.
+- **Where trust comes from.** Only from the bank's own records (or a vLEI credential), never from the mandate. Keys in a mandate count only if the bank enrolled them for that person.
+- **What the bank gets.** One extra, deterministic check before execution, and a receipt it can show anyone later.
+- **Conformance.** A Python reference and a TypeScript port pass the same published test vectors (Appendix B).
+
+Changes from 0.1: enrollment (section 3), multi-signature mandates (4.2), delegation chains with aggregate limits (5), idempotency per payer claimed only after authentication and a ledger keyed by hash (7), revocation of delegations and who may revoke (9), receipts (10), a threat model (11), stricter encoding (13), domain-separated passkey challenges (4.3). All `v` strings and signature prefixes move to `0.2`; 0.1 objects are not accepted.
 
 ## 1. Objects
 
@@ -163,8 +184,8 @@ The checker verifies, in addition to the mandate steps:
 2. **Signatures.** Each link is validly signed by its `from` key. Otherwise `delegation_bad_signature` (block).
 3. **Authority, per link.** The root's `from` must be a person the source says may sign (with `joint` ≤ 1); every `to` must be a person the source knows with that key (enrolled, section 3), even if they have no signing power of their own. Unknown person: `signer_unknown` (escalate); other key or no power at the root: `signer_not_authorized` (block); root needs a co-signer: `joint_signature_required` (block).
 4. **Narrowing.** Each link's scope, and the mandate's scope, must be within its parent's: same currency; amounts not higher; if the parent limits rails, payees or a period, the child limits them at least as much (rails and payees a subset, same period, amount not higher); validity inside the parent's window. Otherwise `scope_exceeds_delegation` (block).
-6. **A link's period limit is an aggregate.** It caps the total of all payments under every mandate below that link, not each mandate separately: a CFO delegated 200 000 a month can sign several mandates, but they share the 200 000 (section 7, step 17).
-5. **Revocation.** A revocation of any link stops every mandate below it (`delegation_revoked`, block).
+5. **A link's period limit is an aggregate.** It caps the total of all payments under every mandate below that link, not each mandate separately: a CFO delegated 200 000 a month can sign several mandates, but they share the 200 000 (section 7, step 21).
+6. **Revocation.** A revocation of any link stops every mandate below it (`delegation_revoked`, block).
 
 ## 6. Payment
 
@@ -185,7 +206,7 @@ What the agent submits to the bank, or what the bank's API layer builds from the
 }
 ```
 
-`id` must be unique per payer (the company): the checker treats a second payment from the same company with the same `id` as a duplicate (section 7, step 7c). `rail` is one of the rails in section 4.1, and `payee.account` follows the same rules as a payee on the mandate. `requested_at` is the agent's own clock and is informational; the checker uses its own clock.
+`id` must be unique per payer (the company): the checker treats a second payment from the same company with the same `id` as a duplicate (section 7, step 13). `rail` is one of the rails in section 4.1, and `payee.account` follows the same rules as a payee on the mandate. `requested_at` is the agent's own clock and is informational; the checker uses its own clock.
 
 `agent_sig` is required when the mandate names `agent.public_key`: a signature over `"gleipnir/payment/v0.2\n" || payment_hash`, where `payment_hash` is computed over the payment minus `agent_sig`.
 
@@ -199,29 +220,33 @@ The checker runs these steps in order and stops at the first failure. Each step 
 
 | # | Check | Fails with | Outcome |
 |---|---|---|---|
+| **Parse** | | | |
 | 1 | Mandate parses: `v` known, required fields present and well-typed, `signer` xor `signers`, well-formed `sigs` and `delegation`, amounts in strict format, known `period`, every payee account well-formed, whole object I-JSON (section 13) | `mandate_malformed` | block |
 | 2 | Payment parses: `v` known, `id`, `mandate.id`, `mandate.hash`, a known `rail`, `currency`, well-formed `payee.account`, `requested_at` present and well-typed, amount in strict format and > 0, whole object I-JSON | `payment_malformed` | block |
-| 3 | Idempotent retry: if this company already has a final decision for this payment `id` and the same payment hash, the checker returns that decision unchanged (read only) | (earlier decision) | |
+| 3 | Idempotent retry: if this company already has a final decision for this payment `id` and the same payment hash, return that decision unchanged (read only) | (earlier decision) | |
+| **Authenticate** | | | |
 | 4 | `payment.mandate.hash` equals the mandate's hash | `mandate_mismatch` | block |
 | 5 | `requested_at` within `max_skew` of the checker's clock | `clock_skew` | block |
 | 6 | Every mandate signature present is valid for its signer's key (at least one present) | `mandate_bad_signature` | block |
-| 6a | Delegation chain linked and signed (section 5) | `delegation_broken` / `delegation_bad_signature` | block |
-| 7 | Authority source (section 8) knows every signer who signed (and every person in the chain) | `signer_unknown` | escalate |
-| 8 | Source says each signer may sign and the key used is one the source binds to that person | `signer_not_authorized` | block |
-| 8a | Enough accepted signers, each key counted once: `threshold` and the largest `joint` | `signature_threshold_not_met` / `joint_signature_required` | block |
-| 8b | Mandate scope within the delegation chain (section 5) | `scope_exceeds_delegation` | block |
-| 7b | Agent signature valid, if the mandate names an agent key | `agent_bad_signature` | block |
-| 7c | The payment is now authentic: the checker claims `(company, id)` atomically. Already claimed (by another payment, or one still being checked) | `duplicate_payment` | block |
-| 9 | `valid_from ≤ now ≤ valid_until` | `mandate_not_yet_valid` / `mandate_expired` | block |
-| 10 | Not revoked: a valid revocation of the mandate or of a delegation link (section 9) with `revoked_at ≤ now`, or `status_url` answering `revoked` | `mandate_revoked` / `delegation_revoked` | block |
-| 11 | `status_url`, if present, answers exactly `active` | `status_unavailable` | escalate |
-| 13 | Rail allowed | `rail_not_allowed` | block |
-| 14 | Currency matches | `currency_mismatch` | block |
-| 15 | Payee account covered (normalized, exact) | `payee_not_on_mandate` | block |
-| 16 | `amount ≤ max_per_payment` | `over_payment_limit` | escalate |
-| 17 | The amount is atomically reserved against the mandate's period limit and against the period limit of every delegation link above it, all or nothing | `over_period_limit` / `ledger_missing` | escalate |
+| 7 | Delegation chain, if any, linked and signed (section 5) | `delegation_broken` / `delegation_bad_signature` | block |
+| 8 | The authority source (section 8) knows every signer who signed, and every person in the chain | `signer_unknown` | escalate |
+| 9 | The source says each signer may sign, and the key used is one it binds to that person | `signer_not_authorized` | block |
+| 10 | Enough accepted signers, each key counted once: `threshold` and the largest `joint` | `signature_threshold_not_met` / `joint_signature_required` | block |
+| 11 | Mandate scope within the delegation chain (section 5) | `scope_exceeds_delegation` | block |
+| 12 | Agent signature valid, if the mandate names an agent key | `agent_bad_signature` | block |
+| 13 | Claim `(company, id)` atomically in the payment log. Already claimed (another payment, or one still being checked) | `duplicate_payment` | block |
+| **Still valid** | | | |
+| 14 | `valid_from ≤ now ≤ valid_until` | `mandate_not_yet_valid` / `mandate_expired` | block |
+| 15 | Not revoked: a valid revocation of the mandate or of a delegation link (section 9) with `revoked_at ≤ now`, or `status_url` answering `revoked` | `mandate_revoked` / `delegation_revoked` | block |
+| 16 | `status_url`, if present, answers exactly `active` | `status_unavailable` | escalate |
+| **In scope** | | | |
+| 17 | Rail allowed | `rail_not_allowed` | block |
+| 18 | Currency matches | `currency_mismatch` | block |
+| 19 | Payee account covered (normalized, exact) | `payee_not_on_mandate` | block |
+| 20 | `amount ≤ max_per_payment` | `over_payment_limit` | escalate |
+| 21 | The amount is atomically reserved against the mandate's period limit and the period limit of every delegation link above it, all or nothing | `over_period_limit` / `ledger_missing` | escalate |
 
-Steps run in the order listed (the numbers are kept from 0.1 for reference). In steps 7, 8 and 8a, a signer the source rejects (step 8) blocks immediately. Unknown signers only matter if the accepted ones are not enough: then the outcome is `signer_unknown` (escalate), because another source may know them. A dependency the checker cannot reach (authority source, payment log, ledger) gives `checker_unavailable` (escalate). Any input the checker cannot process gives a signed `block`; a checker never raises on input and never allows a payment it could not fully check.
+In steps 8 to 10, a signer the source rejects (step 9) blocks immediately. Unknown signers only matter if the accepted ones are not enough: then the outcome is `signer_unknown` (escalate), because another source may know them. A dependency the checker cannot reach (authority source, payment log, ledger) gives `checker_unavailable` (escalate). Any input the checker cannot process gives a signed `block`; a checker never raises on input and never allows a payment it could not fully check.
 
 Outcomes:
 
@@ -229,11 +254,11 @@ Outcomes:
 - **block**: the payment is not covered and must not be executed on the strength of this mandate.
 - **escalate**: the payment may be legitimate but needs a person (the company or the bank's operations team) before execution.
 
-**Idempotency.** The checker keeps a payment log keyed by payer and payment `id` (`company.country`, `company.name`, `id`) with the payment hash and the decision. Step 3 only reads it. A payment claims its key only in step 7c, after the mandate, the signers' authority and the agent signature are verified, so an unsigned or forged submission can never use up someone else's payment id. Claiming must be atomic, so two concurrent submissions of one key cannot both pass. The log keeps final decisions only: after `checker_unavailable`, `status_unavailable`, `ledger_missing`, `mandate_not_yet_valid` or `over_period_limit` the claim is released, and a retry of the same payment is checked afresh (the dependency may be back, the mandate may have become valid, a new period may have started). The key encodes payer and id unambiguously (JCS of `[country, name, ids, id]`), so no company name can be chosen to collide with another payer's key.
+**Idempotency.** The checker keeps a payment log keyed by payer and payment `id` with the payment hash and the decision. Step 3 only reads it. A payment claims its key only in step 13, after the mandate, the signers' authority and the agent signature are verified, so an unsigned or forged submission can never use up someone else's payment id. Claiming must be atomic, so two concurrent submissions of one key cannot both pass. The log keeps final decisions only: after `checker_unavailable`, `status_unavailable`, `ledger_missing`, `mandate_not_yet_valid` or `over_period_limit` the claim is released, and a retry of the same payment is checked afresh (the dependency may be back, the mandate may have become valid, a new period may have started). The key encodes payer and id unambiguously (JCS of `[country, name, ids, id]`), so no company name can be chosen to collide with another payer's key.
 
 **A cached decision describes the first check.** A resend of the same payment gets the earlier decision back unchanged, even after a later revocation or outside the clock-skew window, because step 3 runs first. That is the point: an allowed payment the bank has already executed must not be executed again, and its record must not change. A bank must therefore treat a returned earlier `allow` as "already decided, execute at most once", never as a fresh authorization.
 
-**Period ledger.** Step 17 uses `reserve(key, period, amount, limit, now) → bool`, which atomically adds the amount to the running total of the current period only if the result stays within the limit, and `release(key, period, amount, now)`. Keys are `mandate:<mandate_hash>` and `delegation:<delegation_hash>`, never a mandate `id` alone (ids are chosen by companies and can collide). The checker reserves against the mandate and every link with a period limit; if one reservation fails it releases the ones it made. A checker without a ledger must not allow payments under a mandate or chain with a period limit (`ledger_missing`). If the bank later does not execute an allowed payment it releases the reservations.
+**Period ledger.** Step 21 uses `reserve(key, period, amount, limit, now) → bool`, which atomically adds the amount to the running total of the current period only if the result stays within the limit, and `release(key, period, amount, now)`. Keys are `mandate:<mandate_hash>` and `delegation:<delegation_hash>`, never a mandate `id` alone (ids are chosen by companies and can collide). The checker reserves against the mandate and every link with a period limit; if one reservation fails it releases the ones it made. A checker without a ledger must not allow payments under a mandate or chain with a period limit (`ledger_missing`). If the bank later does not execute an allowed payment it releases the reservations.
 
 ## 8. Who may sign: the authority contract
 
@@ -278,7 +303,7 @@ Who may revoke: a person the authority source knows with that key, who either ma
   "mandate": {"id": "m_01JB7K3Q8Z4W2N6F", "hash": "sha256:…"},
   "outcome": "allow",
   "reasons": [],
-  "checks": ["mandate_valid", "signer_authorized:bank_kyb", "not_revoked", "agent_signed", "payee_on_mandate", "within_payment_limit", "within_period_limit"],
+  "checks": ["mandate_valid", "signer_authorized:bank_kyb", "agent_signed", "not_revoked", "payee_on_mandate", "within_payment_limit", "within_period_limit"],
   "checked_at": "2026-10-23T09:14:02.312Z",
   "checker": {"id": "bank:RZBAATWW", "public_key": "ed25519:…"},
   "sig": "ed25519:…"
@@ -296,9 +321,9 @@ Signed by the checker with the prefix `"gleipnir/decision/v0.2\n"`. `checked_at`
 | 1 Company | Made-up company, or a mandate naming a company the signer does not belong to | Authority is asked per company; the bank only knows companies it onboarded (KYB) |
 | 2 Person | Impersonator by phone or email claims to be the CFO | Gleipnir never accepts a claim: keys come from the bank's enrollment or a vLEI credential (section 3) |
 | 3 Power to sign | "I'm the CFO" without powers; Gesamtprokurist alone | `may_sign` and `joint` from the source (`signer_not_authorized`, `joint_signature_required`) |
+| 3 Power to sign | One person listed twice to meet a threshold | Keys counted once; duplicate keys in `signers.of` are malformed |
 | 4 Delegation | "I was allowed"; a delegate widens their scope; a forged middle link | Signed chain, per-link authority, narrowing rule, linkage by id and hash (`delegation_*`, `scope_exceeds_delegation`) |
 | 4 Delegation | A delegate signs many mandates to multiply a delegated monthly limit | A link's period limit is shared by everything below it (`over_period_limit`) |
-| 3 Power to sign | One person listed twice to meet a threshold | Keys counted once; duplicate keys in `signers.of` are malformed |
 | 5 Signing | Unattended logged-in session; malware edits the mandate before signing | Per-mandate SCA or passkey over the exact hash; any edit changes the hash (`mandate_bad_signature`) |
 | 5 Signing | Mandate signed with an attacker's own key | Key must be one the source binds to the person (`signer_not_authorized`) |
 | 6 Agent | Another agent, or a thief, uses a copied mandate | Agent key signs every payment (`agent_bad_signature`) |
@@ -339,3 +364,42 @@ Objects are I-JSON (RFC 7493) with one tightening: no duplicate keys, no floats 
 - A standard `status_url` response and a revocation list format for offline checkers.
 - Mapping to ISO 20022 `pain.001` fields so the mandate reference travels inside the payment message.
 - vLEI credential presentation format inside `company.ids.vlei` and `signer` (ACDC / W3C VC), and how a checker resolves it to an `authority` answer.
+
+## Appendix A. Reason codes
+
+| Code | Outcome | Step | Meaning |
+|---|---|---|---|
+| `mandate_malformed` | block | 1 | The mandate is not a well-formed 0.2 mandate. |
+| `payment_malformed` | block | 2 | The payment is not well formed (or could not be processed at all). |
+| `mandate_mismatch` | block | 4 | The payment names a different mandate (hash). |
+| `clock_skew` | block | 5 | `requested_at` is too far from the checker's clock. |
+| `mandate_bad_signature` | block | 6 | A mandate signature is missing or invalid. |
+| `delegation_broken` | block | 7 | The chain does not link up, or names another company. |
+| `delegation_bad_signature` | block | 7 | A delegation link is not validly signed. |
+| `signer_unknown` | escalate | 8 | No authority source knows a signer (another source might). |
+| `signer_not_authorized` | block | 9 | The source says this person may not sign, or not with this key. |
+| `signature_threshold_not_met` | block | 10 | Fewer accepted signatures than the mandate's threshold. |
+| `joint_signature_required` | block | 10 | A signer's power requires more co-signers (Gesamtprokura). |
+| `scope_exceeds_delegation` | block | 11 | The mandate or a link is wider than the authority it comes from. |
+| `agent_bad_signature` | block | 12 | The payment is not signed by the mandate's agent key. |
+| `duplicate_payment` | block | 13 | This company already used this payment id for another payment. |
+| `mandate_not_yet_valid` | block | 14 | Before `valid_from` (not cached: a later retry is checked afresh). |
+| `mandate_expired` | block | 14 | After `valid_until`. |
+| `mandate_revoked` | block | 15 | Revoked by an allowed person, or `status_url` says revoked. |
+| `delegation_revoked` | block | 15 | A link in the chain was revoked. |
+| `status_unavailable` | escalate | 16 | The status service did not answer `active` (not cached). |
+| `rail_not_allowed` | block | 17 | Rail not on the mandate. |
+| `currency_mismatch` | block | 18 | Currency differs from the mandate's. |
+| `payee_not_on_mandate` | block | 19 | The payee account is not on the mandate. |
+| `over_payment_limit` | escalate | 20 | Above `max_per_payment`. |
+| `over_period_limit` | escalate | 21 | Above a period limit of the mandate or of a link (not cached). |
+| `ledger_missing` | escalate | 21 | A period limit applies but the checker has no ledger (not cached). |
+| `checker_unavailable` | escalate | any | A dependency (authority, payment log, ledger) failed (not cached). |
+
+## Appendix B. Conformance
+
+A conforming checker produces, for the same inputs and clock, the same `outcome`, `reasons`, `checks`, hashes and `checked_at` as the reference. Decision `id` and signature bytes may differ.
+
+- Test vectors: `typescript/packages/verify/test/fixtures/mandate-vectors.json` (generated by `python/gleipnir-verify/tests/mandate_vectors.py` from fixed test keys and clocks): each case gives the inputs (mandates, payments, authority answers, revocations, status, ledger, passkey settings) and the expected decisions and receipt, plus payment-log keys. It includes multi-signature, Gesamtprokura, delegation, cross-bank vLEI, real ES256 passkey assertions and the inputs found in the 23.10.2026 audits.
+- Reference implementations: Python `gleipnir_verify.mandate`, TypeScript `@getgleipnir/verify/mandate`. Both run every vector and verify each other's decisions.
+

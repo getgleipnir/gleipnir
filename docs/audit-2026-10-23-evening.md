@@ -4,10 +4,10 @@ Scope: spec/mandate.md 0.2, the Python reference, the TypeScript port, CLI, refe
 
 | id | sev | Finding | Fix | Regression test |
 |---|---|---|---|---|
-| F1 | high | A delegate could multiply a delegated monthly limit by signing many mandates (ledger per mandate). | A link's period limit is an aggregate: step 17 reserves against the mandate and every link, all or nothing. Spec §5.6, §7. | `test_F1_*`, vector `F1_delegated_period_limit_is_shared` |
+| F1 | high | A delegate could multiply a delegated monthly limit by signing many mandates (ledger per mandate). | A link's period limit is an aggregate: step 21 reserves against the mandate and every link, all or nothing. Spec §5.6, §7. | `test_F1_*`, vector `F1_delegated_period_limit_is_shared` |
 | F2 | high | TS: a `__proto__` key was dropped from hashes (accept after edit) or made `check` throw. | Own-property copies (`put`), hashes computed inside the never-throw guard. | TS `F2: a __proto__ key ...`, vectors `F2_*` |
 | F3 | medium | Python and TS disagreed on `2.0`, integers beyond 2^53, non-string account fields. | No floats, integers within 2^53 − 1 (both); `parseStrict` refuses float and large-integer literals; account fields must be strings. Spec §13. | `test_F3_*`, TS `F3:*`, vector `F3_account_value_not_a_string` |
-| F4 | medium | Unsigned junk could burn a payment id (log written before signature checks, keyed by id only). | Log keyed by payer and id; read-only lookup first; the key is claimed only after mandate, authority and agent signatures verify (step 7c). | `test_F4_*`, vector `F4_*` |
+| F4 | medium | Unsigned junk could burn a payment id (log written before signature checks, keyed by id only). | Log keyed by payer and id; read-only lookup first; the key is claimed only after mandate, authority and agent signatures verify (step 13). | `test_F4_*`, vector `F4_*` |
 | F5 | medium | An unsigned copy, or a transient outage, was cached as the answer. | Agent signature verified before claiming; transient outcomes released, not cached. | `test_F5_*`, vector `F5_unsigned_copy_first` |
 | F6 | medium | Ledger keyed by mandate id: another company's same id ate the limit. | Ledger keys `mandate:<hash>`, `delegation:<hash>`. | `test_F6_*`, vector `F6_*` |
 | F7 | medium | One key under two signer ids met a 2-of-2 threshold. | Duplicate keys in `signers.of` malformed; keys counted once. | `test_F7_*`, vector `F7_*` |
