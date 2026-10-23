@@ -70,10 +70,11 @@ for i, (label, amount, payee, expected) in enumerate(cases, 1):
 # 4. The agent sends payment 1 again: the bank gets the same decision back, nothing is booked twice.
 again = bank.check(mandate, payments[0])
 same = again == decisions[0]
-dup = bank.check(mandate, {**payments[0], "amount": "1.00"})
+dup = bank.check(mandate, m.attach(mandate, id="p_demo_1", rail="sepa", amount="1.00", currency="EUR",
+                                   payee=BRENNER, agent_sk=agent_sk))  # same id, new amount, signed by the agent
 ok &= same and dup["reasons"] == ["duplicate_payment"]
 print(f"4. {'payment 1 resent':<48} {'same decision ' + again['id'] if same else 'NEW DECISION (BUG)'}")
-print(f"   {'same payment id, amount changed to 1.00':<48} {dup['outcome']:<9} reason={dup['reasons'][0]}")
+print(f"   {'same payment id, new amount 1.00, re-signed':<48} {dup['outcome']:<9} reason={dup['reasons'][0]}")
 
 # 5. A decision edited after the fact, or re-signed with someone else's key, does not verify.
 tampered = dict(bank.check(mandate, m.attach(mandate, id="p_demo_t", rail="sepa", amount="26000.00",

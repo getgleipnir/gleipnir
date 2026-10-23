@@ -79,9 +79,10 @@ export const TOOLS: J[] = [
   },
   {
     name: "check_payment",
-    description: "Ask the bank's checker whether a payment built by attach_mandate is covered by the mandate. "
-      + "Returns allow, block or escalate with a reason. Never pay on block; on escalate, ask a "
-      + "person. Note: the bank records this payment id; resubmit the same payment, not a new one.",
+    description: "Submit a payment built by attach_mandate to the bank's check. This is the real check, not a "
+      + "dry run: an allowed payment is recorded under its id and counts against the limits, so "
+      + "call it only for a payment you intend to make. Returns allow, block or escalate with a "
+      + "reason. Never pay on block; on escalate, ask a person. To retry, resubmit the same payment.",
     inputSchema: schema({ payment: { type: "object" } }, ["payment"]),
     annotations: { title: "Ask the bank", readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   },
@@ -149,8 +150,10 @@ function loadAuthority(path: string) {
   const rows = (doc.signers ?? []) as J[];
   return (company: J, personId: string): AuthorityResult | null => {
     const r = rows.find((x) => x.company === company.name && x.signer === personId);
-    return r ? { source: String(doc.source ?? "bank_kyb"), keys: r.keys as string[], maySign: r.may_sign !== false,
-      joint: typeof r.joint === "number" ? r.joint : 1 } : null;
+    // Pass the values through as they are: the Checker refuses odd ones (fail closed), never coerces them.
+    return r ? { source: String(doc.source ?? "bank_kyb"), keys: r.keys as string[],
+      maySign: (r.may_sign === undefined ? true : r.may_sign) as boolean,
+      joint: (r.joint === undefined ? 1 : r.joint) as number } : null;
   };
 }
 

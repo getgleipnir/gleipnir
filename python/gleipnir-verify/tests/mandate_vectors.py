@@ -81,8 +81,9 @@ def link(gid: str, frm: tuple, to: dict, *, parent: dict | None = None, sc: dict
                       parent=parent, issued_at="2026-10-01T08:00:00.000Z")
 
 
-def delegated(chain: list[dict], sk: Ed25519PrivateKey = CFO, who: dict | None = None, **kw: Any) -> dict[str, Any]:
-    base = mandate(sign=False, signer=who or CFO_P, delegation=chain, **kw)
+def delegated(chain: list[dict], sk: Ed25519PrivateKey = CFO, who: dict | None = None, mid: str = "m_vec",
+              **kw: Any) -> dict[str, Any]:
+    base = mandate(sign=False, signer=who or CFO_P, delegation=chain, id=mid, **kw)
     return M.sign_mandate(base, sk)
 
 
@@ -151,6 +152,60 @@ def v02_cases() -> list[dict[str, Any]]:
         case("second_bank_without_vlei", m, [pay(m, "p_1")], authority=[]),
         case("second_bank_with_vlei", m, [pay(m, "p_1")], authority=vlei),
         *passkey_cases(),
+        *audit2_cases(),
+    ]
+
+
+def audit2_cases() -> list[dict[str, Any]]:
+    """Inputs from the second external audit (F1-F16), pinned for both implementations."""
+    m = mandate()
+    shared = link("g_shared", (CEO, CEO_P), CFO_P, sc={**WIDE, "max_per_payment": "200000.00",
+                                                     "max_per_period": {"amount": "200000.00", "period": "P1M"}})
+    big = scope(max_per_payment="150000.00", max_per_period={"amount": "200000.00", "period": "P1M"})
+    ma = delegated([shared], mid="m_a", scope=big)
+    mb = delegated([shared], mid="m_b", scope=big)
+    proto_added = {**m, "__proto__": "x"}
+    proto_payment = {**pay(m, "p_1"), "__proto__": {"a": "b"}}
+    other_co = {"name": "Andere Spedition GmbH", "country": "AT"}
+    other_signer = person(OTHER, "boss@andere.at")
+    other = M.sign_mandate({**mandate(sign=False, signer=other_signer), "company": other_co}, OTHER)
+    other_kyb = [*KYB, {**row("boss@andere.at", OTHER), "company": other_co["name"]}]
+    same_key = mandate(sign=False, signer=None, signers={"threshold": 2, "of": [
+        BERGER_P, {**HOFER_P, "public_key": BERGER_P["public_key"]}]})
+    no_rails = mandate(scope=scope(rails=None))
+    de_link = M.delegate(id="g_de", company={"name": COMPANY["name"], "country": "DE"}, from_=CEO_P, to=CFO_P,
+                         scope=WIDE, valid_until="2027-03-31T23:59:59.000Z", sk=CEO,
+                         issued_at="2026-10-01T08:00:00.000Z")
+    de = delegated([de_link])
+    g1 = link("g_ceo_cfo", (CEO, CEO_P), CFO_P)
+    g2 = link("g_cfo_ctrl", (CFO, CFO_P), CTRL_P, parent=g1, sc={**WIDE, "max_per_payment": "30000.00"},
+              until="2027-01-31T23:59:59.000Z")
+    d2 = delegated([g1, g2], CTRL, CTRL_P)
+    leaf_cuts_root = M.revoke(g1, signer=CTRL_P, sk=CTRL, id="r_leaf", revoked_at="2026-10-22T00:00:00.000Z")
+    junk = mandate(sign=False, signer=person(OTHER, "intruder@x"))
+    p_signed = pay(m, "INV-1")
+    p_unsigned = {k: v for k, v in p_signed.items() if k != "agent_sig"}
+    bad_account = mandate(sign=False, scope=scope(payees=[{"name": "Acme", "account": {"routing": 21000021}}]))
+    non_ascii = mandate(sign=False, scope=scope(payees=[{"name": "X", "account": {"iban": "AT61\u01951904"}}]))
+    return [
+        case("F1_delegated_period_limit_is_shared", ma, [pay(ma, "p_1", "150000.00"), pay(mb, "p_2", "150000.00"),
+                                                         pay(ma, "p_3", "40000.00")],
+             authority=CHAIN_KYB, mandates=[ma, mb], which=[0, 1, 0]),
+        case("F2_proto_key_added_after_signing", proto_added, [pay(m, "p_1")]),
+        case("F2_proto_object_in_payment", m, [proto_payment]),
+        case("F4_unsigned_junk_cannot_burn_payment_id", junk, [pay(junk, "INV-1", agent=None), pay(m, "INV-1")],
+             mandates=[junk, m], which=[0, 1]),
+        case("F5_unsigned_copy_first", m, [p_unsigned, p_signed]),
+        case("F6_same_mandate_id_other_company", other,
+             [pay(other, "o_1", "25000.00"), pay(other, "o_2", "15000.00"), pay(m, "p_1", "25000.00")],
+             authority=other_kyb, mandates=[other, m], which=[0, 0, 1]),
+        case("F7_one_key_two_signer_ids", same_key, [pay(same_key, "p_1")], authority=JOINT_KYB),
+        case("F11_unknown_rail_in_payment", no_rails, [pay(no_rails, "p_1", rail="bitcoin")]),
+        case("F13_link_names_other_country", de, [pay(de, "p_1")], authority=CHAIN_KYB),
+        case("F14_leaf_delegate_cannot_cut_root", d2, [pay(d2, "p_1")], authority=CHAIN_KYB,
+             revocations=[leaf_cuts_root]),
+        case("F3_account_value_not_a_string", bad_account, [pay(m, "p_1")]),
+        case("F16_non_ascii_iban", non_ascii, [pay(m, "p_1")]),
     ]
 
 
@@ -206,8 +261,10 @@ def pay(m: dict, pid: str, amount: str = "100.00", *, payee: dict = BRENNER, rai
 
 def case(name: str, m: Any, payments: list[Any], *, now: str | list[str] = NOW, authority: list | None = None,
          revocations: list | None = None, status: str | None = None, ledger: bool = True,
-         webauthn: dict | None = None) -> dict[str, Any]:
-    return {"name": name, "mandate": m, "payments": payments, "webauthn": webauthn or {},
+         webauthn: dict | None = None, mandates: list | None = None, which: list[int] | None = None) -> dict[str, Any]:
+    """One checker, several payments. With ``mandates``, payment i is checked against mandates[which[i]]."""
+    extra = {"mandates": mandates, "which": which} if mandates else {}
+    return {"name": name, "mandate": m, "payments": payments, "webauthn": webauthn or {}, **extra,
             "now": now if isinstance(now, list) else [now] * len(payments),
             "authority": KYB if authority is None else authority, "revocations": revocations or [],
             "status": status, "ledger": ledger}
@@ -313,9 +370,11 @@ def run(c: dict[str, Any]) -> list[dict[str, Any]]:
                         clock=lambda: datetime.fromisoformat(
                             clock["now"].replace("Z", "+00:00")))
     out = []
-    for p, at in zip(c["payments"], c["now"], strict=True):
+    mandates = c.get("mandates") or [c["mandate"]]
+    which = c.get("which") or [0] * len(c["payments"])
+    for p, at, i in zip(c["payments"], c["now"], which, strict=True):
         clock["now"] = at
-        out.append(checker.check(c["mandate"], p))
+        out.append(checker.check(mandates[i], p))
     return out
 
 
@@ -336,7 +395,8 @@ def build() -> dict[str, Any]:
     signed = []
     for c in cases():
         decisions = run(c)
-        receipt = M.verify_receipt(c["mandate"], c["payments"][0], decisions[0], [M.public_key_of(BANK)],
+        first = (c.get("mandates") or [c["mandate"]])[(c.get("which") or [0])[0]]
+        receipt = M.verify_receipt(first, c["payments"][0], decisions[0], [M.public_key_of(BANK)],
                                    webauthn=c.get("webauthn") or {})
         out_cases.append({**c, "expect": expected(decisions), "receipt": {k: v for k, v in receipt.items()
                                                                           if k != "checked_at"}})

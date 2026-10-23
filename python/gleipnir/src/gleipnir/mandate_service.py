@@ -71,18 +71,20 @@ class Bank:
     def check(self, mandate: Any, payment: Any) -> dict[str, Any]:
         with self._lock, FileState(self.state) as st:
             checker = m.Checker(id=self.id, sk=self.sk, authority=self.authority, ledger=st, payments=st,
-                                revocations=list(self.revocations), webauthn=self.webauthn)
+                                revocations=[*self.revocations, *st.revocations], webauthn=self.webauthn)
             return checker.check(mandate, payment)
 
     def add_revocation(self, r: Any) -> None:
+        """Store a signed revocation in the state file; the checker verifies it on every payment."""
         problem = m.revocation_problem(r)
         if problem:
             raise CliError(f"revocation rejected: {problem}")
-        with self._lock:
-            self.revocations.append(r)
+        with self._lock, FileState(self.state) as st:
+            if r not in st.revocations:
+                st.revocations.append(r)
 
 
-def make_handler(bank: Bank) -> type[BaseHTTPRequestHandler]:
+def make_handler(bank: Bank, allow_origins: frozenset[str] = frozenset()) -> type[BaseHTTPRequestHandler]:
     class Handler(BaseHTTPRequestHandler):
         server_version = "gleipnir-checker/0.2"
 
@@ -117,6 +119,14 @@ def make_handler(bank: Bank) -> type[BaseHTTPRequestHandler]:
                 self._send(404, {"error": "not found"})
 
         def do_POST(self) -> None:  # noqa: N802
+            ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+            if ctype != "application/json":
+                self._send(415, {"error": "Content-Type must be application/json"})
+                return
+            origin = self.headers.get("Origin")
+            if origin is not None and origin not in allow_origins:
+                self._send(403, {"error": "origin not allowed"})
+                return
             try:
                 if self.path == "/check":
                     body = self._body()
@@ -130,19 +140,23 @@ def make_handler(bank: Bank) -> type[BaseHTTPRequestHandler]:
                     self._send(404, {"error": "not found"})
             except CliError as exc:
                 self._send(400, {"error": str(exc)})
+            except Exception:  # noqa: BLE001 - never drop the connection without an answer
+                self._send(500, {"error": "internal error"})
 
     return Handler
 
 
-def make_server(bank: Bank, host: str = "127.0.0.1", port: int = 8787) -> ThreadingHTTPServer:
-    return ThreadingHTTPServer((host, port), make_handler(bank))
+def make_server(bank: Bank, host: str = "127.0.0.1", port: int = 8787,
+                allow_origins: list[str] | None = None) -> ThreadingHTTPServer:
+    """Browsers may only call it from ``allow_origins``; servers (no Origin header) always can."""
+    return ThreadingHTTPServer((host, port), make_handler(bank, frozenset(allow_origins or [])))
 
 
 def cmd_serve(args: argparse.Namespace) -> int:
     state = Path(args.state) if args.state else Path(args.home) / "mandate-state" / "state.json"
     bank = Bank(bank_id=args.bank_id, bank_key=args.bank_key, authority=args.authority, state=state,
                 revocations=args.revocation, webauthn=webauthn_of(args))
-    srv = make_server(bank, args.host, args.port)
+    srv = make_server(bank, args.host, args.port, args.allow_origin)
     print(f"gleipnir: checker {bank.id} on http://{args.host}:{srv.server_address[1]} "
           f"(POST /check, GET /keys, POST /revoke). Reference server, no auth: keep it behind your gateway.",
           file=sys.stderr)
@@ -193,9 +207,10 @@ TOOLS = [
      }, ["payment_id", "amount", "payee"]),
      "annotations": {"title": "Prepare a payment", "readOnlyHint": True, "openWorldHint": False}},
     {"name": "check_payment",
-     "description": "Ask the bank's checker whether a payment built by attach_mandate is covered by the mandate. "
-                    "Returns allow, block or escalate with a reason. Never pay on block; on escalate, ask a "
-                    "person. Note: the bank records this payment id; resubmit the same payment, not a new one.",
+     "description": "Submit a payment built by attach_mandate to the bank's check. This is the real check, not a "
+                    "dry run: an allowed payment is recorded under its id and counts against the limits, so "
+                    "call it only for a payment you intend to make. Returns allow, block or escalate with a "
+                    "reason. Never pay on block; on escalate, ask a person. To retry, resubmit the same payment.",
      "inputSchema": _schema({"payment": {"type": "object"}}, ["payment"]),
      "annotations": {"title": "Ask the bank", "readOnlyHint": False, "destructiveHint": False,
                      "idempotentHint": True, "openWorldHint": True}},
@@ -285,7 +300,8 @@ class MandateTools:
         if self.agent_sk is None and "public_key" in mandate.get("agent", {}):
             raise CliError("the mandate requires an agent signature: start the server with --agent-key")
         try:
-            p = m.attach(mandate, id=a["payment_id"], rail=a.get("rail") or mandate["scope"]["rails"][0],
+            rails = mandate["scope"].get("rails") or ["sepa"]
+            p = m.attach(mandate, id=a["payment_id"], rail=a.get("rail") or rails[0],
                          amount=a["amount"], currency=mandate["scope"]["currency"], payee=parse_payee(a["payee"]),
                          reference=a.get("reference", ""), agent_sk=self.agent_sk)
         except (KeyError, IndexError, TypeError) as exc:
@@ -327,7 +343,15 @@ def _error(rid: Any, code: int, text: str) -> dict:
 
 
 def handle(tools: MandateTools, msg: Any) -> dict | None:
-    """One JSON-RPC message in, one response out (None for notifications)."""
+    """One JSON-RPC message in, one response out (None for notifications). Never raises."""
+    try:
+        return _handle(tools, msg)
+    except Exception as exc:  # noqa: BLE001 - a hostile message must not take the server down
+        rid = msg.get("id") if isinstance(msg, dict) and isinstance(msg.get("id"), (str, int)) else None
+        return _error(rid, -32603, f"internal error: {type(exc).__name__}")
+
+
+def _handle(tools: MandateTools, msg: Any) -> dict | None:
     if not isinstance(msg, dict) or msg.get("jsonrpc") != "2.0" or not isinstance(msg.get("method"), str):
         return _error(msg.get("id") if isinstance(msg, dict) else None, -32600, "invalid request")
     rid, method, params = msg.get("id"), msg["method"], msg.get("params") or {}
@@ -361,6 +385,8 @@ def handle(tools: MandateTools, msg: Any) -> dict | None:
         args = params.get("arguments") if isinstance(params, dict) else None
         if args is None:
             args = {}
+        if not isinstance(name, str):
+            return _error(rid, -32602, "tool name must be a string")
         fn = {"mandate_scope": tools.mandate_scope, "request_mandate": tools.request_mandate,
               "attach_mandate": tools.attach_mandate, "check_payment": tools.check_payment}.get(name)
         if fn is None:
@@ -497,6 +523,7 @@ def add_arguments(sub: argparse._SubParsersAction) -> None:
     s.add_argument("--state")
     s.add_argument("--host", default="127.0.0.1")
     s.add_argument("--port", type=int, default=8787)
+    s.add_argument("--allow-origin", action="append", help="browser origin allowed to call the checker")
     s.add_argument("--rp-id", help="passkey relying party id, for mandates signed with a passkey")
     s.add_argument("--origin", action="append", help="allowed passkey origin (default https://<rp-id>)")
     s.set_defaults(mandate_fn=cmd_serve)

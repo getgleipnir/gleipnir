@@ -169,7 +169,7 @@ def test_uc05_normal_invoice(w):
     m = w.mandate()
     d = w.bank.check(m, w.pay(m))
     assert outcome(d) == ("allow", [])
-    assert d["checks"] == ["mandate_valid", "signer_authorized:bank_kyb", "not_revoked", "agent_signed",
+    assert d["checks"] == ["mandate_valid", "signer_authorized:bank_kyb", "agent_signed", "not_revoked",
                            "payee_on_mandate", "within_payment_limit", "within_period_limit"]
 
 
@@ -202,7 +202,7 @@ def test_uc09_same_payment_twice(w):
     p = w.pay(m, pid="p_twice")
     first = w.bank.check(m, p)
     assert w.bank.check(m, p) == first  # idempotent retry: same signed decision, booked once
-    assert w.bank.ledger.totals[("m_ap", "2026-10")] == M.parse_amount("18400.00", "EUR")
+    assert w.bank.ledger.totals[(f"mandate:{M.mandate_hash(m)}", "2026-10")] == M.parse_amount("18400.00", "EUR")
     changed = M.attach(m, id="p_twice", rail="sepa", amount="18500.00", currency="EUR", payee=BRENNER,
                        agent_sk=w.sk("agent"), requested_at=ts(w.now))
     assert outcome(w.bank.check(m, changed)) == ("block", ["duplicate_payment"])
