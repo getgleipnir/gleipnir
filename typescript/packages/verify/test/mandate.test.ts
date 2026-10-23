@@ -16,6 +16,8 @@ import {
   delegate,
   iban,
   makeOverride,
+  mandateProblem,
+  paymentProblem,
   signOverride,
   parseStrict,
   paymentKey,
@@ -35,12 +37,12 @@ interface Vector {
   now: string[];
   authority: {
     company: string; signer: string; source: string; keys: string[]; may_sign: boolean; joint?: number;
-    retired?: Record<string, string>;
+    retired?: Record<string, string>; person?: string;
   }[];
   revocations: unknown[];
   status: unknown;
   ledger: boolean;
-  holds: { company: string; account: J }[];
+  holds: { company: string; account: J; customer?: string }[];
   policy: { require_payees?: boolean };
   officers: string[];
   ops?: ("check" | { resolve: { of: number; id: string; outcome: "allow" | "block"; decided_at: string; reason?: string;
@@ -64,10 +66,13 @@ async function run(c: Vector): Promise<J[]> {
     authority: (company, signerId) => {
       const row = c.authority.find((r) => r.company === company.name && r.signer === signerId);
       return row ? { source: row.source, keys: row.keys, maySign: row.may_sign, joint: row.joint ?? 1,
-        retired: row.retired ?? {} } : null;
+        retired: row.retired ?? {}, person: row.person ?? null } : null;
     },
-    holds: (company, account) => c.holds.some((r) => r.company === company.name
-      && JSON.stringify(sortKeys(r.account)) === JSON.stringify(sortKeys(account))),
+    holds: (company, account) => {
+      const r = c.holds.find((x) => x.company === company.name
+        && JSON.stringify(sortKeys(x.account)) === JSON.stringify(sortKeys(account)));
+      return r ? r.customer ?? `cust:${r.company}` : null;
+    },
     requirePayees: c.policy.require_payees ?? false,
     officers: c.officers,
     ledger: c.ledger ? new InMemoryLedger() : null,
@@ -141,8 +146,16 @@ describe("mandate conformance vectors (shared with the Python reference)", () =>
     expect(receipt).toEqual(c.receipt);
   });
 
+  it("problem messages are the same as the Python reference", () => {
+    const rows = (DATA as unknown as { problems: [string, unknown, string][] }).problems;
+    expect(rows.length).toBeGreaterThan(10);
+    for (const [kind, input, problem] of rows) {
+      expect(kind === "mandate" ? mandateProblem(input) : paymentProblem(input)).toBe(problem);
+    }
+  });
+
   it("payment log keys are the same bytes as the Python reference, and unambiguous", () => {
-    const rows = (DATA as unknown as { payment_keys: [J, string, string][] }).payment_keys;
+    const rows = (DATA as unknown as { payment_keys: [string, string, string][] }).payment_keys;
     for (const [co, pid, key] of rows) expect(paymentKey(co, pid)).toBe(key);
     expect(new Set(rows.map((r) => r[2])).size).toBe(rows.length);
   });
@@ -163,7 +176,7 @@ describe("mandate conformance vectors (shared with the Python reference)", () =>
 describe("mandate flow in TypeScript", () => {
   const signerSeed = newSeed(), agentSeed = newSeed(), bankSeed = newSeed();
   const debtor = iban("AT48 3200 0000 1234 5864");
-  const holds = (_c: J, a: J) => a.iban === debtor.iban;
+  const holds = (_c: J, a: J) => (a.iban === debtor.iban ? "cust:n" : null);
   const brenner = { name: "Brenner Stahl AG", account: iban("AT611904300234573201") };
   const m = signMandate(
     issue({
@@ -269,7 +282,7 @@ describe("second audit regressions (TS-specific)", () => {
   const signerSeed = newSeed();
   const brenner = { name: "Brenner Stahl AG", account: iban("AT611904300234573201") };
   const debtor = iban("AT483200000012345864");
-  const holds = () => true;
+  const holds = () => "cust:x";
   const m = signMandate(issue({ id: "m_p", company: { name: "X GmbH", country: "AT" }, agent: { id: "a" },
     signer: { id: "s", public_key: publicKeyOf(signerSeed) }, validUntil: "2099-01-01T00:00:00.000Z",
     scope: { currency: "EUR", max_per_payment: "100.00", payees: [brenner], from_accounts: [debtor] } }), signerSeed);
@@ -324,7 +337,7 @@ describe("0.3 in TypeScript", () => {
     agent: { id: "a", public_key: publicKeyOf(seeds.agent) }, signer: berger, validUntil: "2099-01-01T00:00:00.000Z",
     scope: { rails: ["sepa"], currency: "EUR", max_per_payment: "25000.00", payees: [brenner], from_accounts: [debtor] } }),
   seeds.signer);
-  const bank = () => new Checker({ id: "bank:v3", seed: seeds.bank, holds: (_c, a) => a.iban === debtor.iban,
+  const bank = () => new Checker({ id: "bank:v3", seed: seeds.bank, holds: (_c, a) => (a.iban === debtor.iban ? "cust:n" : null),
     authority: (_c, id) => (id === berger.id ? { source: "bank_kyb", keys: [berger.public_key] } : null),
     officers: [publicKeyOf(seeds.ops)] });
 
@@ -365,14 +378,19 @@ describe("0.3 concurrency", () => {
     const m = signMandate(issue({ id: "m", company: { name: "X", country: "AT" }, agent: { id: "a" }, signer,
       validUntil: "2099-01-01T00:00:00.000Z", scope: { currency: "EUR", max_per_payment: "10.00", payees: [brenner],
         from_accounts: [debtor], max_per_period: { amount: "100.00", period: "P1M" } } }), seeds.signer);
-    class SlowLog extends InMemoryPaymentLog {
-      override async lookup(key: string, h: string) {
+    const inner = new InMemoryPaymentLog();
+    class SlowLog {
+      async lookup(key: string, h: string) {
         await new Promise((r) => setTimeout(r, 5));
-        return super.lookup(key, h);
+        return inner.lookup(key, h);
       }
+      register(k: string, h: string) { return inner.register(k, h); }
+      remember(k: string, d: J) { inner.remember(k, d); }
+      forget(k: string) { inner.forget(k); }
+      take(k: string, h: string, id: string) { return inner.take(k, h, id); }
     }
     const ledger = new InMemoryLedger();
-    const bank = new Checker({ id: "b", seed: seeds.bank, holds: () => true, ledger, payments: new SlowLog(),
+    const bank = new Checker({ id: "b", seed: seeds.bank, holds: () => "cust:x", ledger, payments: new SlowLog(),
       authority: () => ({ source: "kyb", keys: [signer.public_key] }) });
     const p = attach(m, { id: "p", rail: "sepa", amount: "20.00", currency: "EUR", payee: brenner });
     const d = await bank.check(m, p);

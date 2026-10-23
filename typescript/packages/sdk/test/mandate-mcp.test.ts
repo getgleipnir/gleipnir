@@ -95,6 +95,8 @@ describe("gleipnir-mandate-mcp (TypeScript)", () => {
     ["attach_mandate", { payment_id: "x", amount: "1.00", payee: PAYEE, agentKey: "/x" }, "unknown arguments"],
     ["attach_mandate", { payment_id: "x", amount: "1.5", payee: PAYEE }, "bad amount"],
     ["attach_mandate", { payment_id: "x", amount: "1.00", payee: "no-iban" }, "NAME=ACCOUNT"],
+    ["attach_mandate", { payment_id: "x", amount: "1.00", payee: PAYEE, constructor: "x" }, "unknown arguments"],
+    ["attach_mandate", JSON.parse('{"payment_id": "x", "amount": "1.00", "payee": "a=b", "__proto__": "x"}'), "unknown arguments"],
     ["attach_mandate", { payment_id: "x", amount: "1.00", payee: "X=AT62 1904 3002 3457 3201" }, "check digits"],
     ["attach_mandate", { payment_id: "x", amount: "1.00", payee: "X=telex:1" }, "unknown account scheme"],
     ["check_payment", { payment: [] }, "payment must be a object"],
@@ -155,7 +157,8 @@ describe("second audit: the MCP KYB loader fails closed (F10)", () => {
     const signer = seedFromPem(readFileSync(join(dir, "signer.pem"), "utf8"));
     const path = join(dir, `kyb-${JSON.stringify(bad).replace(/\W/g, "")}.json`);
     writeFileSync(path, JSON.stringify({ source: "bank_kyb", signers: [{ company: "Nordhafen Logistik GmbH",
-      signer: "kberger@nordhafen.at", keys: [publicKeyOf(signer)], may_sign: true, ...bad }] }));
+      signer: "kberger@nordhafen.at", keys: [publicKeyOf(signer)], may_sign: true, ...bad }],
+    accounts: [{ company: "Nordhafen Logistik GmbH", account: DEBTOR }] }));
     const t = tools({ authority: path });
     const p = (await call(t, "attach_mandate", { payment_id: `INV-${path.length}`, amount: "1.00", payee: PAYEE })).structuredContent as J;
     expect(((await call(t, "check_payment", p)).structuredContent as J).reasons).toEqual(["checker_unavailable"]);

@@ -59,6 +59,10 @@ def post(url: str, body: bytes | dict, path: str = "/check") -> tuple[int, dict]
         return e.code, json.loads(e.read())
 
 
+def revoke_via(url: str, mandate: dict) -> tuple[int, dict]:
+    return post(url, {"revocation": json.loads(Path("rev.json").read_text()), "mandate": mandate}, "/revoke")
+
+
 def tools(world: Path, **kw) -> MandateTools:
     args = Namespace(mandate="mandate.json", agent_key="agent.pem", drafts=str(world / "drafts"), bank_url=None,
                      bank_key=None, authority=None, state=str(world / "agent-state.json"), revocation=None,
@@ -87,7 +91,7 @@ def test_http_check_keys_revoke(server, world):
     code, again = post(url, {"mandate": mandate, "payment": p_ok["payment"]})
     assert again == d  # idempotent over HTTP too
     assert main(["mandate", "revoke", "mandate.json", "--key", "signer.pem", "--id", "r_1", "-o", "rev.json"]) == 0
-    assert post(url, json.loads(Path("rev.json").read_text()), "/revoke") == (200, {"ok": True})
+    assert revoke_via(url, mandate) == (200, {"ok": True})
     p2 = call(t, "attach_mandate", {"payment_id": "INV-2", "amount": "1.00", "payee": PAYEE})["structuredContent"]
     assert post(url, {"mandate": mandate, "payment": p2["payment"]})[1]["reasons"] == ["mandate_revoked"]
 
@@ -332,7 +336,7 @@ def test_audit_F8_revocations_survive_restart(server, world):
     url, bank = server
     mandate = json.loads(Path("mandate.json").read_text())
     assert main(["mandate", "revoke", "mandate.json", "--key", "signer.pem", "--id", "r_x", "-o", "rev.json"]) == 0
-    assert post(url, json.loads(Path("rev.json").read_text()), "/revoke") == (200, {"ok": True})
+    assert revoke_via(url, mandate) == (200, {"ok": True})
     restarted = Bank(bank_id="bank:test", bank_key="bank.pem", authority="kyb.json", state=bank.state)
     t = tools(world)
     p = call(t, "attach_mandate", {"payment_id": "INV-R", "amount": "1.00", "payee": PAYEE})["structuredContent"]
@@ -371,9 +375,32 @@ def test_audit_R6_revoke_needs_a_valid_signature(server, world):
     url, _ = server
     assert main(["mandate", "revoke", "mandate.json", "--key", "signer.pem", "--id", "r_y", "-o", "rev.json"]) == 0
     r = json.loads(Path("rev.json").read_text())
-    assert post(url, {**r, "reason": "edited after signing"}, "/revoke")[0] == 400
-    assert post(url, r, "/revoke") == (200, {"ok": True})
-    assert post(url, r, "/revoke") == (200, {"ok": True})  # idempotent, stored once
+    mandate = json.loads(Path("mandate.json").read_text())
+    assert post(url, {"revocation": {**r, "reason": "edited after signing"}, "mandate": mandate}, "/revoke")[0] == 400
+    assert post(url, r, "/revoke")[0] == 400  # the mandate it revokes must come with it
+    assert post(url, {"revocation": r, "mandate": mandate}, "/revoke") == (200, {"ok": True})
+    assert post(url, {"revocation": r, "mandate": mandate}, "/revoke") == (200, {"ok": True})  # stored once
+
+
+def test_audit3_F1_junk_revocations_are_refused(server, world):
+    """Self-signed revocations by strangers, or huge ones, never reach the store (audit 24.10.2026, F1)."""
+    url, bank = server
+    mandate = json.loads(Path("mandate.json").read_text())
+    evil_sk, evil_pk = M.new_key()
+    junk = M.revoke(mandate, signer={"id": "evil@x", "public_key": evil_pk}, sk=evil_sk, id="r_evil")
+    assert post(url, {"revocation": junk, "mandate": mandate}, "/revoke")[0] == 400
+    from gleipnir.mandate_cli import load_key
+
+    sk = load_key("signer.pem")
+    big = M.revoke(mandate, signer={"id": "kberger@nordhafen.at", "public_key": M.public_key_of(sk)}, sk=sk,
+                   id="r_big", reason="x" * 5000)
+    assert post(url, {"revocation": big, "mandate": mandate}, "/revoke")[0] == 400
+    other = {**mandate, "id": "m_other"}
+    real = M.revoke(mandate, signer={"id": "kberger@nordhafen.at", "public_key": M.public_key_of(sk)}, sk=sk,
+                    id="r_1")
+    assert post(url, {"revocation": real, "mandate": other}, "/revoke")[0] == 400  # not aimed at that mandate
+    state = json.loads(Path(bank.state).read_text()) if Path(bank.state).exists() else {"revocations": []}
+    assert state["revocations"] == []
 
 
 def test_http_resolve_override(server, world):
