@@ -62,9 +62,9 @@ Rules:
 - `company.name` and `company.country` (ISO 3166-1 alpha-2) are required. `company.ids` is optional and open: `lei`, `vlei` (a vLEI credential reference), `register`, `vat`, or the bank's own customer id under `bank:<bic>`.
 - `agent.id` is required. `agent.public_key` is optional; when present, the payment must carry an agent signature (section 4) so a stolen mandate alone is not enough.
 - `signer.id`, `signer.public_key` are required. `signer.role` is informational. **Whether this person may sign for this company is not decided by the mandate.** The checker decides it from its own source: the bank's KYB records of authorized signatories, a company register, or a vLEI role credential. See section 6.
-- `scope.currency` is required and applies to every amount in the scope. Amounts are decimal strings with the currency's minor units (`"25000.00"`), never floats.
-- `scope.max_per_payment` is required. `scope.max_per_period` is optional; `period` is an ISO 8601 duration (`P1D`, `P7D`, `P1M`).
-- `scope.payees` is optional. If present, a payment is covered only if its payee account matches one entry exactly (after normalization: IBAN uppercase without spaces; US accounts as `{"aba": "...", "account": "..."}`). If absent, any payee is allowed within the limits. A changed account is a different payee.
+- `scope.currency` is required and applies to every amount in the scope. Amounts are decimal strings with exactly the currency's ISO 4217 minor units, no sign, no exponent, no leading zeros, no whitespace: `^(0|[1-9][0-9]*)\.[0-9]{2}$` for EUR, USD, GBP, CHF, SEK, NOK, DKK, PLN, CZK, HUF; `^(0|[1-9][0-9]*)$` for JPY. Other currencies are not supported in 0.1. Every amount must be greater than zero. Never floats.
+- `scope.max_per_payment` is required. `scope.max_per_period` is optional; `period` is one of `P1D` (UTC calendar day), `P7D` (ISO week, Monday to Sunday, UTC) or `P1M` (UTC calendar month).
+- `scope.payees` is optional; every entry must have an `account` object. If present, a payment is covered only if its payee account matches one entry exactly (after normalization: IBAN uppercase without spaces; US accounts as `{"aba": "...", "account": "..."}`). If absent, any payee is allowed within the limits. A changed account is a different payee.
 - `scope.rails` is optional; values: `sepa`, `sepa_instant`, `ach`, `wire`, `faster_payments`, `fednow`, `rtp`. If absent, any rail.
 - `valid_until` is required. Producers should keep mandates short (weeks or months, not years).
 - `status_url` is optional. If present, the checker must fetch the mandate status from it (section 5).
@@ -111,28 +111,39 @@ What the agent submits to the bank, or what the bank's API layer builds from the
 }
 ```
 
+`id` must be unique per payer: the checker treats a second payment with the same `id` as a duplicate (section 5, step 3). `requested_at` is the agent's own clock and is informational; the checker uses its own clock (section 5).
+
 `agent_sig` is required when the mandate names `agent.public_key`: a signature over `"gleipnir/payment/v0.1\n" || payment_hash`, where `payment_hash` is computed over the payment minus `agent_sig`.
 
 The full mandate travels with the payment (as a separate field of the API call or a header) or is fetched by id from the issuer; the payment itself only references it by id and hash.
 
 ## 5. Check
 
+**Whose clock.** All time-based checks use the checker's own clock ("now"), never a time supplied by the agent. `payment.requested_at` must lie within `max_skew` of now (default 60 seconds), otherwise the payment is blocked with `clock_skew`. Validity, revocation and period limits are evaluated at now.
+
 The checker runs these steps in order and stops at the first failure. Each step yields a reason code.
 
 | # | Check | Fails with | Outcome |
 |---|---|---|---|
-| 1 | Mandate parses, `v` known, required fields present | `mandate_malformed` | block |
-| 2 | `payment.mandate.hash` equals the mandate's hash | `mandate_mismatch` | block |
-| 3 | Mandate signature valid for `signer.public_key` | `mandate_bad_signature` | block |
-| 4 | Signer is authorized for `company` (section 6) | `signer_not_authorized` / `signer_unknown` | block / escalate |
-| 5 | `valid_from ≤ requested_at ≤ valid_until` | `mandate_expired` / `mandate_not_yet_valid` | block |
-| 6 | Not revoked (revocations known to the checker, and `status_url` if present) | `mandate_revoked` / `status_unavailable` | block / escalate |
-| 7 | Agent signature valid, if required | `agent_bad_signature` | block |
-| 8 | Rail allowed | `rail_not_allowed` | block |
-| 9 | Currency matches | `currency_mismatch` | block |
-| 10 | Payee covered | `payee_not_on_mandate` | block |
-| 11 | `amount ≤ max_per_payment` | `over_payment_limit` | escalate |
-| 12 | Period total including this payment `≤ max_per_period.amount` | `over_period_limit` | escalate |
+| 1 | Mandate parses: `v` known, required fields present and well-typed, amounts in strict format, known `period`, every payee has an `account` | `mandate_malformed` | block |
+| 2 | Payment parses: `v` known, `id`, `mandate.id`, `mandate.hash`, `rail`, `currency`, `payee.account`, `requested_at` present and well-typed, amount in strict format and > 0, whole object encodable as I-JSON | `payment_malformed` | block |
+| 3 | Payment `id` not seen before. Same `id` and same payment hash: the checker returns the earlier decision unchanged (idempotent retry). Same `id`, different hash: | `duplicate_payment` | block |
+| 4 | `payment.mandate.hash` equals the mandate's hash | `mandate_mismatch` | block |
+| 5 | `requested_at` within `max_skew` of the checker's clock | `clock_skew` | block |
+| 6 | Mandate signature valid for `signer.public_key` | `mandate_bad_signature` | block |
+| 7 | Authority source (section 6) knows `signer.id` | `signer_unknown` | escalate |
+| 8 | Source says the person may sign, and `signer.public_key` is one of the keys the source binds to that person | `signer_not_authorized` | block |
+| 9 | `valid_from ≤ now ≤ valid_until` | `mandate_not_yet_valid` / `mandate_expired` | block |
+| 10 | Not revoked: a valid revocation (step 6–8 rules applied to its signer) with `revoked_at ≤ now`, or `status_url` answering `revoked` | `mandate_revoked` | block |
+| 11 | `status_url`, if present, answers exactly `active` | `status_unavailable` | escalate |
+| 12 | Agent signature valid, if the mandate names an agent key | `agent_bad_signature` | block |
+| 13 | Rail allowed | `rail_not_allowed` | block |
+| 14 | Currency matches | `currency_mismatch` | block |
+| 15 | Payee account covered (normalized, exact) | `payee_not_on_mandate` | block |
+| 16 | `amount ≤ max_per_payment` | `over_payment_limit` | escalate |
+| 17 | If `max_per_period` is set: the amount is atomically reserved in the period ledger | `over_period_limit` / `ledger_missing` | escalate |
+
+A dependency the checker cannot reach (authority source, payment log, ledger) gives `checker_unavailable` (escalate). Any input the checker cannot process gives a signed `block`; a checker never raises on input and never allows a payment it could not fully check.
 
 Outcomes:
 
@@ -140,7 +151,9 @@ Outcomes:
 - **block**: the payment is not covered and must not be executed on the strength of this mandate.
 - **escalate**: the payment may be legitimate but needs a person (the company or the bank's operations team) before execution.
 
-The checker keeps the running period totals it needs for step 12. `status_unavailable` escalates rather than allows: a checker never allows a payment it could not check.
+**Idempotency.** The checker keeps a payment log keyed by payment `id` with the payment hash and the decision. Registering a new `id` must be atomic, so two concurrent submissions of one `id` cannot both pass step 3.
+
+**Period ledger.** Step 17 is a single atomic operation `reserve(mandate_id, period, amount, limit, now) → bool`: it adds the amount to the running total of the current period only if the result stays within the limit. A checker without a ledger must not allow payments under a mandate with `max_per_period` (`ledger_missing`). If the bank later does not execute an allowed payment it releases the reservation.
 
 ## 6. Who may sign
 
@@ -150,7 +163,11 @@ The mandate states who signed. The checker decides whether that person may sign 
 2. **Company register.** Signing powers from a commercial register extract (for example Firmenbuch, Handelsregister, Companies House), mapped to the signer.
 3. **vLEI.** A GLEIF vLEI Official Organizational Role or Engagement Context Role credential for the signer, chained to the company's LEI. Optional, useful across banks and borders.
 
-The decision records which source was used. A signer the checker cannot place in any source yields `signer_unknown` (escalate), not allow.
+Contract: the source is asked about a **person**, never about a key taken from the mandate:
+
+    authority(company, signer_id) → {source, keys, may_sign} | unknown
+
+`keys` are the public keys (or passkey keys) the source itself binds to that person. The mandate's `signer.public_key` is accepted only if it is one of them; a mandate signed with any other key is `signer_not_authorized`, even if the signature is valid. The same rule applies to the signer of a revocation. The decision records which source was used. A signer the checker cannot place in any source yields `signer_unknown` (escalate), not allow.
 
 ## 7. Decision
 
@@ -169,7 +186,7 @@ The decision records which source was used. A signer the checker cannot place in
 }
 ```
 
-Signed by the checker with the prefix `"gleipnir/decision/v0.1\n"`. Decisions may be appended to a hash-chained log in the record format of format.md (`kind: "note"` with `note.decision`), so the company, the bank and an auditor can later show what was checked and when.
+Signed by the checker with the prefix `"gleipnir/decision/v0.1\n"`. `checked_at` is the checker's clock. A decision is verified against the bank's **known** checker keys, obtained out of band (for example from the bank's published key list); the `checker.public_key` inside the decision only says which of those keys signed it and is never trusted on its own. `id` is random. Decisions may be appended to a hash-chained log in the record format of format.md (`kind: "note"` with `note.decision`), so the company, the bank and an auditor can later show what was checked and when.
 
 ## 8. What this does and does not prove
 
@@ -177,7 +194,11 @@ Proves: a named person signed this scope for this agent; the checker found that 
 
 Does not prove: that the agent understood the invoice, that the invoice is genuine, or that the signer chose wisely. A mandate narrows what can go wrong; it does not replace the bank's fraud and AML controls.
 
-## 9. Open questions for 0.2
+## 9. Encoding rules
+
+Objects are I-JSON (RFC 7493): no duplicate keys, no floats, integers within ±2^53. A checker parsing JSON from the wire must reject duplicate keys before hashing. Strings should be NFC.
+
+## 10. Open questions for 0.2
 
 - Mandate delegation (agent A gives agent B a narrower sub-mandate).
 - Multi-signature mandates ("two of: Berger, Hofer") for amounts above a threshold.

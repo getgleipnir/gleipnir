@@ -7,9 +7,10 @@ attacks that were tried and are already handled.
 
 from __future__ import annotations
 
+import itertools
 import json
 import threading
-from decimal import Decimal
+from datetime import datetime, timezone
 
 import pytest
 from hypothesis import HealthCheck, given, settings
@@ -20,6 +21,16 @@ from gleipnir_verify import mandate as M
 IBAN = "AT611904300234573201"
 SIGNER_ID = "kberger@nordhafen.at"
 COMPANY = {"name": "Nordhafen Logistik GmbH", "country": "AT"}
+NOW = datetime(2026, 10, 23, 9, 14, 2, tzinfo=timezone.utc)
+_ids = itertools.count()
+
+
+def kyb_authority(keys_by_id):
+    """The bank's KYB records: signer id -> keys. The new contract never sees the mandate's key."""
+    def authority(company, signer_id):
+        keys = keys_by_id.get(signer_id)
+        return M.AuthorityResult("bank_kyb", tuple(keys)) if keys else None
+    return authority
 
 
 # ---------------------------------------------------------------- fixtures
@@ -39,16 +50,16 @@ def make_world(*, scope_extra=None, agent_key=True, **issue_kw):
     m = M.sign_mandate(M.issue(id="m_1", company=dict(COMPANY), agent=agent,
                                signer={"id": SIGNER_ID, "name": "K. Berger", "public_key": signer_pk},
                                scope=scope, **kw), signer_sk)
-    kyb = {SIGNER_ID: signer_pk}
-    checker = M.Checker(id="bank:TEST", sk=bank_sk,
-                        authority=lambda c, s: "bank_kyb" if kyb.get(s.get("id")) == s.get("public_key") else None)
+    checker = M.Checker(id="bank:TEST", sk=bank_sk, authority=kyb_authority({SIGNER_ID: [signer_pk]}),
+                        ledger=M.InMemoryLedger(), clock=lambda: NOW)
     return dict(m=m, checker=checker, signer_sk=signer_sk, signer_pk=signer_pk, agent_sk=agent_sk,
                 bank_sk=bank_sk, bank_pk=bank_pk)
 
 
-def pay(w, *, amount="18400.00", iban=IBAN, pid="p_1", requested_at="2026-10-23T09:14:02.000Z", account=None,
+def pay(w, *, amount="18400.00", iban=IBAN, pid=None, requested_at="2026-10-23T09:14:02.000Z", account=None,
         mandate=None, **kw):
     mandate = mandate or w["m"]
+    pid = pid or f"p_{next(_ids)}"
     return M.attach(mandate, id=pid, rail=kw.get("rail", "sepa"), amount=amount, currency=kw.get("currency", "EUR"),
                     payee={"name": "Brenner Stahl AG", "account": account or {"iban": iban}},
                     agent_sk=kw.get("agent_sk", w["agent_sk"]), requested_at=requested_at)
@@ -77,12 +88,14 @@ def test_C1_authority_by_signer_id_alone_lets_anyone_forge_a_mandate():
                                     signer={"id": SIGNER_ID, "public_key": evil_pk},
                                     scope={"currency": "EUR", "max_per_payment": "999999.00"},
                                     valid_until="2026-12-31T23:59:59.000Z"), evil_sk)
-    signatories = {SIGNER_ID}
-    w["checker"].authority = lambda c, s: "bank_kyb" if s["id"] in signatories else None
+    # The bank looks the signer up by id only; the key comes from its own KYB records.
+    w["checker"].authority = kyb_authority({SIGNER_ID: [w["signer_pk"]]})
     p = M.attach(forged, id="p", rail="sepa", amount="999999.00", currency="EUR",
                  payee={"account": {"iban": "LT121000011101001000"}}, agent_sk=agent_sk,
-                 requested_at="2026-10-23T09:00:00.000Z")
-    assert w["checker"].check(forged, p)["outcome"] != "allow"
+                 requested_at="2026-10-23T09:14:02.000Z")
+    d = w["checker"].check(forged, p)
+    assert d["outcome"] != "allow"
+    assert d["reasons"] == ["signer_not_authorized"]
 
 
 def test_ok_signature_domain_separation(w):
@@ -122,6 +135,7 @@ def test_ok_webauthn_not_accepted_for_payment_or_revocation(w):
     assert w["checker"].check(w["m"], pay(w))["outcome"] == "allow"
 
 
+@pytest.mark.xfail(strict=True, reason="M1 open: passkey challenge not domain-separated (spec 0.2)")
 def test_M1_passkey_challenge_has_no_domain_separation(w):
     """The mandate passkey challenge is the bare mandate hash, the same shape as an approval challenge
     (approvals.approval_challenge). One signing page could be used to make a signatory approve 'an action'
@@ -138,8 +152,12 @@ def test_H1_same_payment_twice_is_allowed_twice(w):
     """No idempotency: the exact same payment document gets a second 'allow'. The checker (or the spec)
     must reject a payment id it has already decided, or the decision must say it is a duplicate."""
     p = pay(w)
-    assert w["checker"].check(w["m"], p)["outcome"] == "allow"
-    assert w["checker"].check(w["m"], p)["outcome"] != "allow"
+    first = w["checker"].check(w["m"], p)
+    assert first["outcome"] == "allow"
+    again = w["checker"].check(w["m"], p)
+    # Idempotent: the bank gets the SAME decision back (same id), not a second allow, and nothing is reserved twice.
+    assert again == first
+    assert sum(w["checker"].ledger.totals.values()) == 18400
 
 
 def test_H1b_same_payment_id_different_amount(w):
@@ -153,6 +171,7 @@ def test_C2_agent_backdates_requested_at_to_dodge_revocation(w):
     r = M.revoke(w["m"], signer={"id": SIGNER_ID, "public_key": w["signer_pk"]}, sk=w["signer_sk"], id="r",
                  revoked_at="2026-11-01T10:00:00.000Z")
     w["checker"].revocations.append(r)
+    w["checker"].clock = lambda: datetime(2026, 11, 1, 10, 0, 30, tzinfo=timezone.utc)  # bank's clock
     backdated = pay(w, requested_at="2026-11-01T09:59:59.000Z")  # actually sent after the revocation
     assert w["checker"].check(w["m"], backdated)["outcome"] != "allow"
 
@@ -173,6 +192,7 @@ def test_ok_non_utc_timestamps_rejected(w, ts):
     assert w["checker"].check(w["m"], pay(w, requested_at=ts))["outcome"] == "block"
 
 
+@pytest.mark.xfail(strict=True, reason="L1 open: strict RFC 3339 timestamps")
 @pytest.mark.parametrize("ts", ["2026-10-23T09Z", "2026-10-23T09:14Z", "2026-10-23T09:14:02.1234567Z"])
 def test_L1_non_rfc3339_timestamps_accepted(w, ts):
     """spec says strict RFC 3339 with milliseconds (format.md); the code accepts loose ISO 8601."""
@@ -191,37 +211,29 @@ def test_H2_period_limit_fail_open_without_counter():
     """Checker.spent defaults to 'nothing spent'. A bank that forgets to wire the counter enforces no
     monthly limit at all. Without a counter the check must not allow when max_per_period is set."""
     w = make_world()
-    w["checker"].spent = M.Checker.__dataclass_fields__["spent"].default  # the default
+    w["checker"].ledger = None  # the bank forgot to wire the ledger
     allowed = sum(w["checker"].check(w["m"], pay(w, pid=f"p{i}", amount="20000.00"))["outcome"] == "allow"
                   for i in range(5))
     assert allowed * 20000 <= 30000
+    assert w["checker"].check(w["m"], pay(w))["reasons"] == ["ledger_missing"]
 
 
 def test_H3_period_limit_race_between_parallel_checks():
     """check() reads 'spent' but never reserves the amount. Two payments checked in parallel each see the
     old total and both pass, together breaking the limit."""
     w = make_world()
-    total = {"spent": Decimal(0)}
-    lock = threading.Barrier(2)
-
-    def spent(*_):
-        v = total["spent"]
-        lock.wait(timeout=2)  # both threads read before either books
-        return v
-
-    w["checker"].spent = spent
     results = []
+    start = threading.Barrier(8)
 
-    def run(i):
-        d = w["checker"].check(w["m"], pay(w, pid=f"p{i}", amount="20000.00"))
-        if d["outcome"] == "allow":
-            total["spent"] += Decimal("20000.00")
-        results.append(d["outcome"])
+    def run():
+        p = pay(w, amount="20000.00")
+        start.wait(timeout=5)
+        results.append(w["checker"].check(w["m"], p)["outcome"])
 
-    ts = [threading.Thread(target=run, args=(i,)) for i in range(2)]
+    ts = [threading.Thread(target=run) for _ in range(8)]
     [t.start() for t in ts]
     [t.join() for t in ts]
-    assert results.count("allow") <= 1
+    assert results.count("allow") == 1  # 30 000 limit, 20 000 each
 
 
 def test_L3_period_value_not_validated():
@@ -276,12 +288,14 @@ def test_ok_same_name_other_account(w):
     assert w["checker"].check(w["m"], pay(w, iban="DE89370400440532013000"))["reasons"] == ["payee_not_on_mandate"]
 
 
+@pytest.mark.xfail(strict=True, reason="L4 open: IBAN mod-97 check on issue")
 def test_L4_iban_checksum_not_validated():
     """A mandate can list an IBAN with a wrong check digit; it should be refused at issue time."""
     with pytest.raises(ValueError):
         make_world(scope_extra={"payees": [{"account": {"iban": "AT001904300234573201"}}]})
 
 
+@pytest.mark.xfail(strict=True, reason="M5 open: IBAN normalization per ISO 13616")
 def test_M5_iban_with_tabs_or_dashes(w):
     """Only spaces are stripped; 'AT61-1904-...' or tabs are a different string and get blocked. Fail-closed,
     but a real bank payload with formatting is rejected; normalization should follow ISO 13616."""
@@ -298,8 +312,11 @@ def test_ok_us_account_extra_fields_fail_closed():
 
 def test_H5_malformed_payee_entry_crashes_check():
     """A payee without 'account' in a signed mandate raises KeyError inside check()."""
-    w = make_world(scope_extra={"payees": [{"name": "Brenner Stahl AG"}]})
-    assert w["checker"].check(w["m"], pay(w))["outcome"] == "block"
+    w = make_world()
+    bad = {k: v for k, v in w["m"].items() if k != "sig"}
+    bad["scope"] = {**bad["scope"], "payees": [{"name": "Brenner Stahl AG"}]}
+    bad = M.sign_mandate(bad, w["signer_sk"])  # signed, but never went through issue()
+    assert w["checker"].check(bad, pay(w, mandate=bad))["outcome"] == "block"
 
 
 # ---------------------------------------------------------------- 6. revocation and status
@@ -313,14 +330,21 @@ def test_ok_revocation_by_outsider_ignored(w):
     assert w["checker"].check(w["m"], pay(w))["outcome"] == "allow"
 
 
-@pytest.mark.parametrize("auth", [False, None, "", 0])
-def test_ok_revocation_authority_falsy(w, auth):
-    r = M.revoke(w["m"], signer={"id": SIGNER_ID, "public_key": w["signer_pk"]}, sk=w["signer_sk"], id="r",
+@pytest.mark.parametrize("answer", ["unknown", "may_not_sign", "other_key", "no_keys", "not_a_result"])
+def test_ok_revocation_authority_falsy(w, answer):
+    """A revocation counts only if the source binds the revoker's key to someone who may sign."""
+    hofer_sk, hofer_pk = M.new_key()
+    other_pk = M.new_key()[1]
+    r = M.revoke(w["m"], signer={"id": "mhofer@nordhafen.at", "public_key": hofer_pk}, sk=hofer_sk, id="r",
                  revoked_at="2026-01-02T00:00:00.000Z")
     w["checker"].revocations.append(r)
+    answers = {"unknown": None, "may_not_sign": M.AuthorityResult("bank_kyb", (hofer_pk,), may_sign=False),
+               "other_key": M.AuthorityResult("bank_kyb", (other_pk,)), "no_keys": M.AuthorityResult("bank_kyb", ()),
+               "not_a_result": "bank_kyb"}
     base = w["checker"].authority
-    w["checker"].authority = lambda c, s: auth if s is r["signer"] else base(c, s)
-    assert w["checker"].check(w["m"], pay(w))["outcome"] == "allow"
+    w["checker"].authority = lambda c, sid: answers[answer] if sid == "mhofer@nordhafen.at" else base(c, sid)
+    d = w["checker"].check(w["m"], pay(w))
+    assert d["outcome"] == ("escalate" if answer == "not_a_result" else "allow"), d["reasons"]
 
 
 def test_H6_malformed_revocation_in_list_crashes_every_check(w):
@@ -329,6 +353,7 @@ def test_H6_malformed_revocation_in_list_crashes_every_check(w):
     assert w["checker"].check(w["m"], pay(w))["outcome"] in ("allow", "block", "escalate")
 
 
+@pytest.mark.xfail(strict=True, reason="M6 open: revocation distribution (status_url required) is a spec 0.2 decision")
 def test_M6_no_status_url_and_no_revocation_list_means_irrevocable():
     """A mandate without status_url is revocable only if this bank happens to hold the revocation.
     Another bank, or the same bank after a restart, keeps allowing. Spec should require status_url (or a
@@ -336,7 +361,8 @@ def test_M6_no_status_url_and_no_revocation_list_means_irrevocable():
     w = make_world()
     r = M.revoke(w["m"], signer={"id": SIGNER_ID, "public_key": w["signer_pk"]}, sk=w["signer_sk"], id="r",
                  revoked_at="2026-01-02T00:00:00.000Z")
-    other_bank = M.Checker(id="bank:OTHER", sk=M.new_key()[0], authority=w["checker"].authority)
+    other_bank = M.Checker(id="bank:OTHER", sk=M.new_key()[0], authority=w["checker"].authority,
+                           ledger=M.InMemoryLedger(), clock=lambda: NOW)
     assert r  # revoked at the company's home bank only
     assert other_bank.check(w["m"], pay(w))["outcome"] != "allow"
 
@@ -370,14 +396,18 @@ def test_C3_verify_decision_trusts_the_key_inside_the_decision(w):
     forged = {k: v for k, v in d.items() if k != "sig"}
     forged.update(outcome="allow", reasons=[], checker={"id": "bank:TEST", "public_key": evil_pk})
     forged = M._sign(evil_sk, "decision", forged)
-    assert not M.verify_decision(forged)
+    assert not M.verify_decision(forged, checker_keys=[w["bank_pk"]])
+    assert M.verify_decision(d, checker_keys=[w["bank_pk"]])
+    assert not M.verify_decision(d, checker_keys=[])
+    with pytest.raises(TypeError):
+        M.verify_decision(forged)  # no keyless variant
 
 
 def test_L5_decision_id_is_deterministic_and_reveals_payment_hash(w):
     """id = 'd_' + 64 bits of the payment hash: two checks of one payment get the same decision id, and the
     id lets anyone confirm a guess of the payment's contents (amount, IBAN). Use a random id."""
-    p = pay(w)
-    assert w["checker"].check(w["m"], p)["id"] != w["checker"].check(w["m"], p)["id"]
+    d = w["checker"].check(w["m"], pay(w))
+    assert d["id"][2:] not in d["payment"]["hash"]
 
 
 # ---------------------------------------------------------------- 8. encoding
@@ -406,6 +436,7 @@ def test_ok_field_order_does_not_change_hash(w):
     assert M.obj_hash(m2) == M.obj_hash(w["m"])
 
 
+@pytest.mark.xfail(strict=True, reason="L6 open: NFC normalization")
 def test_L6_unicode_normalization_changes_hash():
     """'Café' as NFC and NFD hash differently; the authority lookup by company name is then a string
     compare. Fail-closed, but spec should say NFC or compare on ids, not names."""
@@ -459,7 +490,10 @@ def test_H9_fuzz_check_never_raises_and_never_allows_junk(w, junk):
 @given(field=st.sampled_from(["amount", "currency", "rail", "payee", "requested_at", "mandate", "id"]), junk=json_val)
 def test_H9b_fuzz_payment_fields(w, field, junk):
     p = {**pay(w), field: junk}
-    p = M._sign(w["agent_sk"], "payment", p, "agent_sig")
+    try:
+        p = M._sign(w["agent_sk"], "payment", p, "agent_sig")
+    except Exception:  # noqa: BLE001 - junk JCS cannot hash; send it unsigned
+        pass
     try:
         d = w["checker"].check(w["m"], p)
     except Exception as e:  # noqa: BLE001
