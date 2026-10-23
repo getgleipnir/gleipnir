@@ -56,7 +56,8 @@ def row(pid: str, sk: Ed25519PrivateKey, *, source: str = "bank_kyb", may_sign: 
             "keys": keys if keys is not None else [M.public_key_of(sk)], "may_sign": may_sign, "joint": joint}
 
 
-BERGER_P, HOFER_P = person(SIGNER, SIGNER_ID, "Prokurist"), person(HOFER, "mhofer@nordhafen.at", "Geschäftsführerin")
+BERGER_P, HOFER_P = person(SIGNER, SIGNER_ID, "Authorised signatory"), person(HOFER, "mhofer@nordhafen.at",
+                                                                             "Managing director")
 CEO_P, CFO_P, CTRL_P = (person(CEO, "ceo@nordhafen.at", "CEO"), person(CFO, "cfo@nordhafen.at", "CFO"),
                         person(CTRL, "controller@nordhafen.at", "Controller"))
 JOINT_KYB = [row(SIGNER_ID, SIGNER), row(HOFER_P["id"], HOFER)]
@@ -122,9 +123,9 @@ def v02_cases() -> list[dict[str, Any]]:
         case("multisig_cosigner_unknown", both, [pay(both, "p_1")], authority=JOINT_KYB[:1]),
         case("multisig_cosigner_wrong_key", both, [pay(both, "p_1")],
              authority=[JOINT_KYB[0], row(HOFER_P["id"], OTHER)]),
-        case("gesamtprokura_alone_blocked", any1, [pay(any1, "p_1")],
+        case("joint_signatory_alone_blocked", any1, [pay(any1, "p_1")],
              authority=[row(SIGNER_ID, SIGNER, joint=2), JOINT_KYB[1]]),
-        case("gesamtprokura_with_cosigner_allow", any1_both, [pay(any1_both, "p_1")],
+        case("joint_signatory_with_cosigner_allow", any1_both, [pay(any1_both, "p_1")],
              authority=[row(SIGNER_ID, SIGNER, joint=2), JOINT_KYB[1]]),
         case("single_signer_joint_required", m, [pay(m, "p_1")], authority=[row(SIGNER_ID, SIGNER, joint=2)]),
         case("multisig_threshold_too_high", mandate(sign=False, signer=None,
@@ -228,12 +229,12 @@ def passkey_cases() -> list[dict[str, Any]]:
         case("passkey_without_checker_config", signed, [pay(signed, "p_1")], authority=kyb),
         case("passkey_bare_hash_m1", bare, [pay(bare, "p_1")], authority=kyb, webauthn=WEBAUTHN),
         case("passkey_wrong_origin", wrong_origin, [pay(wrong_origin, "p_1")], authority=kyb, webauthn=WEBAUTHN),
-        case("passkey_gesamtprokura_allow", joint, [pay(joint, "p_1")], authority=kyb, webauthn=WEBAUTHN),
+        case("passkey_joint_signing_allow", joint, [pay(joint, "p_1")], authority=kyb, webauthn=WEBAUTHN),
     ]
 
 
 def signer(sk: Ed25519PrivateKey = SIGNER, sid: str = SIGNER_ID) -> dict[str, Any]:
-    return {"id": sid, "name": "K. Berger", "role": "Prokurist", "public_key": M.public_key_of(sk)}
+    return {"id": sid, "name": "K. Berger", "role": "Authorised signatory", "public_key": M.public_key_of(sk)}
 
 
 def scope(**kw: Any) -> dict[str, Any]:

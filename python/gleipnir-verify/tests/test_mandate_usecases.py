@@ -1,7 +1,7 @@
 """The 21 use cases from the chain-of-trust write-up (23.10.2026), one named test each.
 
 Setup 1-4, each payment 5-13, lifecycle 14-18, cross-bank 19, after the fact 20-21.
-Nordhafen Logistik GmbH: K. Berger (Prokurist) and M. Hofer (Geschäftsführerin) sign; the CEO delegates to
+Nordhafen Logistik GmbH: K. Berger (authorised signatory) and M. Hofer (managing director) sign; the CEO delegates to
 the CFO; the accounts payable agent pays Brenner Stahl AG.
 """
 
@@ -33,8 +33,8 @@ class World:
         names = ("berger", "hofer", "ceo", "cfo", "agent", "agent2", "bank", "bank2")
         self.keys = {name: M.new_key() for name in names}
         self.people = {
-            "berger": {"id": "kberger@nordhafen.at", "name": "K. Berger", "role": "Prokurist"},
-            "hofer": {"id": "mhofer@nordhafen.at", "name": "M. Hofer", "role": "Geschäftsführerin"},
+            "berger": {"id": "kberger@nordhafen.at", "name": "K. Berger", "role": "Authorised signatory"},
+            "hofer": {"id": "mhofer@nordhafen.at", "name": "M. Hofer", "role": "Managing director"},
             "ceo": {"id": "ceo@nordhafen.at", "role": "CEO"},
             "cfo": {"id": "cfo@nordhafen.at", "role": "CFO"},
         }
@@ -112,7 +112,7 @@ def test_uc01_issue(w):
 
 
 def test_uc02_two_signers(w):
-    """Gesamtprokura: Berger and Hofer must both sign. One signature, or one Gesamtprokurist alone, is not enough."""
+    """Joint signing: Berger and Hofer must both sign. One signature, or a joint signatory alone, is not enough."""
     unsigned = M.issue(id="m_joint", company=COMPANY, agent={"id": "agent-id", "public_key": w.pk("agent")},
                        signers={"threshold": 2, "of": [w.p("berger"), w.p("hofer")]}, scope=w.scope(),
                        valid_until=UNTIL)
@@ -124,7 +124,7 @@ def test_uc02_two_signers(w):
     # Co-signer the bank does not know: maybe legitimate elsewhere -> escalate.
     del w.kyb[w.p("hofer")["id"]]
     assert outcome(w.bank.check(both, w.pay(both))) == ("escalate", ["signer_unknown"])
-    # The register says Berger has Gesamtprokura (joint 2): alone he cannot issue even a 1-of-2 mandate.
+    # The register says Berger may only sign jointly (joint 2): alone he cannot issue even a 1-of-2 mandate.
     w.kyb[w.p("hofer")["id"]] = M.AuthorityResult("bank_kyb", (w.pk("hofer"),))
     w.kyb[w.p("berger")["id"]] = M.AuthorityResult("register", (w.pk("berger"),), joint=2)
     any1 = M.cosign({**unsigned, "signers": {**unsigned["signers"], "threshold": 1}}, w.sk("berger"),

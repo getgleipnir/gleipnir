@@ -97,7 +97,7 @@ def test_usage_errors(setup: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert "not the signer key" in err and "duplicate JSON key" in err and "NaN is not allowed" in err
 
 
-def test_gesamtprokura_via_cli(setup: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_joint_signing_via_cli(setup: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["mandate", "keygen", "-o", "hofer.pem"]) == 0
     hofer_pub = capsys.readouterr().out.strip()
     assert main(["mandate", "issue", "--id", "m_joint", "--company", "Nordhafen Logistik GmbH", "--country", "AT",
