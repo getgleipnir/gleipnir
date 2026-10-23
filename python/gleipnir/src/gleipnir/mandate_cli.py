@@ -61,15 +61,22 @@ def _bad_constant(name: str) -> Any:
     raise CliError(f"{name} is not allowed in JSON")
 
 
+def loads_strict(text: str, what: str = "input") -> Any:
+    """JSON with no duplicate keys and no NaN or Infinity (spec section 13)."""
+    try:
+        return json.loads(text, object_pairs_hook=_no_dupes, parse_constant=_bad_constant)
+    except json.JSONDecodeError as exc:
+        raise CliError(f"{what} is not valid JSON: {exc}") from exc
+    except RecursionError as exc:
+        raise CliError(f"{what} is nested too deeply") from exc
+
+
 def read_json(path: str) -> Any:
     try:
         text = sys.stdin.read() if path == "-" else Path(path).read_text(encoding="utf-8")
     except OSError as exc:
         raise CliError(f"cannot read {path}: {exc.strerror}") from exc
-    try:
-        return json.loads(text, object_pairs_hook=_no_dupes, parse_constant=_bad_constant)
-    except json.JSONDecodeError as exc:
-        raise CliError(f"{path} is not valid JSON: {exc}") from exc
+    return loads_strict(text, path)
 
 
 def write_json(obj: Any, path: str | None) -> None:
@@ -357,6 +364,10 @@ def add_subcommands(p: argparse.ArgumentParser) -> None:
     c.add_argument("--state", help="state file (default: <home>/mandate-state/state.json)")
     c.add_argument("-o", "--output")
     c.set_defaults(mandate_fn=cmd_check)
+
+    from .mandate_service import add_arguments as add_service
+
+    add_service(sub)
 
     v = sub.add_parser("verify", help="verify a decision against the bank's published keys")
     v.add_argument("decision")
