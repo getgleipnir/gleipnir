@@ -407,6 +407,10 @@ def build() -> dict[str, Any]:
         "other_public_key": M.public_key_of(OTHER),
         "cases": out_cases,
         "signed": signed,
+        "payment_keys": [[co, pid, M.payment_key(co, pid)] for co, pid in [
+            ({"name": "Alpha", "country": "AT"}, "Beta|INV-1"), ({"name": "Alpha|Beta", "country": "AT"}, "INV-1"),
+            ({"name": "Müller \"&\" Söhne", "country": "DE", "ids": {"lei": "5299"}}, "INV-\u00e9"),
+            ({"name": "X"}, "1")]],
     }
 
 

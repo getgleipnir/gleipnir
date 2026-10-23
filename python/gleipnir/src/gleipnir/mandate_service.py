@@ -49,6 +49,7 @@ from .mandate_cli import (
 )
 
 MAX_BODY = 1 << 20
+MAX_REVOCATIONS = 10_000
 PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
 
 
@@ -79,9 +80,15 @@ class Bank:
         problem = m.revocation_problem(r)
         if problem:
             raise CliError(f"revocation rejected: {problem}")
+        if not m._verify("revocation", m.obj_hash(r), r.get("sig"), r["signer"]["public_key"], {}):
+            raise CliError("revocation rejected: bad signature")
         with self._lock, FileState(self.state) as st:
-            if r not in st.revocations:
-                st.revocations.append(r)
+            if r in st.revocations:
+                return
+            if len(st.revocations) >= MAX_REVOCATIONS:
+                raise CliError("revocation store is full: this reference server keeps at most "
+                               f"{MAX_REVOCATIONS}; use your own revocation store")
+            st.revocations.append(r)
 
 
 def make_handler(bank: Bank, allow_origins: frozenset[str] = frozenset()) -> type[BaseHTTPRequestHandler]:

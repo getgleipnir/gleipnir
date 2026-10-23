@@ -14,6 +14,7 @@ import {
   cosign,
   delegate,
   parseStrict,
+  paymentKey,
   revoke,
   seedFromHex,
   signMandate,
@@ -94,6 +95,12 @@ describe("mandate conformance vectors (shared with the Python reference)", () =>
     }) };
     delete receipt.checked_at;
     expect(receipt).toEqual(c.receipt);
+  });
+
+  it("payment log keys are the same bytes as the Python reference, and unambiguous", () => {
+    const rows = (DATA as unknown as { payment_keys: [J, string, string][] }).payment_keys;
+    for (const [co, pid, key] of rows) expect(paymentKey(co, pid)).toBe(key);
+    expect(new Set(rows.map((r) => r[2])).size).toBe(rows.length);
   });
 
   it("verifies decisions signed by the Python reference, and rejects edits and unknown keys", () => {

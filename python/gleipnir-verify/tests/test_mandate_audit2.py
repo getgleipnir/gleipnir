@@ -5,7 +5,7 @@ Each test runs the attack the auditor demonstrated and asserts it is now closed.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -207,3 +207,21 @@ def test_F14_a_delegate_below_cannot_cut_the_link_above(w):
     b.revocations = [M.revoke(g2, signer=w["p"]["berger"], sk=w["k"]["berger"].sk, id="r2",
                               revoked_at="2026-10-01T00:00:00.000Z")]
     assert b.check(m, pay(w, m, "p2"))["reasons"] == ["delegation_revoked"]  # his own link: honoured
+
+
+def test_N1_payment_keys_cannot_be_crafted_to_collide():
+    a = M.payment_key({"name": "Alpha", "country": "AT"}, "Beta|INV-1")
+    b = M.payment_key({"name": "Alpha|Beta", "country": "AT"}, "INV-1")
+    assert a != b
+
+
+def test_R2_time_dependent_blocks_are_not_cached(w):
+    clock = {"t": datetime(2026, 10, 31, 23, 59, 40, tzinfo=timezone.utc)}
+    b = M.Checker(id="b", sk=w["k"]["bank"].sk, authority=lambda c, pid: w["kyb"].get(pid),
+                  ledger=M.InMemoryLedger(), clock=lambda: clock["t"], max_skew=timedelta(days=2))
+    m = mandate(w, valid_from="2026-11-01T00:00:00.000Z")
+    p = M.attach(m, id="p", rail="sepa", amount="100.00", currency="EUR", payee=BRENNER, agent_sk=w["k"]["agent"].sk,
+                 requested_at="2026-10-31T23:59:40.000Z")
+    assert b.check(m, p)["reasons"] == ["mandate_not_yet_valid"]
+    clock["t"] = datetime(2026, 11, 1, 0, 0, 20, tzinfo=timezone.utc)
+    assert b.check(m, p)["outcome"] == "allow"
