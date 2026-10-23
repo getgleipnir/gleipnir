@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 from gleipnir.cli import main
-from gleipnir.mandate_service import Bank, MandateTools, handle, make_server, serve_stdio
+from gleipnir.mandate_service import Bank, MandateTools, handle, make_mcp_http, make_server, serve_stdio
 from gleipnir_verify import mandate as M
 
 IBAN = "AT611904300234573201"
@@ -144,7 +144,7 @@ def test_mcp_protocol(world):
     assert odd["result"]["protocolVersion"] == "2025-06-18"
     assert handle(t, {"jsonrpc": "2.0", "method": "notifications/initialized"}) is None
     names = [x["name"] for x in handle(t, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})["result"]["tools"]]
-    assert names == ["request_mandate", "attach_mandate", "check_payment"]
+    assert names == ["mandate_scope", "request_mandate", "attach_mandate", "check_payment"]
     assert handle(t, {"jsonrpc": "2.0", "id": 2, "method": "ping"})["result"] == {}
     assert handle(t, {"jsonrpc": "2.0", "id": 3, "method": "nope"})["error"]["code"] == -32601
     assert handle(t, {"id": 4})["error"]["code"] == -32600
@@ -205,3 +205,98 @@ def test_mcp_as_a_real_process(world):
     lines = [json.loads(x) for x in proc.stdout.splitlines()]
     assert lines[0]["result"]["serverInfo"]["name"] == "gleipnir-mandate"
     assert lines[1]["result"]["structuredContent"]["payment"]["id"] == "INV-1"
+
+
+def test_mcp_scope_and_resource(world):
+    t = tools(world)
+    scope = call(t, "mandate_scope", {})["structuredContent"]
+    assert scope["max_per_payment"] == "25000.00" and scope["payees"][0]["account"]["iban"] == IBAN
+    assert scope["signed_by"] == ["kberger@nordhafen.at"] and scope["problem"] is None
+    res = handle(t, {"jsonrpc": "2.0", "id": 1, "method": "resources/list"})["result"]["resources"]
+    assert res[0]["uri"] == "gleipnir://mandate/current"
+    body = handle(t, {"jsonrpc": "2.0", "id": 2, "method": "resources/read",
+                      "params": {"uri": "gleipnir://mandate/current"}})["result"]["contents"][0]["text"]
+    assert json.loads(body)["id"] == "m_ap"
+    assert handle(t, {"jsonrpc": "2.0", "id": 3, "method": "resources/read", "params": {"uri": "file:///etc/passwd"}})[
+        "error"]["code"] == -32002
+    none = tools(world, mandate=None)
+    assert handle(none, {"jsonrpc": "2.0", "id": 4, "method": "resources/list"})["result"]["resources"] == []
+
+
+@pytest.mark.parametrize("name, args, text", [
+    ("attach_mandate", {"payment_id": "x", "amount": 100, "payee": PAYEE}, "amount must be a string"),
+    ("attach_mandate", {"payment_id": "x", "amount": "1.00", "payee": PAYEE, "agent_key": "/etc/x"}, "unknown"),
+    ("attach_mandate", {"payment_id": "x" * 3000, "amount": "1.00", "payee": PAYEE}, "too long"),
+    ("check_payment", {"payment": "p"}, "payment must be a object"),
+    ("request_mandate", {"company": "X", "country": "AT", "signer_id": "a", "signer_public_key": "k",
+                         "currency": "EUR", "max_per_payment": "1.00", "payees": [1], "valid_until": "x"},
+     "list of strings"),
+    ("mandate_scope", [], "arguments must be an object"),
+])
+def test_mcp_rejects_bad_arguments(world, name, args, text):
+    out = handle(tools(world), {"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                                "params": {"name": name, "arguments": args}})["result"]
+    assert out["isError"] and text in out["content"][0]["text"]
+
+
+def rpc(url: str, msg, headers: dict | None = None) -> tuple[int, dict | None]:
+    data = msg if isinstance(msg, bytes) else json.dumps(msg).encode()
+    req = urllib.request.Request(url, data=data, method="POST",
+                                 headers={"Content-Type": "application/json", **(headers or {})})
+    try:
+        with urllib.request.urlopen(req, timeout=5) as r:
+            raw = r.read()
+            return r.status, json.loads(raw) if raw else None
+    except urllib.error.HTTPError as e:
+        raw = e.read()
+        return e.code, json.loads(raw) if raw else None
+
+
+@pytest.fixture()
+def mcp_http(world):
+    srv = make_mcp_http(tools(world, bank_key="bank.pem", authority="kyb.json"), port=0, token="s3cret",
+                        origins=["https://claude.example"])
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    yield f"http://127.0.0.1:{srv.server_address[1]}/mcp"
+    srv.shutdown()
+    srv.server_close()
+
+
+def test_mcp_over_http(mcp_http):
+    auth = {"Authorization": "Bearer s3cret"}
+    code, init = rpc(mcp_http, {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}, auth)
+    assert code == 200 and init["result"]["capabilities"]["resources"] == {}
+    assert rpc(mcp_http, {"jsonrpc": "2.0", "method": "notifications/initialized"}, auth) == (202, None)
+    code, p = rpc(mcp_http, {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {
+        "name": "attach_mandate", "arguments": {"payment_id": "INV-H", "amount": "100.00", "payee": PAYEE}}}, auth)
+    payment = p["result"]["structuredContent"]["payment"]
+    code, d = rpc(mcp_http, {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {
+        "name": "check_payment", "arguments": {"payment": payment}}},
+        {**auth, "Origin": "https://claude.example"})
+    assert d["result"]["structuredContent"]["outcome"] == "allow"
+
+
+@pytest.mark.parametrize("headers, body, path, code", [
+    ({}, {"jsonrpc": "2.0", "id": 1, "method": "ping"}, "/mcp", 401),
+    ({"Authorization": "Bearer nope"}, {"jsonrpc": "2.0", "id": 1, "method": "ping"}, "/mcp", 401),
+    ({"Authorization": "Bearer s3cret", "Origin": "https://evil.example"}, {"jsonrpc": "2.0", "id": 1,
+                                                                            "method": "ping"}, "/mcp", 403),
+    ({"Authorization": "Bearer s3cret"}, {"jsonrpc": "2.0", "id": 1, "method": "ping"}, "/other", 404),
+    ({"Authorization": "Bearer s3cret"}, [{"jsonrpc": "2.0", "id": 1, "method": "ping"}], "/mcp", 400),
+    ({"Authorization": "Bearer s3cret"}, b'{"jsonrpc": "2.0", "id": 1, "id": 2, "method": "ping"}', "/mcp", 400),
+    ({"Authorization": "Bearer s3cret"}, b"\xff", "/mcp", 400),
+])
+def test_mcp_http_guards(mcp_http, headers, body, path, code):
+    assert rpc(mcp_http.replace("/mcp", path), body, headers)[0] == code
+
+
+def test_mcp_http_no_streams(mcp_http):
+    for method in ("GET", "DELETE"):
+        req = urllib.request.Request(mcp_http, method=method, headers={"Authorization": "Bearer s3cret"})
+        with pytest.raises(urllib.error.HTTPError) as e:
+            urllib.request.urlopen(req, timeout=5)
+        assert e.value.code == 405
+    req = urllib.request.Request(mcp_http, data=b"", method="POST", headers={"Authorization": "Bearer s3cret"})
+    with pytest.raises(urllib.error.HTTPError) as e:
+        urllib.request.urlopen(req, timeout=5)
+    assert e.value.code == 400

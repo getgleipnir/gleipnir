@@ -166,7 +166,8 @@ def load_authority(path: str) -> m.Authority:
     doc = read_json(path)
     try:
         source = doc.get("source", "bank_kyb")
-        table = {(s["company"], s["signer"]): m.AuthorityResult(source, tuple(s["keys"]), s.get("may_sign", True))
+        table = {(s["company"], s["signer"]): m.AuthorityResult(source, tuple(s["keys"]), s.get("may_sign", True),
+                                                                s.get("joint", 1))
                  for s in doc["signers"]}
     except (AttributeError, KeyError, TypeError) as exc:
         raise CliError(f"{path}: expected {{'signers': [{{'company', 'signer', 'keys'}}]}}") from exc
@@ -191,20 +192,42 @@ def cmd_keygen(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_issue(args: argparse.Namespace) -> int:
+def build_scope(args: argparse.Namespace) -> dict[str, Any]:
     scope: dict[str, Any] = {"rails": args.rail or ["sepa"], "currency": args.currency,
-                             "max_per_payment": args.max_per_payment, "payees": [parse_payee(p) for p in args.payee]}
+                             "max_per_payment": args.max_per_payment}
+    if args.payee:
+        scope["payees"] = [parse_payee(p) for p in args.payee]
     if args.max_per_period:
         amount, sep, period = args.max_per_period.partition("/")
         if not sep:
             raise CliError("--max-per-period must be AMOUNT/PERIOD, e.g. 100000.00/P1M")
         scope["max_per_period"] = {"amount": amount, "period": period}
-    if args.purpose:
+    if getattr(args, "purpose", None):
         scope["purpose"] = args.purpose
+    return scope
+
+
+def parse_person(text: str) -> dict[str, Any]:
+    """ID=KEY, where KEY is a public key or a private key PEM path."""
+    pid, sep, key = text.partition("=")
+    if not sep or not pid or not key:
+        raise CliError(f"expected ID=KEY, got {text!r}")
+    return {"id": pid.strip(), "public_key": public_key(key.strip())}
+
+
+def cmd_issue(args: argparse.Namespace) -> int:
+    scope = build_scope(args)
     signer = {"id": args.signer_id, "name": args.signer_name or args.signer_id,
               "public_key": public_key(args.signer_key)}
     if args.signer_role:
         signer["role"] = args.signer_role
+    signers = None
+    if args.cosigner:
+        of = [signer, *(parse_person(c) for c in args.cosigner)]
+        signers = {"threshold": args.threshold or len(of), "of": of}
+    elif args.threshold:
+        raise CliError("--threshold needs at least one --cosigner")
+    chain = [read_json(d) for d in args.delegation or []]
     agent = {"id": args.agent_id, "name": args.agent_name or args.agent_id}
     if args.agent_key:
         agent["public_key"] = public_key(args.agent_key)
@@ -215,8 +238,9 @@ def cmd_issue(args: argparse.Namespace) -> int:
         company["lei"] = args.lei
     valid_until = args.valid_until or m.fmt_ts(m.utcnow() + timedelta(days=args.days))
     try:
-        mandate = m.issue(id=args.id, company=company, agent=agent, signer=signer, scope=scope,
-                          valid_until=valid_until, valid_from=args.valid_from, status_url=args.status_url)
+        mandate = m.issue(id=args.id, company=company, agent=agent, scope=scope, valid_until=valid_until,
+                          signer=None if signers else signer, signers=signers, delegation=chain or None,
+                          valid_from=args.valid_from, status_url=args.status_url)
     except ValueError as exc:
         raise CliError(f"mandate rejected: {exc}") from exc
     write_json(mandate, args.output)
@@ -224,22 +248,58 @@ def cmd_issue(args: argparse.Namespace) -> int:
 
 
 def cmd_sign(args: argparse.Namespace) -> int:
+    """Sign a single-signer mandate, or add this key's co-signature to a multi-signature one."""
     mandate = read_json(args.mandate)
     sk = load_key(args.key)
-    if mandate.get("signer", {}).get("public_key") != m.public_key_of(sk):
-        raise CliError("this key is not the signer key named in the mandate")
-    unsigned = {k: v for k, v in mandate.items() if k != "sig"}
-    problem = m.mandate_problem(unsigned)
+    pub = m.public_key_of(sk)
+    problem = m.mandate_problem({k: v for k, v in mandate.items() if k not in ("sig", "sigs")})
     if problem:
         raise CliError(f"mandate rejected: {problem}")
-    write_json(m.sign_mandate(unsigned, sk), args.output or args.mandate)
+    if "signers" in mandate:
+        mine = [p for p in mandate["signers"]["of"] if p["public_key"] == pub]
+        if not mine:
+            raise CliError("this key is not one of the signers named in the mandate")
+        signed = m.cosign(mandate, sk, mine[0]["id"])
+        have, need = len(signed["sigs"]), mandate["signers"]["threshold"]
+        print(f"gleipnir: signed as {mine[0]['id']} ({have} of {need} needed)", file=sys.stderr)
+    else:
+        if mandate["signer"]["public_key"] != pub:
+            raise CliError("this key is not the signer key named in the mandate")
+        signed = m.sign_mandate(mandate, sk)
+    write_json(signed, args.output or args.mandate)
+    return 0
+
+
+def cmd_delegate(args: argparse.Namespace) -> int:
+    sk = load_key(args.key)
+    parent = read_json(args.parent) if args.parent else None
+    company = {"name": args.company, **({"country": args.country} if args.country else {})}
+    to = parse_person(args.to)
+    if args.to_role:
+        to["role"] = args.to_role
+    valid_until = args.valid_until or m.fmt_ts(m.utcnow() + timedelta(days=args.days))
+    try:
+        d = m.delegate(id=args.id, company=company, from_={"id": args.from_id, "public_key": m.public_key_of(sk)},
+                       to=to, scope=build_scope(args), valid_until=valid_until, sk=sk, parent=parent,
+                       valid_from=args.valid_from)
+    except ValueError as exc:
+        raise CliError(f"delegation rejected: {exc}") from exc
+    write_json(d, args.output)
     return 0
 
 
 def cmd_revoke(args: argparse.Namespace) -> int:
     mandate = read_json(args.mandate)
     sk = load_key(args.key)
-    signer = {"id": args.signer_id or mandate["signer"]["id"], "public_key": m.public_key_of(sk)}
+    if args.signer_id:
+        sid = args.signer_id
+    elif "signer" in mandate:
+        sid = mandate["signer"]["id"]
+    elif "from" in mandate:
+        sid = mandate["from"]["id"]
+    else:
+        raise CliError("--signer-id is required for this target")
+    signer = {"id": sid, "public_key": m.public_key_of(sk)}
     write_json(m.revoke(mandate, signer=signer, sk=sk, id=args.id, reason=args.reason or ""), args.output)
     return 0
 
@@ -261,9 +321,14 @@ def cmd_kyb(args: argparse.Namespace) -> int:
     mandate = read_json(args.mandate)
     print("gleipnir: dev KYB file trusts the mandate's own signer key. A bank fills this from its KYB records.",
           file=sys.stderr)
-    people = [mandate["signer"]] if "signer" in mandate else mandate["signers"]["of"]
-    doc = {"source": "bank_kyb", "signers": [{"company": mandate["company"]["name"], "signer": p["id"],
-                                              "keys": [p["public_key"]], "may_sign": True} for p in people]}
+    company = mandate["company"]["name"]
+    chain = mandate.get("delegation", [])
+    if chain:  # root may sign; everyone below is enrolled but signs only on the strength of the chain
+        rows = [(chain[0]["from"], True)] + [(d["to"], False) for d in chain]
+    else:
+        rows = [(p, True) for p in ([mandate["signer"]] if "signer" in mandate else mandate["signers"]["of"])]
+    doc = {"source": "bank_kyb", "signers": [{"company": company, "signer": p["id"], "keys": [p["public_key"]],
+                                              "may_sign": may} for p, may in rows]}
     write_json(doc, args.output)
     return 0
 
@@ -274,12 +339,19 @@ def cmd_check(args: argparse.Namespace) -> int:
     state_path = Path(args.state) if args.state else Path(args.home) / "mandate-state" / "state.json"
     with FileState(state_path) as state:
         checker = m.Checker(id=args.bank_id, sk=load_key(args.bank_key), authority=load_authority(args.authority),
-                            ledger=state, payments=state, revocations=revocations)
+                            ledger=state, payments=state, revocations=revocations, webauthn=webauthn_of(args))
         decision = checker.check(mandate, payment)
     write_json(decision, args.output)
     if args.output and args.output != "-":
         print(f"{decision['outcome']} {','.join(decision['reasons']) or '-'}", file=sys.stderr)
     return EXIT[decision["outcome"]]
+
+
+def webauthn_of(args: argparse.Namespace) -> dict[str, Any]:
+    """Passkey settings for mandates signed in a browser or bank app: --rp-id and --origin."""
+    if not getattr(args, "rp_id", None):
+        return {}
+    return {"rp_id": args.rp_id, "origins": args.origin or [f"https://{args.rp_id}"]}
 
 
 def cmd_verify(args: argparse.Namespace) -> int:
@@ -315,6 +387,11 @@ def add_subcommands(p: argparse.ArgumentParser) -> None:
     i.add_argument("--max-per-period", help="AMOUNT/PERIOD, period one of P1D, P7D, P1M")
     i.add_argument("--payee", action="append", required=True, help="NAME=IBAN (repeatable)")
     i.add_argument("--purpose")
+    i.add_argument("--cosigner", action="append", metavar="ID=KEY",
+                   help="another signatory (repeatable): makes a multi-signature mandate, e.g. Gesamtprokura")
+    i.add_argument("--threshold", type=int, help="signatures needed (default: all signers)")
+    i.add_argument("--delegation", action="append", metavar="FILE",
+                   help="delegation link the signer's authority comes from (repeatable, root first)")
     i.add_argument("--valid-from")
     i.add_argument("--valid-until", help="RFC 3339 UTC; default now + --days")
     i.add_argument("--days", type=int, default=30)
@@ -322,13 +399,33 @@ def add_subcommands(p: argparse.ArgumentParser) -> None:
     i.add_argument("-o", "--output")
     i.set_defaults(mandate_fn=cmd_issue)
 
-    s = sub.add_parser("sign", help="sign a mandate with the signatory's key (writes in place unless -o)")
+    s = sub.add_parser("sign", help="sign a mandate, or co-sign a multi-signature one (writes in place unless -o)")
     s.add_argument("mandate")
     s.add_argument("--key", required=True)
     s.add_argument("-o", "--output")
     s.set_defaults(mandate_fn=cmd_sign)
 
-    r = sub.add_parser("revoke", help="write a signed revocation of a mandate")
+    g = sub.add_parser("delegate", help="write a signed delegation: a bounded part of your authority to someone")
+    g.add_argument("--id", required=True)
+    g.add_argument("--company", required=True)
+    g.add_argument("--country")
+    g.add_argument("--from-id", required=True, help="you, as the bank knows you")
+    g.add_argument("--key", required=True, help="your private key PEM")
+    g.add_argument("--to", required=True, metavar="ID=KEY", help="the delegate and their enrolled key")
+    g.add_argument("--to-role")
+    g.add_argument("--parent", help="the delegation link your own authority comes from")
+    g.add_argument("--rail", action="append", choices=sorted(m.RAILS))
+    g.add_argument("--currency", required=True)
+    g.add_argument("--max-per-payment", required=True)
+    g.add_argument("--max-per-period")
+    g.add_argument("--payee", action="append", help="NAME=IBAN (repeatable); omit for any payee")
+    g.add_argument("--valid-from")
+    g.add_argument("--valid-until")
+    g.add_argument("--days", type=int, default=90)
+    g.add_argument("-o", "--output")
+    g.set_defaults(mandate_fn=cmd_delegate)
+
+    r = sub.add_parser("revoke", help="write a signed revocation of a mandate or a delegation")
     r.add_argument("mandate")
     r.add_argument("--key", required=True, help="key of a signatory of the company")
     r.add_argument("--id", required=True)
@@ -362,6 +459,8 @@ def add_subcommands(p: argparse.ArgumentParser) -> None:
     c.add_argument("--bank-id", default="bank:local")
     c.add_argument("--revocation", action="append", help="revocation file (repeatable)")
     c.add_argument("--state", help="state file (default: <home>/mandate-state/state.json)")
+    c.add_argument("--rp-id", help="passkey relying party id, for mandates signed with a passkey")
+    c.add_argument("--origin", action="append", help="allowed passkey origin (default https://<rp-id>)")
     c.add_argument("-o", "--output")
     c.set_defaults(mandate_fn=cmd_check)
 

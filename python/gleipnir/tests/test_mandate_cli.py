@@ -94,3 +94,74 @@ def test_usage_errors(setup: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["mandate", "sign", "nan.json", "--key", "berger.pem"]) == 2
     err = capsys.readouterr().err
     assert "not the signer key" in err and "duplicate JSON key" in err and "NaN is not allowed" in err
+
+
+def test_gesamtprokura_via_cli(setup: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["mandate", "keygen", "-o", "hofer.pem"]) == 0
+    hofer_pub = capsys.readouterr().out.strip()
+    assert main(["mandate", "issue", "--id", "m_joint", "--company", "Nordhafen Logistik GmbH", "--country", "AT",
+                 "--signer-id", "kberger@nordhafen.at", "--signer-key", "berger.pem",
+                 "--cosigner", f"mhofer@nordhafen.at={hofer_pub}", "--agent-id", "ap-agent", "--agent-key", "agent.pem",
+                 "--currency", "EUR", "--max-per-payment", "25000.00", "--payee", PAYEE, "-o", "joint.json"]) == 0
+    assert main(["mandate", "sign", "joint.json", "--key", "berger.pem"]) == 0
+    assert "1 of 2 needed" in capsys.readouterr().err
+    assert main(["mandate", "kyb", "joint.json", "-o", "kyb.json"]) == 0
+    assert main(["mandate", "pay", "joint.json", "--id", "p_j1", "--amount", "100.00", "--payee", PAYEE,
+                 "--agent-key", "agent.pem", "-o", "p_j1.json"]) == 0
+    code = main(["mandate", "check", "joint.json", "p_j1.json", "--authority", "kyb.json", "--bank-key", "bank.pem",
+                 "-o", "d1.json"])
+    assert (code, json.loads(Path("d1.json").read_text())["reasons"]) == (1, ["signature_threshold_not_met"])
+    assert main(["mandate", "sign", "joint.json", "--key", "hofer.pem"]) == 0
+    assert main(["mandate", "sign", "joint.json", "--key", "agent.pem"]) == 2
+    assert main(["mandate", "pay", "joint.json", "--id", "p_j2", "--amount", "100.00", "--payee", PAYEE,
+                 "--agent-key", "agent.pem", "-o", "p_j2.json"]) == 0
+    assert main(["mandate", "check", "joint.json", "p_j2.json", "--authority", "kyb.json", "--bank-key", "bank.pem",
+                 "-o", "d2.json"]) == 0
+    assert "signatures:2/2" in json.loads(Path("d2.json").read_text())["checks"]
+
+
+def test_delegation_via_cli(setup: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    for name in ("ceo", "cfo"):
+        assert main(["mandate", "keygen", "-o", f"{name}.pem"]) == 0
+    assert main(["mandate", "delegate", "--id", "g_ceo_cfo", "--company", "Nordhafen Logistik GmbH",
+                 "--from-id", "ceo@nordhafen.at", "--key", "ceo.pem", "--to", "cfo@nordhafen.at=cfo.pem",
+                 "--to-role", "CFO", "--currency", "EUR", "--max-per-payment", "50000.00", "-o", "g1.json"]) == 0
+    assert main(["mandate", "issue", "--id", "m_cfo", "--company", "Nordhafen Logistik GmbH", "--country", "AT",
+                 "--signer-id", "cfo@nordhafen.at", "--signer-key", "cfo.pem", "--delegation", "g1.json",
+                 "--agent-id", "ap-agent", "--agent-key", "agent.pem", "--currency", "EUR",
+                 "--max-per-payment", "25000.00", "--payee", PAYEE, "-o", "cfo.json"]) == 0
+    assert main(["mandate", "sign", "cfo.json", "--key", "cfo.pem"]) == 0
+    assert main(["mandate", "kyb", "cfo.json", "-o", "kyb.json"]) == 0
+    kyb = json.loads(Path("kyb.json").read_text())["signers"]
+    assert [(r["signer"], r["may_sign"]) for r in kyb] == [("ceo@nordhafen.at", True), ("cfo@nordhafen.at", False)]
+    assert main(["mandate", "pay", "cfo.json", "--id", "p_c1", "--amount", "100.00", "--payee", PAYEE,
+                 "--agent-key", "agent.pem", "-o", "p_c1.json"]) == 0
+    code = main(["mandate", "check", "cfo.json", "p_c1.json", "--authority", "kyb.json", "--bank-key", "bank.pem",
+                 "-o", "dc1.json"])
+    assert code == 0 and "delegation:1" in json.loads(Path("dc1.json").read_text())["checks"]
+    assert main(["mandate", "revoke", "g1.json", "--key", "ceo.pem", "--id", "r_g1", "-o", "rev_g1.json"]) == 0
+    assert json.loads(Path("rev_g1.json").read_text())["signer"]["id"] == "ceo@nordhafen.at"
+    assert main(["mandate", "pay", "cfo.json", "--id", "p_c2", "--amount", "100.00", "--payee", PAYEE,
+                 "--agent-key", "agent.pem", "-o", "p_c2.json"]) == 0
+    code = main(["mandate", "check", "cfo.json", "p_c2.json", "--authority", "kyb.json", "--bank-key", "bank.pem",
+                 "--revocation", "rev_g1.json", "-o", "dc2.json"])
+    assert (code, json.loads(Path("dc2.json").read_text())["reasons"]) == (1, ["delegation_revoked"])
+    # A wider mandate than the delegation is refused by the bank, not by the CLI.
+    assert main(["mandate", "issue", "--id", "m_wide", "--company", "Nordhafen Logistik GmbH", "--country", "AT",
+                 "--signer-id", "cfo@nordhafen.at", "--signer-key", "cfo.pem", "--delegation", "g1.json",
+                 "--agent-id", "ap-agent", "--currency", "EUR", "--max-per-payment", "90000.00", "--payee", PAYEE,
+                 "-o", "wide.json"]) == 0
+
+
+def test_cli_multisig_usage_errors(setup: Path) -> None:
+    assert main(["mandate", "issue", "--id", "m", "--company", "X", "--country", "AT", "--signer-id", "a",
+                 "--signer-key", "berger.pem", "--threshold", "2", "--agent-id", "x", "--currency", "EUR",
+                 "--max-per-payment", "1.00", "--payee", PAYEE]) == 2
+    assert main(["mandate", "issue", "--id", "m", "--company", "X", "--country", "AT", "--signer-id", "a",
+                 "--signer-key", "berger.pem", "--cosigner", "nokey", "--agent-id", "x", "--currency", "EUR",
+                 "--max-per-payment", "1.00", "--payee", PAYEE]) == 2
+    assert main(["mandate", "delegate", "--id", "g", "--company", "X", "--from-id", "a", "--key", "berger.pem",
+                 "--to", "b=agent.pem", "--currency", "EUR", "--max-per-payment", "1"]) == 2
+    assert main(["mandate", "delegate", "--id", "g", "--company", "X", "--from-id", "a", "--key", "berger.pem",
+                 "--to", "b=agent.pem", "--currency", "EUR", "--max-per-payment", "1.00",
+                 "--max-per-period", "5.00"]) == 2

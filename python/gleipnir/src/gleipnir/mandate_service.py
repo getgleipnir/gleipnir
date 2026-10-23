@@ -10,8 +10,10 @@ Binds to 127.0.0.1 by default. Bodies are strict JSON (no duplicate keys, no NaN
 no authentication: put it behind the bank's own API gateway. State (period ledger, payment log) is the dev
 file store from ``gleipnir mandate check``.
 
-``gleipnir mandate mcp`` (agent side): a stdio MCP server with three tools.
+``gleipnir mandate mcp`` (agent side): an MCP server (stdio, or Streamable HTTP with ``--http PORT``) with four
+tools and the current mandate as a resource (``gleipnir://mandate/current``).
 
+- ``mandate_scope``: what the agent may pay under the loaded mandate.
 - ``request_mandate``: draft an unsigned mandate for a person to review and sign in their bank's app (or with
   ``gleipnir mandate sign``). The agent never signs a mandate itself.
 - ``attach_mandate``: build a payment under the loaded mandate, signed with the agent's key.
@@ -22,7 +24,9 @@ file store from ``gleipnir mandate check``.
 from __future__ import annotations
 
 import argparse
+import hmac
 import json
+import secrets
 import sys
 import threading
 import urllib.error
@@ -33,7 +37,16 @@ from typing import Any
 
 from gleipnir_verify import mandate as m
 
-from .mandate_cli import CliError, FileState, load_authority, load_key, loads_strict, parse_payee, read_json
+from .mandate_cli import (
+    CliError,
+    FileState,
+    load_authority,
+    load_key,
+    loads_strict,
+    parse_payee,
+    read_json,
+    webauthn_of,
+)
 
 MAX_BODY = 1 << 20
 PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
@@ -45,7 +58,8 @@ class Bank:
     """A Checker wired to the dev file state, safe to call from several HTTP threads."""
 
     def __init__(self, *, bank_id: str, bank_key: str, authority: str, state: Path,
-                 revocations: list[str] | None = None) -> None:
+                 revocations: list[str] | None = None, webauthn: dict | None = None) -> None:
+        self.webauthn = webauthn or {}
         self.id = bank_id
         self.sk = load_key(bank_key)
         self.public_key = m.public_key_of(self.sk)
@@ -57,7 +71,7 @@ class Bank:
     def check(self, mandate: Any, payment: Any) -> dict[str, Any]:
         with self._lock, FileState(self.state) as st:
             checker = m.Checker(id=self.id, sk=self.sk, authority=self.authority, ledger=st, payments=st,
-                                revocations=list(self.revocations))
+                                revocations=list(self.revocations), webauthn=self.webauthn)
             return checker.check(mandate, payment)
 
     def add_revocation(self, r: Any) -> None:
@@ -127,7 +141,7 @@ def make_server(bank: Bank, host: str = "127.0.0.1", port: int = 8787) -> Thread
 def cmd_serve(args: argparse.Namespace) -> int:
     state = Path(args.state) if args.state else Path(args.home) / "mandate-state" / "state.json"
     bank = Bank(bank_id=args.bank_id, bank_key=args.bank_key, authority=args.authority, state=state,
-                revocations=args.revocation)
+                revocations=args.revocation, webauthn=webauthn_of(args))
     srv = make_server(bank, args.host, args.port)
     print(f"gleipnir: checker {bank.id} on http://{args.host}:{srv.server_address[1]} "
           f"(POST /check, GET /keys, POST /revoke). Reference server, no auth: keep it behind your gateway.",
@@ -148,6 +162,11 @@ def _schema(props: dict[str, Any], required: list[str]) -> dict[str, Any]:
 
 
 TOOLS = [
+    {"name": "mandate_scope",
+     "description": "What you may pay under the loaded mandate: company, payees (name and account), limits, rails, "
+                    "validity, who signed. Read this before paying; anything outside it will be refused.",
+     "inputSchema": _schema({}, []),
+     "annotations": {"title": "What may I pay?", "readOnlyHint": True, "openWorldHint": False}},
     {"name": "request_mandate",
      "description": "Draft an unsigned mandate for a company signatory to review and sign in their bank's app. "
                     "You cannot sign it yourself; until a person signs, you cannot pay under it.",
@@ -160,7 +179,9 @@ TOOLS = [
          "payees": {"type": "array", "items": {"type": "string", "description": "NAME=IBAN"}},
          "valid_until": {"type": "string", "description": "RFC 3339 UTC"}, "purpose": {"type": "string"},
      }, ["company", "country", "signer_id", "signer_public_key", "currency", "max_per_payment", "payees",
-         "valid_until"])},
+         "valid_until"]),
+     "annotations": {"title": "Ask a person for a mandate", "readOnlyHint": False, "destructiveHint": False,
+                     "openWorldHint": False}},
     {"name": "attach_mandate",
      "description": "Build a payment under the loaded mandate, signed with your agent key. Submit the result "
                     "to the bank together with the mandate. Check it first with check_payment.",
@@ -169,13 +190,40 @@ TOOLS = [
          "amount": {"type": "string", "description": "e.g. 18400.00"},
          "payee": {"type": "string", "description": "NAME=IBAN, exactly as on the invoice"},
          "reference": {"type": "string"}, "rail": {"type": "string"},
-     }, ["payment_id", "amount", "payee"])},
+     }, ["payment_id", "amount", "payee"]),
+     "annotations": {"title": "Prepare a payment", "readOnlyHint": True, "openWorldHint": False}},
     {"name": "check_payment",
      "description": "Ask the bank's checker whether a payment built by attach_mandate is covered by the mandate. "
                     "Returns allow, block or escalate with a reason. Never pay on block; on escalate, ask a "
                     "person. Note: the bank records this payment id; resubmit the same payment, not a new one.",
-     "inputSchema": _schema({"payment": {"type": "object"}}, ["payment"])},
+     "inputSchema": _schema({"payment": {"type": "object"}}, ["payment"]),
+     "annotations": {"title": "Ask the bank", "readOnlyHint": False, "destructiveHint": False,
+                     "idempotentHint": True, "openWorldHint": True}},
 ]
+
+RESOURCE_URI = "gleipnir://mandate/current"
+_TYPES = {"string": str, "object": dict, "array": list}
+
+
+def arguments_problem(spec: dict, args: Any) -> str | None:
+    """Check tool arguments against the tool's schema: required keys, no extra keys, types."""
+    if not isinstance(args, dict):
+        return "arguments must be an object"
+    missing = [k for k in spec["required"] if k not in args]
+    if missing:
+        return f"missing arguments: {missing}"
+    extra = sorted(set(args) - set(spec["properties"]))
+    if extra:
+        return f"unknown arguments: {extra}"
+    for k, v in args.items():
+        want = spec["properties"][k]
+        if not isinstance(v, _TYPES[want["type"]]):
+            return f"{k} must be a {want['type']}"
+        if want["type"] == "array" and not all(isinstance(x, str) for x in v):
+            return f"{k} must be a list of strings"
+        if want["type"] == "string" and len(v) > 2000:
+            return f"{k} is too long"
+    return None
 
 
 class MandateTools:
@@ -188,12 +236,24 @@ class MandateTools:
         if not self.bank_url and args.bank_key and args.authority:
             state = Path(args.state) if args.state else Path(args.home) / "mandate-state" / "state.json"
             self.local = Bank(bank_id="bank:local-demo", bank_key=args.bank_key, authority=args.authority,
-                              state=state, revocations=args.revocation)
+                              state=state, revocations=args.revocation, webauthn=webauthn_of(args))
 
     def _mandate(self) -> dict:
         if not self.mandate_path:
             raise CliError("no mandate loaded: start the server with --mandate, or use request_mandate first")
         return read_json(self.mandate_path)
+
+    def mandate_scope(self, a: dict) -> dict:
+        md = self._mandate()
+        sc = md.get("scope", {})
+        signed_by = [md["signer"]["id"]] if "signer" in md else [s.get("signer") for s in md.get("sigs", [])]
+        return {"mandate": md.get("id"), "company": md.get("company", {}).get("name"),
+                "agent": md.get("agent", {}).get("id"), "currency": sc.get("currency"),
+                "max_per_payment": sc.get("max_per_payment"), "max_per_period": sc.get("max_per_period"),
+                "rails": sc.get("rails", "any"), "payees": sc.get("payees", "any payee"),
+                "valid_from": md.get("valid_from"), "valid_until": md.get("valid_until"), "signed_by": signed_by,
+                "delegation": [f"{d['from']['id']} -> {d['to']['id']}" for d in md.get("delegation", [])],
+                "problem": m.mandate_problem(md)}
 
     def request_mandate(self, a: dict) -> dict:
         scope: dict[str, Any] = {"rails": ["sepa", "sepa_instant"], "currency": a["currency"],
@@ -207,8 +267,8 @@ class MandateTools:
         if self.agent_sk is not None:
             agent["public_key"] = m.public_key_of(self.agent_sk)
         try:
-            draft = m.issue(id=f"m_draft_{len(list(self.drafts.glob('*.json'))) + 1}" if self.drafts.exists()
-                            else "m_draft_1", company={"name": a["company"], "country": a["country"]}, agent=agent,
+            draft = m.issue(id="m_" + secrets.token_hex(8), company={"name": a["company"], "country": a["country"]},
+                            agent=agent,
                             signer={"id": a["signer_id"], "public_key": a["signer_public_key"]}, scope=scope,
                             valid_until=a["valid_until"])
         except ValueError as exc:
@@ -276,7 +336,7 @@ def handle(tools: MandateTools, msg: Any) -> dict | None:
     if method == "initialize":
         asked = params.get("protocolVersion") if isinstance(params, dict) else None
         return _result(rid, {"protocolVersion": asked if asked in PROTOCOL_VERSIONS else PROTOCOL_VERSIONS[0],
-                             "capabilities": {"tools": {}},
+                             "capabilities": {"tools": {}, "resources": {}},
                              "serverInfo": {"name": "gleipnir-mandate", "version": m.V},
                              "instructions": "Pay only under a mandate a person signed. Check every payment "
                                              "with check_payment first; never pay on block."})
@@ -284,18 +344,30 @@ def handle(tools: MandateTools, msg: Any) -> dict | None:
         return _result(rid, {})
     if method == "tools/list":
         return _result(rid, {"tools": TOOLS})
+    if method == "resources/list":
+        return _result(rid, {"resources": [{"uri": RESOURCE_URI, "name": "Current mandate",
+                                            "description": "The signed mandate this agent pays under",
+                                            "mimeType": "application/json"}] if tools.mandate_path else []})
+    if method == "resources/read":
+        if not isinstance(params, dict) or params.get("uri") != RESOURCE_URI or not tools.mandate_path:
+            return _error(rid, -32002, "resource not found")
+        try:
+            text = json.dumps(tools._mandate(), indent=2, ensure_ascii=False)
+        except CliError as exc:
+            return _error(rid, -32603, str(exc))
+        return _result(rid, {"contents": [{"uri": RESOURCE_URI, "mimeType": "application/json", "text": text}]})
     if method == "tools/call":
         name = params.get("name") if isinstance(params, dict) else None
-        args = params.get("arguments") or {} if isinstance(params, dict) else {}
-        fn = {"request_mandate": tools.request_mandate, "attach_mandate": tools.attach_mandate,
-              "check_payment": tools.check_payment}.get(name)
+        args = params.get("arguments") if isinstance(params, dict) else None
+        if args is None:
+            args = {}
+        fn = {"mandate_scope": tools.mandate_scope, "request_mandate": tools.request_mandate,
+              "attach_mandate": tools.attach_mandate, "check_payment": tools.check_payment}.get(name)
         if fn is None:
             return _error(rid, -32602, f"unknown tool {name!r}")
-        spec = next(t for t in TOOLS if t["name"] == name)["inputSchema"]
-        missing = [k for k in spec["required"] if k not in args] if isinstance(args, dict) else spec["required"]
-        if missing:
-            return _result(rid, {"content": [{"type": "text", "text": f"missing arguments: {missing}"}],
-                                 "isError": True})
+        bad = arguments_problem(next(t for t in TOOLS if t["name"] == name)["inputSchema"], args)
+        if bad:
+            return _result(rid, {"content": [{"type": "text", "text": bad}], "isError": True})
         try:
             out = fn(args)
             return _result(rid, {"content": [{"type": "text", "text": json.dumps(out, ensure_ascii=False)}],
@@ -322,8 +394,97 @@ def serve_stdio(tools: MandateTools, stdin: Any = None, stdout: Any = None) -> N
             stdout.flush()
 
 
+def make_mcp_http(tools: MandateTools, host: str = "127.0.0.1", port: int = 8788, token: str | None = None,
+                  origins: list[str] | None = None) -> ThreadingHTTPServer:
+    """MCP Streamable HTTP, JSON responses only (no server-initiated streams): POST /mcp.
+
+    Rejects browser requests from other origins (DNS-rebinding protection) and, with ``token``, requests
+    without ``Authorization: Bearer <token>``.
+    """
+    allowed = set(origins or []) | {f"http://{host}:{port}", f"http://localhost:{port}", f"http://127.0.0.1:{port}"}
+    lock = threading.Lock()
+
+    class Handler(BaseHTTPRequestHandler):
+        server_version = "gleipnir-mandate-mcp/0.2"
+
+        def log_message(self, fmt: str, *args: Any) -> None:
+            pass
+
+        def _send(self, code: int, obj: Any = None) -> None:
+            body = b"" if obj is None else json.dumps(obj, ensure_ascii=False).encode()
+            self.send_response(code)
+            if obj is not None:
+                self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def _guard(self) -> bool:
+            origin = self.headers.get("Origin")
+            if origin is not None and origin not in allowed:
+                self._send(403, {"error": "origin not allowed"})
+                return False
+            if token is not None:
+                got = self.headers.get("Authorization", "")
+                if not hmac.compare_digest(got.encode(), f"Bearer {token}".encode()):
+                    self._send(401, {"error": "missing or wrong bearer token"})
+                    return False
+            if self.path != "/mcp":
+                self._send(404, {"error": "not found"})
+                return False
+            return True
+
+        def do_GET(self) -> None:  # noqa: N802 - no server-initiated stream
+            if self._guard():
+                self._send(405, {"error": "this server only answers POST /mcp"})
+
+        def do_DELETE(self) -> None:  # noqa: N802
+            if self._guard():
+                self._send(405, {"error": "no sessions"})
+
+        def do_POST(self) -> None:  # noqa: N802
+            if not self._guard():
+                return
+            try:
+                n = int(self.headers.get("Content-Length", "0"))
+            except ValueError:
+                n = -1
+            if n <= 0 or n > MAX_BODY:
+                self._send(400, _error(None, -32600, f"body must be 1 byte to {MAX_BODY} bytes"))
+                return
+            try:
+                msg = loads_strict(self.rfile.read(n).decode("utf-8"), "message")
+            except (CliError, UnicodeDecodeError) as exc:
+                self._send(400, _error(None, -32700, str(exc)))
+                return
+            if isinstance(msg, list):
+                self._send(400, _error(None, -32600, "batches are not supported"))
+                return
+            with lock:
+                resp = handle(tools, msg)
+            if resp is None:
+                self._send(202)
+            else:
+                self._send(200, resp)
+
+    return ThreadingHTTPServer((host, port), Handler)
+
+
 def cmd_mcp(args: argparse.Namespace) -> int:
-    serve_stdio(MandateTools(args))
+    tools = MandateTools(args)
+    if args.http is None:
+        serve_stdio(tools)
+        return 0
+    token = args.token or (secrets.token_urlsafe(24) if args.host not in ("127.0.0.1", "localhost") else None)
+    srv = make_mcp_http(tools, args.host, args.http, token, args.allow_origin)
+    print(f"gleipnir: MCP on http://{args.host}:{srv.server_address[1]}/mcp"
+          + (f" (Authorization: Bearer {token})" if token else ""), file=sys.stderr)
+    try:
+        srv.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        srv.server_close()
     return 0
 
 
@@ -336,6 +497,8 @@ def add_arguments(sub: argparse._SubParsersAction) -> None:
     s.add_argument("--state")
     s.add_argument("--host", default="127.0.0.1")
     s.add_argument("--port", type=int, default=8787)
+    s.add_argument("--rp-id", help="passkey relying party id, for mandates signed with a passkey")
+    s.add_argument("--origin", action="append", help="allowed passkey origin (default https://<rp-id>)")
     s.set_defaults(mandate_fn=cmd_serve)
 
     c = sub.add_parser("mcp", help="MCP server (stdio) for an agent: request_mandate, attach_mandate, check_payment")
@@ -347,4 +510,10 @@ def add_arguments(sub: argparse._SubParsersAction) -> None:
     c.add_argument("--revocation", action="append")
     c.add_argument("--state")
     c.add_argument("--drafts", default="mandate-drafts", help="where request_mandate writes drafts")
+    c.add_argument("--http", type=int, metavar="PORT", help="serve MCP over HTTP on this port instead of stdio")
+    c.add_argument("--host", default="127.0.0.1")
+    c.add_argument("--token", help="bearer token for HTTP (generated when binding beyond localhost)")
+    c.add_argument("--allow-origin", action="append", help="browser origin allowed to call the HTTP server")
+    c.add_argument("--rp-id", help="passkey relying party id (local demo checker)")
+    c.add_argument("--origin", action="append", help="allowed passkey origin (local demo checker)")
     c.set_defaults(mandate_fn=cmd_mcp)
