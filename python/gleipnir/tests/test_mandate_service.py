@@ -1,0 +1,207 @@
+"""The reference bank checker (HTTP) and the agent MCP server, end to end."""
+
+from __future__ import annotations
+
+import io
+import json
+import subprocess
+import sys
+import threading
+import urllib.error
+import urllib.request
+from argparse import Namespace
+from pathlib import Path
+
+import pytest
+
+from gleipnir.cli import main
+from gleipnir.mandate_service import Bank, MandateTools, handle, make_server, serve_stdio
+from gleipnir_verify import mandate as M
+
+IBAN = "AT611904300234573201"
+PAYEE = f"Brenner Stahl AG={IBAN}"
+
+
+@pytest.fixture()
+def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    monkeypatch.chdir(tmp_path)
+    for name in ("signer", "agent", "bank"):
+        assert main(["mandate", "keygen", "-o", f"{name}.pem"]) == 0
+    assert main(["mandate", "issue", "--id", "m_ap", "--company", "Nordhafen Logistik GmbH", "--country", "AT",
+                 "--signer-id", "kberger@nordhafen.at", "--signer-key", "signer.pem", "--agent-id", "ap-agent",
+                 "--agent-key", "agent.pem", "--currency", "EUR", "--max-per-payment", "25000.00",
+                 "--max-per-period", "40000.00/P1M", "--payee", PAYEE, "-o", "mandate.json"]) == 0
+    assert main(["mandate", "sign", "mandate.json", "--key", "signer.pem"]) == 0
+    assert main(["mandate", "kyb", "mandate.json", "-o", "kyb.json"]) == 0
+    return tmp_path
+
+
+@pytest.fixture()
+def server(world: Path):
+    bank = Bank(bank_id="bank:test", bank_key="bank.pem", authority="kyb.json", state=world / "state.json")
+    srv = make_server(bank, port=0)
+    t = threading.Thread(target=srv.serve_forever, daemon=True)
+    t.start()
+    yield f"http://127.0.0.1:{srv.server_address[1]}", bank
+    srv.shutdown()
+    srv.server_close()
+
+
+def post(url: str, body: bytes | dict, path: str = "/check") -> tuple[int, dict]:
+    data = body if isinstance(body, bytes) else json.dumps(body).encode()
+    req = urllib.request.Request(url + path, data=data, method="POST", headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=5) as r:
+            return r.status, json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        return e.code, json.loads(e.read())
+
+
+def tools(world: Path, **kw) -> MandateTools:
+    args = Namespace(mandate="mandate.json", agent_key="agent.pem", drafts=str(world / "drafts"), bank_url=None,
+                     bank_key=None, authority=None, state=str(world / "agent-state.json"), revocation=None,
+                     home=str(world / ".gleipnir"))
+    for k, v in kw.items():
+        setattr(args, k, v)
+    return MandateTools(args)
+
+
+def call(t: MandateTools, name: str, args: dict, rid: int = 1) -> dict:
+    resp = handle(t, {"jsonrpc": "2.0", "id": rid, "method": "tools/call", "params": {"name": name, "arguments": args}})
+    return resp["result"]
+
+
+def test_http_check_keys_revoke(server, world):
+    url, bank = server
+    mandate = json.loads(Path("mandate.json").read_text())
+    t = tools(world)
+    p_ok = call(t, "attach_mandate", {"payment_id": "INV-1", "amount": "18400.00", "payee": PAYEE})["structuredContent"]
+    code, d = post(url, {"mandate": mandate, "payment": p_ok["payment"]})
+    assert code == 200 and d["outcome"] == "allow"
+    with urllib.request.urlopen(url + "/keys") as r:
+        keys = json.loads(r.read())
+    assert keys == {"checker": "bank:test", "keys": [bank.public_key]}
+    assert M.verify_decision(d, keys["keys"])
+    code, again = post(url, {"mandate": mandate, "payment": p_ok["payment"]})
+    assert again == d  # idempotent over HTTP too
+    assert main(["mandate", "revoke", "mandate.json", "--key", "signer.pem", "--id", "r_1", "-o", "rev.json"]) == 0
+    assert post(url, json.loads(Path("rev.json").read_text()), "/revoke") == (200, {"ok": True})
+    p2 = call(t, "attach_mandate", {"payment_id": "INV-2", "amount": "1.00", "payee": PAYEE})["structuredContent"]
+    assert post(url, {"mandate": mandate, "payment": p2["payment"]})[1]["reasons"] == ["mandate_revoked"]
+
+
+@pytest.mark.parametrize("body, path, code", [
+    (b'{"mandate": {}, "mandate": {}, "payment": {}}', "/check", 400),
+    (b'{"mandate": NaN, "payment": {}}', "/check", 400),
+    (b'{"payment": {}}', "/check", 400),
+    (b"\xff\xfe", "/check", 400),
+    (b"[" * 100000, "/check", 400),
+    (b'{"v": "x"}', "/revoke", 400),
+    (b"{}", "/nope", 404),
+])
+def test_http_rejects_bad_requests(server, body, path, code):
+    url, _ = server
+    assert post(url, body, path)[0] == code
+
+
+def test_http_junk_mandate_still_signed_block(server):
+    url, bank = server
+    code, d = post(url, {"mandate": {"v": "x"}, "payment": {"v": "y"}})
+    assert code == 200 and d["outcome"] == "block" and M.verify_decision(d, [bank.public_key])
+    req = urllib.request.Request(url + "/check", data=b"", method="POST")
+    with pytest.raises(urllib.error.HTTPError):
+        urllib.request.urlopen(req, timeout=5)
+    with pytest.raises(urllib.error.HTTPError):
+        urllib.request.urlopen(url + "/other", timeout=5)
+
+
+def test_mcp_demo_script_via_bank_url(server, world):
+    """The 60-second demo: allow, 'we changed our bank details' blocked, too much escalated."""
+    url, _ = server
+    t = tools(world, bank_url=url)
+    outcomes = []
+    swapped = "Brenner Stahl AG=LT121000011101001000"
+    for pid, amount, payee in [("INV-1", "18400.00", PAYEE), ("INV-2", "18400.00", swapped),
+                               ("INV-3", "26000.00", PAYEE)]:
+        p = call(t, "attach_mandate", {"payment_id": pid, "amount": amount, "payee": payee})["structuredContent"]
+        r = call(t, "check_payment", p)["structuredContent"]
+        outcomes.append((r["outcome"], r["reasons"]))
+        assert r["advice"]
+    assert outcomes == [("allow", []), ("block", ["payee_not_on_mandate"]), ("escalate", ["over_payment_limit"])]
+
+
+def test_mcp_local_demo_checker(world):
+    t = tools(world, bank_key="bank.pem", authority="kyb.json")
+    p = call(t, "attach_mandate", {"payment_id": "INV-9", "amount": "100.00", "payee": PAYEE})["structuredContent"]
+    assert call(t, "check_payment", p)["structuredContent"]["outcome"] == "allow"
+
+
+def test_mcp_protocol(world):
+    t = tools(world)
+    init = handle(t, {"jsonrpc": "2.0", "id": 0, "method": "initialize", "params": {"protocolVersion": "2025-03-26"}})
+    assert init["result"]["protocolVersion"] == "2025-03-26" and "tools" in init["result"]["capabilities"]
+    odd = handle(t, {"jsonrpc": "2.0", "id": 0, "method": "initialize", "params": {"protocolVersion": "1999"}})
+    assert odd["result"]["protocolVersion"] == "2025-06-18"
+    assert handle(t, {"jsonrpc": "2.0", "method": "notifications/initialized"}) is None
+    names = [x["name"] for x in handle(t, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})["result"]["tools"]]
+    assert names == ["request_mandate", "attach_mandate", "check_payment"]
+    assert handle(t, {"jsonrpc": "2.0", "id": 2, "method": "ping"})["result"] == {}
+    assert handle(t, {"jsonrpc": "2.0", "id": 3, "method": "nope"})["error"]["code"] == -32601
+    assert handle(t, {"id": 4})["error"]["code"] == -32600
+    assert handle(t, "x")["error"]["code"] == -32600
+    bad = handle(t, {"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "pay_everything"}})
+    assert bad["error"]["code"] == -32602
+
+
+def test_mcp_tool_errors_are_results_not_crashes(world):
+    t = tools(world)
+    assert call(t, "attach_mandate", {"amount": "1.00"})["isError"]
+    assert "bad amount" in call(t, "attach_mandate", {"payment_id": "x", "amount": "1.5", "payee": PAYEE})[
+        "content"][0]["text"]
+    assert "no checker configured" in call(t, "check_payment", {"payment": {}})["content"][0]["text"]
+    assert "unreachable" in call(tools(world, bank_url="http://127.0.0.1:9"), "check_payment",
+                                 {"payment": {}})["content"][0]["text"]
+    assert "no mandate loaded" in call(tools(world, mandate=None), "attach_mandate",
+                                       {"payment_id": "x", "amount": "1.00", "payee": PAYEE})["content"][0]["text"]
+    assert "--agent-key" in call(tools(world, agent_key=None), "attach_mandate",
+                                 {"payment_id": "x", "amount": "1.00", "payee": PAYEE})["content"][0]["text"]
+
+
+def test_mcp_request_mandate_writes_unsigned_draft(world):
+    t = tools(world)
+    pub = M.public_key_of(M.new_key()[0])
+    args = {"company": "Nordhafen Logistik GmbH", "country": "AT", "signer_id": "kberger@nordhafen.at",
+            "signer_public_key": pub, "currency": "EUR", "max_per_payment": "5000.00", "max_per_month": "20000.00",
+            "payees": [PAYEE], "valid_until": "2026-12-31T23:59:59.000Z", "purpose": "Freight invoices"}
+    out = call(t, "request_mandate", args)["structuredContent"]
+    assert out["status"] == "awaiting_signature"
+    draft = json.loads(Path(out["draft"]).read_text())
+    assert "sig" not in draft and draft["scope"]["max_per_period"] == {"amount": "20000.00", "period": "P1M"}
+    assert M.mandate_hash(draft) == out["mandate_hash"]
+    second = call(t, "request_mandate", args)["structuredContent"]
+    assert second["draft"] != out["draft"]
+    assert call(t, "request_mandate", {**args, "max_per_payment": "5000"})["isError"]
+
+
+def test_mcp_stdio_loop(world):
+    t = tools(world)
+    stdin = io.StringIO('{"jsonrpc":"2.0","id":1,"method":"tools/list"}\n\nnot json\n'
+                        '{"jsonrpc":"2.0","method":"notifications/initialized"}\n')
+    out = io.StringIO()
+    serve_stdio(t, stdin, out)
+    lines = [json.loads(x) for x in out.getvalue().splitlines()]
+    assert len(lines) == 2 and lines[0]["id"] == 1 and lines[1]["error"]["code"] == -32700
+
+
+def test_mcp_as_a_real_process(world):
+    """What Claude Desktop runs: `gleipnir mandate mcp ...` on stdio."""
+    proc = subprocess.run(
+        [sys.executable, "-m", "gleipnir.cli", "mandate", "mcp", "--mandate", "mandate.json", "--agent-key",
+         "agent.pem", "--bank-key", "bank.pem", "--authority", "kyb.json", "--state", "s.json"],
+        input='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}\n'
+              '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"attach_mandate","arguments":'
+              '{"payment_id":"INV-1","amount":"100.00","payee":"' + PAYEE + '"}}}\n',
+        capture_output=True, text=True, timeout=60, cwd=world)
+    lines = [json.loads(x) for x in proc.stdout.splitlines()]
+    assert lines[0]["result"]["serverInfo"]["name"] == "gleipnir-mandate"
+    assert lines[1]["result"]["structuredContent"]["payment"]["id"] == "INV-1"

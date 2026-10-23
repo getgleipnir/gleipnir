@@ -31,6 +31,24 @@ const decision = await bank.check(mandate, payment);   // { outcome: "allow" | "
 
 The CLI keeps period totals and seen payment ids in `.gleipnir/mandate-state/` so repeated runs act like one bank. That file is for development; a bank plugs in its own ledger and payment log (`Ledger.reserve`, `PaymentLog.seen`).
 
+## For agents: MCP. For banks: `POST /check`
+
+The agent side, as an MCP server any MCP client can run (Claude Desktop, Cursor, Claude Code):
+
+```json
+{"mcpServers": {"gleipnir-mandate": {"command": "uv", "args": ["run", "--project", "/path/to/gleipnir", "gleipnir",
+  "mandate", "mcp", "--mandate", "/path/mandate.json", "--agent-key", "/path/agent.pem",
+  "--bank-url", "http://127.0.0.1:8787"]}}}
+```
+
+Three tools: `request_mandate` drafts an unsigned mandate for a person to sign (the agent never signs one itself), `attach_mandate` builds a payment signed with the agent key, `check_payment` asks the bank's checker before paying and returns allow, block or escalate with advice.
+
+The bank side, as a reference HTTP checker (no auth; put it behind your own gateway):
+
+```bash
+g serve --authority kyb.json --bank-key bank.pem --port 8787   # POST /check, GET /keys, POST /revoke
+```
+
 ## Action records for AI agents
 
 The earlier part of this repo: signed, anchored records of what an agent did, verifiable by a third party.
