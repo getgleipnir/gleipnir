@@ -192,11 +192,11 @@ def test_ok_non_utc_timestamps_rejected(w, ts):
     assert w["checker"].check(w["m"], pay(w, requested_at=ts))["outcome"] == "block"
 
 
-@pytest.mark.xfail(strict=True, reason="L1 open: strict RFC 3339 timestamps")
-@pytest.mark.parametrize("ts", ["2026-10-23T09Z", "2026-10-23T09:14Z", "2026-10-23T09:14:02.1234567Z"])
-def test_L1_non_rfc3339_timestamps_accepted(w, ts):
-    """spec says strict RFC 3339 with milliseconds (format.md); the code accepts loose ISO 8601."""
-    assert w["checker"].check(w["m"], pay(w, requested_at=ts))["reasons"] == ["mandate_malformed"]
+@pytest.mark.parametrize("ts", ["2026-10-23T09Z", "2026-10-23T09:14Z", "2026-10-23T09:14:02.1234567Z",
+                                "2026-10-23 09:14:02Z", "2026-10-23T09:14:02,000Z"])
+def test_L1_non_rfc3339_timestamps_rejected(w, ts):
+    """Fixed: strict RFC 3339 (shared grammar with the TypeScript port)."""
+    assert w["checker"].check(w["m"], pay(w, requested_at=ts))["reasons"] == ["payment_malformed"]
 
 
 def test_L2_valid_until_before_valid_from_is_issued():

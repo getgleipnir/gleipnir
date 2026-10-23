@@ -1,7 +1,7 @@
 {
   "name": "@getgleipnir/verify",
   "version": "0.1.0",
-  "description": "Offline verifier for Gleipnir agent action record bundles (Node and browsers).",
+  "description": "Offline verifier for Gleipnir agent action record bundles, and the KYA mandate checker (Node and browsers).",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -10,6 +10,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./mandate": {
+      "types": "./dist/mandate.d.ts",
+      "import": "./dist/mandate.js"
     },
     "./package.json": "./package.json"
   },
