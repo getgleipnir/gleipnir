@@ -163,9 +163,18 @@ def cosign(mandate: dict, sk: Ed25519PrivateKey, signer_id: str) -> dict[str, An
     return {**mandate, "sigs": sigs}
 
 
+def passkey_digest(mandate: dict) -> str:
+    """What a signatory's passkey signs: SHA-256 of the domain-separated mandate message (spec 4.3).
+
+    Domain separation keeps a mandate passkey signature from ever being valid as an approval of an agent
+    action (format.md "Signed approvals"), which signs the bare action digest.
+    """
+    return sha256_tagged(message("mandate", mandate_hash(mandate)))
+
+
 def passkey_challenge(mandate: dict) -> bytes:
-    """The WebAuthn challenge a signatory's passkey signs: the 32 raw bytes of the mandate hash."""
-    return hash_to_bytes(mandate_hash(mandate))
+    """The WebAuthn challenge: the 32 raw bytes of passkey_digest(mandate)."""
+    return hash_to_bytes(passkey_digest(mandate))
 
 
 def delegate(*, id: str, company: dict, from_: dict, to: dict, scope: dict, valid_until: str,
@@ -395,8 +404,8 @@ def _verify(kind: str, h: str, sig: Any, pub_text: Any, webauthn: dict) -> bool:
     try:
         pub = decode_public_key(pub_text)
         if isinstance(sig, dict) and sig.get("type") == "webauthn" and kind == "mandate":
-            return webauthn_problem(sig, pub, h, webauthn.get("rp_id", ""), webauthn.get("origins", []),
-                                    None) is None
+            return webauthn_problem(sig, pub, sha256_tagged(message(kind, h)), webauthn.get("rp_id", ""),
+                                    webauthn.get("origins", []), None) is None
         return verify_signature(pub, message(kind, h), sig)
     except Exception:  # noqa: BLE001 - any malformed key or signature fails closed
         return False

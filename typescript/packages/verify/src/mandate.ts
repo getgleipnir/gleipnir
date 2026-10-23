@@ -189,9 +189,17 @@ export function cosign(mandate: JsonDict, seed: Seed, signerId: string): JsonDic
   return { ...mandate, sigs: [...prior.filter((s) => s.signer !== signerId), entry] };
 }
 
-/** The WebAuthn challenge a signatory's passkey signs: the 32 raw bytes of the mandate hash. */
+/**
+ * What a signatory's passkey signs: SHA-256 of the domain-separated mandate message (spec 4.3), so a
+ * mandate passkey signature is never valid as an approval of an agent action, and the reverse.
+ */
+export function passkeyDigest(mandate: JsonDict): string {
+  return sha256Tagged(mandateMessage("mandate", mandateHash(mandate)));
+}
+
+/** The WebAuthn challenge: the 32 raw bytes of passkeyDigest(mandate). */
 export function passkeyChallenge(mandate: JsonDict): Uint8Array {
-  return hashToBytes(mandateHash(mandate));
+  return hashToBytes(passkeyDigest(mandate));
 }
 
 /** A signed delegation from `from` (who signs with `seed`) to `to`. `parent`: the link above. */
@@ -421,7 +429,7 @@ function signatures(m: JsonDict): [Signed[], number] {
   return [sigs.map((s) => [byId.get(s.signer as string)!, s.sig] as Signed), ss.threshold as number];
 }
 
-interface WebauthnOptions {
+export interface WebauthnOptions {
   rpId?: string;
   origins?: readonly string[];
 }
@@ -430,7 +438,7 @@ function verify(kind: string, hash: string, sig: unknown, pubText: unknown, wa: 
   try {
     const pub = decodePublicKey(pubText);
     if (isDict(sig) && sig.type === "webauthn" && kind === "mandate") {
-      return webauthnProblem(sig, pub, hash, wa.rpId ?? "", wa.origins ?? [], null) === null;
+      return webauthnProblem(sig, pub, sha256Tagged(mandateMessage(kind, hash)), wa.rpId ?? "", wa.origins ?? [], null) === null;
     }
     return verifySignature(pub, mandateMessage(kind, hash), sig);
   } catch {

@@ -17,6 +17,14 @@ from typing import Any
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from gleipnir_verify import mandate as M
+from gleipnir_verify.approvals import approval_challenge
+
+try:
+    from passkey import WEBAUTHN, Passkey
+except ImportError:  # run as a script from the repo root
+    import sys
+    sys.path.insert(0, str(Path(__file__).parent))
+    from passkey import WEBAUTHN, Passkey
 
 OUT = Path(__file__).resolve().parents[3] / "typescript/packages/verify/test/fixtures/mandate-vectors.json"
 
@@ -142,6 +150,30 @@ def v02_cases() -> list[dict[str, Any]]:
         case("cfo_removed_from_signatories", m, [pay(m, "p_1")], authority=[row(SIGNER_ID, SIGNER, may_sign=False)]),
         case("second_bank_without_vlei", m, [pay(m, "p_1")], authority=[]),
         case("second_bank_with_vlei", m, [pay(m, "p_1")], authority=vlei),
+        *passkey_cases(),
+    ]
+
+
+def passkey_cases() -> list[dict[str, Any]]:
+    """Passkey-signed mandates (fixed P-256 keys; ECDSA signatures are random but only ever verified)."""
+    pk_b, pk_h = Passkey(0xB16B00B5), Passkey(0xC0FFEE)
+    who_b = {"id": SIGNER_ID, "public_key": pk_b.public_key}
+    who_h = {"id": "mhofer@nordhafen.at", "public_key": pk_h.public_key}
+    kyb = [row(SIGNER_ID, SIGNER, keys=[pk_b.public_key]), row(who_h["id"], HOFER, keys=[pk_h.public_key])]
+    one = mandate(sign=False, signer=who_b)
+    signed = {**one, "sig": pk_b.assert_(M.passkey_challenge(one))}
+    bare = {**one, "sig": pk_b.assert_(approval_challenge(M.mandate_hash(one)))}
+    wrong_origin = {**one, "sig": pk_b.assert_(M.passkey_challenge(one), origin="https://evil.example")}
+    joint = mandate(sign=False, signer=None, signers={"threshold": 2, "of": [who_b, who_h]})
+    ch = M.passkey_challenge(joint)
+    joint = {**joint, "sigs": [{"signer": who_b["id"], "sig": pk_b.assert_(ch)},
+                               {"signer": who_h["id"], "sig": pk_h.assert_(ch)}]}
+    return [
+        case("passkey_signed_allow", signed, [pay(signed, "p_1")], authority=kyb, webauthn=WEBAUTHN),
+        case("passkey_without_checker_config", signed, [pay(signed, "p_1")], authority=kyb),
+        case("passkey_bare_hash_m1", bare, [pay(bare, "p_1")], authority=kyb, webauthn=WEBAUTHN),
+        case("passkey_wrong_origin", wrong_origin, [pay(wrong_origin, "p_1")], authority=kyb, webauthn=WEBAUTHN),
+        case("passkey_gesamtprokura_allow", joint, [pay(joint, "p_1")], authority=kyb, webauthn=WEBAUTHN),
     ]
 
 
@@ -173,8 +205,9 @@ def pay(m: dict, pid: str, amount: str = "100.00", *, payee: dict = BRENNER, rai
 
 
 def case(name: str, m: Any, payments: list[Any], *, now: str | list[str] = NOW, authority: list | None = None,
-         revocations: list | None = None, status: str | None = None, ledger: bool = True) -> dict[str, Any]:
-    return {"name": name, "mandate": m, "payments": payments,
+         revocations: list | None = None, status: str | None = None, ledger: bool = True,
+         webauthn: dict | None = None) -> dict[str, Any]:
+    return {"name": name, "mandate": m, "payments": payments, "webauthn": webauthn or {},
             "now": now if isinstance(now, list) else [now] * len(payments),
             "authority": KYB if authority is None else authority, "revocations": revocations or [],
             "status": status, "ledger": ledger}
@@ -276,7 +309,8 @@ def run(c: dict[str, Any]) -> list[dict[str, Any]]:
     clock = {"now": c["now"][0]}
     checker = M.Checker(id="bank:VECTORS", sk=BANK, authority=authority_fn(c["authority"]),
                         ledger=M.InMemoryLedger() if c["ledger"] else None, revocations=c["revocations"],
-                        status=status_fn(c["status"]), clock=lambda: datetime.fromisoformat(
+                        status=status_fn(c["status"]), webauthn=c.get("webauthn") or {},
+                        clock=lambda: datetime.fromisoformat(
                             clock["now"].replace("Z", "+00:00")))
     out = []
     for p, at in zip(c["payments"], c["now"], strict=True):
@@ -302,7 +336,8 @@ def build() -> dict[str, Any]:
     signed = []
     for c in cases():
         decisions = run(c)
-        receipt = M.verify_receipt(c["mandate"], c["payments"][0], decisions[0], [M.public_key_of(BANK)])
+        receipt = M.verify_receipt(c["mandate"], c["payments"][0], decisions[0], [M.public_key_of(BANK)],
+                                   webauthn=c.get("webauthn") or {})
         out_cases.append({**c, "expect": expected(decisions), "receipt": {k: v for k, v in receipt.items()
                                                                           if k != "checked_at"}})
         signed.append(decisions[0])

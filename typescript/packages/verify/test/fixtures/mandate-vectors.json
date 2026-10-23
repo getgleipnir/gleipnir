@@ -72,6 +72,7 @@
      "agent_sig": "ed25519:BiX2FmTCRJz-yfPxfEhPXiLykeifvnI7BoPobfehFhPieJiTcMo6NszdNipTc30luuvfhhfGqGI-TUO7BWG7Bg"
     }
    ],
+   "webauthn": {},
    "now": [
     "2026-10-23T09:14:02.000Z"
    ],
@@ -208,6 +209,7 @@
      "agent_sig": "ed25519:s-8dbY1PPsrb5d29_gXMLaI9QkIH9NnBI7EFOxo2d19Svj8OlVuLb_tKYG_DkyNTOdwX6bvfmdX9l6lwTDdtDg"
     }
    ],
+   "webauthn": {},
    "now": [
     "2026-10-23T09:14:02.000Z"
    ],
@@ -345,6 +347,7 @@
      "agent_sig": "ed25519:oc9LJj30vXg0QkbkbVGjCeXoMFQn8dDe2wIgD5d1Y4GyfDdmjML9H0Hp13EAMpM56pPtftDUDCqEr0xjbEj6Ag"
     }
    ],
+   "webauthn": {},
    "now": [
     "2026-10-23T09:14:02.000Z"
    ],
@@ -481,6 +484,7 @@
      "agent_sig": "ed25519:8VSAaJCJiL1ByrjYzlbIpG_ONDkuAQUKewdtSWGqcPMdb37NhEnQEvVw12awi9vpht_mz6dF-YrHhbORPglFAQ"
     }
    ],
+   "webauthn": {},
    "now": [
     "2026-10-23T09:14:02.000Z"
    ],
@@ -679,6 +683,7 @@
      "agent_sig": "ed25519:M9U2Mjuk7zK-L6ZdjvP9vBjayS_HS77UDiaIoyB9trUpJISrrJ-fjpk7P4GOhhW6CV_Xh8l7Q0hzJcErGBjjAg"
     }
    ],
+   "webauthn": {},
    "now": [
     "2026-10-23T09:14:02.000Z",
     "2026-10-23T09:14:02.000Z",
@@ -896,6 +901,7 @@
      "agent_sig": "ed25519:oVGRD7BIrgu9ctKls0-GdnWvFbznfIaiOuQf6A3xg0_kjPTaIInErzjoNuNCsnb6MmSL6l_bHj8c5yjTFL8kCQ"
     }
    ],
+   "webauthn": {},
    "now": [
     "2026-10-23T09:14:02.000Z",
     "2026-10-23T09:14:02.000Z"
@@ -1094,6 +1100,7 @@
      "agent_sig": "ed25519:e5LOJCH_VPRjud8PaIqMjYCfdf2SA_9CncDqKJ42d11j_dbiLr8Wm8BZI8hli4Rig206Fo0e7X34u8HX66-1DA"
     }
    ],
+   "webauthn": {},
    "now": [
     "2026-10-25T23:59:30.000Z",
     "2026-10-25T23:59:40.000Z",
@@ -1287,6 +1294,7 @@
      "agent_sig": "ed25519:PkU5qKgixJ_Ac6ffy6vxrCxVLj8vRO0YdlE1KrTNMKOdjNueuyshrxZRxj49YJdz_kt90MLlVeXEyLD2HQuyDQ"
     }
    ],
+   "webauthn": {},
    "now": [
     "2026-10-23T09:14:02.000Z"
    ],
@@ -1442,6 +1450,7 @@
      "agent_sig": "ed25519:pBwTLTFiyrXpW-QNcFtkSPPKOllXis2BQy3epowvn2cluA1FkuIZp6kSruLwM4H3faTfiAkqkuNGPMbm_G9gDQ"
     }
    ],
+   "webauthn": {},
    "now": [
     "2026-10-23T09:14:02.000Z",
     "2026-10-23T09:14:02.000Z"
@@ -1618,6 +1627,7 @@
      "agent_sig": "ed25519:x4sJA7By61_cBRVgENErmGy_rr1iwI9EjeO301lY0gE0qqPxOhJHGiWgRdrELz2GQS7mECUx5Q4ek9BPBJ9HDg"
     }
    ],
+   "webauthn": {},
    "now": [
     "2026-10-23T09:14:02.000Z",
     "2026-10-23T09:14:02.000Z"
@@ -1781,6 +1791,7 @@
      "agent_sig": "ed25519:t-KrqiUPJGCREJTjqCM03llYaxzp1eqW7sIQHVMsHbdl_BCCselxXqUxongcsNTmhzr7d3SUSziiOGJl66YuAg"
     }
    ],
+   "webauthn": {},
    "now": [
     "2026-10-23T09:14:02.000Z"
    ],
@@ -1918,6 +1929,7 @@
      "agent_sig": "ed25519:3yX9DAzsVqN3NOe8X-lqsC0NF8LQkIEol-qOJ_UVDjZy5qPWcnjR_Lpi_T7ZZcGcu0m4pZUugsUJXjWcBpWGBA"
     }
    ],
+   "webauthn": {},
    "now": [
     "2026-10-23T09:14:02.000Z"
    ],
@@ -2094,6 +2106,7 @@
      "reference": "INV-1"
     }
    ],
+   "webauthn": {},
    "now": [
     "2026-10-23T09:14:02.000Z",
     "2026-10-23T09:14:02.000Z",
@@ -2282,6 +2295,7 @@
      "reference": "INV-1"
     }
    ],
+   "webauthn": {},
    "now": [
     "2026-10-23T09:14:02.000Z"
    ],
@@ -2417,6 +2431,7 @@
      "agent_sig": "ed25519:Kg4VMJJi1FoDq1yZz4r2w43vE2LM0BDukyuZoHeYBRAKMR8OH_Z0ZmzepHGS8WOiz_MPjjxLwq9Vmi9WbATTBQ"
     }
    ],
+   "webauthn": {},
    "now": [
     "2026-10-23T09:14:02.000Z"
    ],
@@ -2547,6 +2562,7 @@
      "agent_sig": "ed25519:Kg4VMJJi1FoDq1yZz4r2w43vE2LM0BDukyuZoHeYBRAKMR8OH_Z0ZmzepHGS8WOiz_MPjjxLwq9Vmi9WbATTBQ"
     }
    ],
+   "webauthn": {},
    "now": [
     "2026-10-23T09:14:02.000Z"
    ],
@@ -2679,6 +2695,7 @@
      "agent_sig": "ed25519:PkU5qKgixJ_Ac6ffy6vxrCxVLj8vRO0YdlE1KrTNMKOdjNueuyshrxZRxj49YJdz_kt90MLlVeXEyLD2HQuyDQ"
     }
    ],
+   "webauthn": {},
    "now": [
     "2026-10-23T09:14:02.000Z"
    ],
@@ -2801,6 +2818,7 @@
      "agent_sig": "ed25519:PkU5qKgixJ_Ac6ffy6vxrCxVLj8vRO0YdlE1KrTNMKOdjNueuyshrxZRxj49YJdz_kt90MLlVeXEyLD2HQuyDQ"
     }
    ],
+   "webauthn": {},
    "now": [
     "2026-10-23T09:14:02.000Z"
    ],
@@ -2933,6 +2951,7 @@
      "agent_sig": "ed25519:PkU5qKgixJ_Ac6ffy6vxrCxVLj8vRO0YdlE1KrTNMKOdjNueuyshrxZRxj49YJdz_kt90MLlVeXEyLD2HQuyDQ"
     }
    ],
+   "webauthn": {},
    "now": [
     "2026-10-23T09:14:02.000Z"
    ],
@@ -3065,6 +3084,7 @@
      "agent_sig": "ed25519:VtvbGm9iiHFJ9QYMK9oTuJZhCTVABKV2myZMenOimgs5kTyEp0OYnlzIxWyevqSDHhNbG4jj36XJpa26HCFvBA"
     }
    ],
+   "webauthn": {},
    "now": [
     "2027-01-01T00:00:00.000Z"
    ],
@@ -3201,6 +3221,7 @@
      "agent_sig": "ed25519:OGlkKYiVZdLW8IA5eIR6h1QS4ToR3JcuunNOh_cgBVFs2nud59vWYAlsSIZEV4s4a1i6E7G5qa5sC9UxM6-uAw"
     }
    ],
+   "webauthn": {},
    "now": [
     "2026-10-23T09:14:02.000Z"
    ],
@@ -3336,6 +3357,7 @@
      "agent_sig": "ed25519:PkU5qKgixJ_Ac6ffy6vxrCxVLj8vRO0YdlE1KrTNMKOdjNueuyshrxZRxj49YJdz_kt90MLlVeXEyLD2HQuyDQ"
     }
    ],
+   "webauthn": {},
    "now": [
     "2026-10-23T09:14:02.000Z"
    ],
@@ -3486,6 +3508,7 @@
      "agent_sig": "ed25519:PkU5qKgixJ_Ac6ffy6vxrCxVLj8vRO0YdlE1KrTNMKOdjNueuyshrxZRxj49YJdz_kt90MLlVeXEyLD2HQuyDQ"
     }
    ],
+   "webauthn": {},
    "now": [
     "2026-10-23T09:14:02.000Z"
    ],
@@ -3637,6 +3660,7 @@
      "agent_sig": "ed25519:PkU5qKgixJ_Ac6ffy6vxrCxVLj8vRO0YdlE1KrTNMKOdjNueuyshrxZRxj49YJdz_kt90MLlVeXEyLD2HQuyDQ"
     }
    ],
+   "webauthn": {},
    "now": [
     "2026-10-23T09:14:02.000Z"
    ],
@@ -3789,6 +3813,7 @@
      "agent_sig": "ed25519:ajL_5SG3x2srQ-EOX9mCAv7TCX3cFk9rhsE8GRgGQdd5HfNJJN59GN-wcZaM8r6G8hh-7AbnXnIbjSmBYNKRAg"
     }
    ],
+   "webauthn": {},
    "now": [
     "2026-10-23T09:14:02.000Z"
    ],
@@ -3926,6 +3951,7 @@
      "agent_sig": "ed25519:ajL_5SG3x2srQ-EOX9mCAv7TCX3cFk9rhsE8GRgGQdd5HfNJJN59GN-wcZaM8r6G8hh-7AbnXnIbjSmBYNKRAg"
     }
    ],
+   "webauthn": {},
    "now": [
     "2026-10-23T09:14:02.000Z"
    ],
@@ -4062,6 +4088,7 @@
      "agent_sig": "ed25519:ajL_5SG3x2srQ-EOX9mCAv7TCX3cFk9rhsE8GRgGQdd5HfNJJN59GN-wcZaM8r6G8hh-7AbnXnIbjSmBYNKRAg"
     }
    ],
+   "webauthn": {},
    "now": [
     "2026-10-23T09:14:02.000Z"
    ],
@@ -4198,6 +4225,7 @@
      "agent_sig": "ed25519:ajL_5SG3x2srQ-EOX9mCAv7TCX3cFk9rhsE8GRgGQdd5HfNJJN59GN-wcZaM8r6G8hh-7AbnXnIbjSmBYNKRAg"
     }
    ],
+   "webauthn": {},
    "now": [
     "2026-10-23T09:14:02.000Z"
    ],
@@ -4353,6 +4381,7 @@
      "agent_sig": "ed25519:UH9E7G1lWE2Tf_kkQi_W__TXaOCqky9PIsAl1GOVJmOS-CVm9YSObW7CkEbhkeQz7oQaiXKkl5YT9CvDpctFAA"
     }
    ],
+   "webauthn": {},
    "now": [
     "2026-10-23T09:14:02.000Z",
     "2026-10-23T09:14:02.000Z"
@@ -4570,6 +4599,7 @@
      "agent_sig": "ed25519:ArYsa7FrY6Bhxi3uEEFBq6J7Nu2jrI9AVW9cjRz3XDpNEesY2tjN8Yrxc4AdmWY8EuHSW7TGB7Csy7rsoFMuCw"
     }
    ],
+   "webauthn": {},
    "now": [
     "2026-10-23T09:14:02.000Z",
     "2026-10-23T09:14:02.000Z",
@@ -4790,6 +4820,7 @@
      "agent_sig": "ed25519:PkU5qKgixJ_Ac6ffy6vxrCxVLj8vRO0YdlE1KrTNMKOdjNueuyshrxZRxj49YJdz_kt90MLlVeXEyLD2HQuyDQ"
     }
    ],
+   "webauthn": {},
    "now": [
     "2026-10-23T09:14:02.000Z"
    ],
@@ -4925,6 +4956,7 @@
      "agent_sig": "ed25519:PkU5qKgixJ_Ac6ffy6vxrCxVLj8vRO0YdlE1KrTNMKOdjNueuyshrxZRxj49YJdz_kt90MLlVeXEyLD2HQuyDQ"
     }
    ],
+   "webauthn": {},
    "now": [
     "2026-10-23T09:14:02.000Z"
    ],
@@ -5073,6 +5105,7 @@
      "agent_sig": "ed25519:T7qpoWjHsI6vcOXxxKaukaagR2forXMzMwQANehT4ddEYg1qS4QQMCTNEpkAycg1prjo3mm44d7FjtL9YQe8CA"
     }
    ],
+   "webauthn": {},
    "now": [
     "2026-10-23T09:14:02.000Z"
    ],
@@ -5238,6 +5271,7 @@
      "agent_sig": "ed25519:T7qpoWjHsI6vcOXxxKaukaagR2forXMzMwQANehT4ddEYg1qS4QQMCTNEpkAycg1prjo3mm44d7FjtL9YQe8CA"
     }
    ],
+   "webauthn": {},
    "now": [
     "2026-10-23T09:14:02.000Z"
    ],
@@ -5399,6 +5433,7 @@
      "agent_sig": "ed25519:T7qpoWjHsI6vcOXxxKaukaagR2forXMzMwQANehT4ddEYg1qS4QQMCTNEpkAycg1prjo3mm44d7FjtL9YQe8CA"
     }
    ],
+   "webauthn": {},
    "now": [
     "2026-10-23T09:14:02.000Z"
    ],
@@ -5560,6 +5595,7 @@
      "agent_sig": "ed25519:T7qpoWjHsI6vcOXxxKaukaagR2forXMzMwQANehT4ddEYg1qS4QQMCTNEpkAycg1prjo3mm44d7FjtL9YQe8CA"
     }
    ],
+   "webauthn": {},
    "now": [
     "2026-10-23T09:14:02.000Z"
    ],
@@ -5712,6 +5748,7 @@
      "agent_sig": "ed25519:T7qpoWjHsI6vcOXxxKaukaagR2forXMzMwQANehT4ddEYg1qS4QQMCTNEpkAycg1prjo3mm44d7FjtL9YQe8CA"
     }
    ],
+   "webauthn": {},
    "now": [
     "2026-10-23T09:14:02.000Z"
    ],
@@ -5870,6 +5907,7 @@
      "agent_sig": "ed25519:ip52TY6op8VVZo1rHrnpnnq3RcAPgo70RyG2tHDNZfw800F4NWVfrzZ3lzUoUrJJ8qmjH3z6RYwK40nPF3g4AA"
     }
    ],
+   "webauthn": {},
    "now": [
     "2026-10-23T09:14:02.000Z"
    ],
@@ -6031,6 +6069,7 @@
      "agent_sig": "ed25519:ip52TY6op8VVZo1rHrnpnnq3RcAPgo70RyG2tHDNZfw800F4NWVfrzZ3lzUoUrJJ8qmjH3z6RYwK40nPF3g4AA"
     }
    ],
+   "webauthn": {},
    "now": [
     "2026-10-23T09:14:02.000Z"
    ],
@@ -6182,6 +6221,7 @@
      "agent_sig": "ed25519:PkU5qKgixJ_Ac6ffy6vxrCxVLj8vRO0YdlE1KrTNMKOdjNueuyshrxZRxj49YJdz_kt90MLlVeXEyLD2HQuyDQ"
     }
    ],
+   "webauthn": {},
    "now": [
     "2026-10-23T09:14:02.000Z"
    ],
@@ -6323,6 +6363,7 @@
      "agent_sig": "ed25519:PkU5qKgixJ_Ac6ffy6vxrCxVLj8vRO0YdlE1KrTNMKOdjNueuyshrxZRxj49YJdz_kt90MLlVeXEyLD2HQuyDQ"
     }
    ],
+   "webauthn": {},
    "now": [
     "2026-10-23T09:14:02.000Z"
    ],
@@ -6487,6 +6528,7 @@
      "agent_sig": "ed25519:0V9JTCkGDe3MitfQd6VxOrSw3FDnXJxyNmNZQ3ku46bLZbe9vXey6XAuS6b3VWNqXhzKuP6rBs3Yh0QXZnG2Cw"
     }
    ],
+   "webauthn": {},
    "now": [
     "2026-10-23T09:14:02.000Z"
    ],
@@ -6728,6 +6770,7 @@
      "agent_sig": "ed25519:z7eEZ-eAkf50QMjygUSPnVzn6bOPw9Hu5xgWKyymh7qkIUCpJDoHuif_cAHOMLDJrc2UG_XtsJTq_S2_yWnEBg"
     }
    ],
+   "webauthn": {},
    "now": [
     "2026-10-23T09:14:02.000Z"
    ],
@@ -6970,6 +7013,7 @@
      "agent_sig": "ed25519:ep-slE_1gEOThWHNY7J0Zpp0vs8_A4JJfvUwU2lpeQZczUpfpK_QzTgZTQMkQtxSOMTkxtOTIBEmbKoeaDYtBg"
     }
    ],
+   "webauthn": {},
    "now": [
     "2026-10-23T09:14:02.000Z"
    ],
@@ -7174,6 +7218,7 @@
      "agent_sig": "ed25519:gNtLaQRIZGcERIpwgBILvvP0YgMyj55yxYTZvIVA8EfgVh0uPQkf_NSH-oTqS_X18UbxXlqHlRrzvwV6N6I-DA"
     }
    ],
+   "webauthn": {},
    "now": [
     "2026-10-23T09:14:02.000Z"
    ],
@@ -7377,6 +7422,7 @@
      "agent_sig": "ed25519:BP-AN9MJduKB2TvMou-Cyg3gcsa6NtApAr4up0Xdd6A5nsijZSNoHh2QwT-qoAZS8IJX-5L-G4YhiYVDRkhAAQ"
     }
    ],
+   "webauthn": {},
    "now": [
     "2026-10-23T09:14:02.000Z"
    ],
@@ -7588,6 +7634,7 @@
      "agent_sig": "ed25519:bCDNCZfiPvA0ZGroO0-IDsDuxji17DivBMolb1Rb1PstVAmVFT_r-h3ebkxepA6YTIHurufRtfryWBqGhotfCg"
     }
    ],
+   "webauthn": {},
    "now": [
     "2026-10-23T09:14:02.000Z"
    ],
@@ -7791,6 +7838,7 @@
      "agent_sig": "ed25519:kxC5f8_1aplKZMNWAwD2Fe29q0JR6NAdB9kR6OCYu9luEvojVD5rwQga3QfkgcNl44H0uNzz4xXsh3GbjClSAQ"
     }
    ],
+   "webauthn": {},
    "now": [
     "2026-10-23T09:14:02.000Z"
    ],
@@ -8027,6 +8075,7 @@
      "agent_sig": "ed25519:cxDxy0_W2IzWvdvqs95n4sKTINR7WJMGgWxoLKCGSfIfuIoZN0z96KPrJHLqh8lAsIJVETbz-uvHUntsmVrTAg"
     }
    ],
+   "webauthn": {},
    "now": [
     "2026-10-23T09:14:02.000Z"
    ],
@@ -8227,6 +8276,7 @@
      "agent_sig": "ed25519:o0eF1bO7OkKB0VEfjwSEDvNJUio9kI5ksektGkF__FS4ZgEM3p27oIPBbTIvNyS4--ihlOhpVsPnlx8yxIGdCA"
     }
    ],
+   "webauthn": {},
    "now": [
     "2026-10-23T09:14:02.000Z"
    ],
@@ -8426,6 +8476,7 @@
      "agent_sig": "ed25519:0V9JTCkGDe3MitfQd6VxOrSw3FDnXJxyNmNZQ3ku46bLZbe9vXey6XAuS6b3VWNqXhzKuP6rBs3Yh0QXZnG2Cw"
     }
    ],
+   "webauthn": {},
    "now": [
     "2026-10-23T09:14:02.000Z"
    ],
@@ -8595,6 +8646,7 @@
      "agent_sig": "ed25519:0V9JTCkGDe3MitfQd6VxOrSw3FDnXJxyNmNZQ3ku46bLZbe9vXey6XAuS6b3VWNqXhzKuP6rBs3Yh0QXZnG2Cw"
     }
    ],
+   "webauthn": {},
    "now": [
     "2026-10-23T09:14:02.000Z"
    ],
@@ -8794,6 +8846,7 @@
      "agent_sig": "ed25519:0V9JTCkGDe3MitfQd6VxOrSw3FDnXJxyNmNZQ3ku46bLZbe9vXey6XAuS6b3VWNqXhzKuP6rBs3Yh0QXZnG2Cw"
     }
    ],
+   "webauthn": {},
    "now": [
     "2026-10-23T09:14:02.000Z"
    ],
@@ -8993,6 +9046,7 @@
      "agent_sig": "ed25519:0V9JTCkGDe3MitfQd6VxOrSw3FDnXJxyNmNZQ3ku46bLZbe9vXey6XAuS6b3VWNqXhzKuP6rBs3Yh0QXZnG2Cw"
     }
    ],
+   "webauthn": {},
    "now": [
     "2026-10-23T09:14:02.000Z"
    ],
@@ -9210,6 +9264,7 @@
      "agent_sig": "ed25519:0V9JTCkGDe3MitfQd6VxOrSw3FDnXJxyNmNZQ3ku46bLZbe9vXey6XAuS6b3VWNqXhzKuP6rBs3Yh0QXZnG2Cw"
     }
    ],
+   "webauthn": {},
    "now": [
     "2026-10-23T09:14:02.000Z"
    ],
@@ -9427,6 +9482,7 @@
      "agent_sig": "ed25519:0V9JTCkGDe3MitfQd6VxOrSw3FDnXJxyNmNZQ3ku46bLZbe9vXey6XAuS6b3VWNqXhzKuP6rBs3Yh0QXZnG2Cw"
     }
    ],
+   "webauthn": {},
    "now": [
     "2026-10-23T09:14:02.000Z"
    ],
@@ -9611,6 +9667,7 @@
      "agent_sig": "ed25519:PkU5qKgixJ_Ac6ffy6vxrCxVLj8vRO0YdlE1KrTNMKOdjNueuyshrxZRxj49YJdz_kt90MLlVeXEyLD2HQuyDQ"
     }
    ],
+   "webauthn": {},
    "now": [
     "2026-10-23T09:14:02.000Z"
    ],
@@ -9744,6 +9801,7 @@
      "agent_sig": "ed25519:PkU5qKgixJ_Ac6ffy6vxrCxVLj8vRO0YdlE1KrTNMKOdjNueuyshrxZRxj49YJdz_kt90MLlVeXEyLD2HQuyDQ"
     }
    ],
+   "webauthn": {},
    "now": [
     "2026-10-23T09:14:02.000Z"
    ],
@@ -9866,6 +9924,7 @@
      "agent_sig": "ed25519:PkU5qKgixJ_Ac6ffy6vxrCxVLj8vRO0YdlE1KrTNMKOdjNueuyshrxZRxj49YJdz_kt90MLlVeXEyLD2HQuyDQ"
     }
    ],
+   "webauthn": {},
    "now": [
     "2026-10-23T09:14:02.000Z"
    ],
@@ -9937,12 +9996,796 @@
      }
     }
    }
+  },
+  {
+   "name": "passkey_signed_allow",
+   "mandate": {
+    "v": "gleipnir/mandate/0.2",
+    "id": "m_vec",
+    "company": {
+     "name": "Nordhafen Logistik GmbH",
+     "country": "AT"
+    },
+    "agent": {
+     "id": "ap-agent",
+     "public_key": "ed25519:gTl3Dqh9F19Wo1Rmw0x-zMuNipG07jeiXfYPW4_Js5Q"
+    },
+    "signer": {
+     "id": "kberger@nordhafen.at",
+     "public_key": "ecdsa-p256:MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEYJ9Z_sz9j9VBqSyRRR_DkfMeX6TdI0EjK-jEm4e-5Y9tukHIJdoAE0myDVu-lgOS9Ps2DF8nv9h3nCSFBTVFqA"
+    },
+    "scope": {
+     "rails": [
+      "sepa",
+      "sepa_instant"
+     ],
+     "currency": "EUR",
+     "max_per_payment": "25000.00",
+     "max_per_period": {
+      "amount": "40000.00",
+      "period": "P1M"
+     },
+     "payees": [
+      {
+       "name": "Brenner Stahl AG",
+       "account": {
+        "iban": "AT611904300234573201"
+       }
+      }
+     ]
+    },
+    "valid_until": "2026-12-31T23:59:59.000Z",
+    "issued_at": "2026-10-01T08:00:00.000Z",
+    "sig": {
+     "type": "webauthn",
+     "authenticator_data": "Bb5Vr1CMVVXYBtW9VJD14h2rmhAbiDZ_jR0GP4w7_D8FAAAAAQ",
+     "client_data_json": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoiODR2cFl0SGVidjFxdUx4dXEyZWJld3FBcjkyQURwOVctQmlkZXBPRk5URSIsIm9yaWdpbiI6Imh0dHBzOi8vYmFuay5leGFtcGxlIn0",
+     "signature": "MEUCIC0m9p5wVzspna1lHQYSyeqEVXwzbh1JoUgCSqlfm_KrAiEA49X1WSQy7eWdS6FJhvtV7ZSqf89Rx3lX_KzDWiKRmPQ"
+    }
+   },
+   "payments": [
+    {
+     "v": "gleipnir/payment/0.2",
+     "id": "p_1",
+     "mandate": {
+      "id": "m_vec",
+      "hash": "sha256:87d960d92d772454b5c1af9e7faae2ce41aedf82840190c95b1d4e1515d1c424"
+     },
+     "rail": "sepa",
+     "amount": "100.00",
+     "currency": "EUR",
+     "payee": {
+      "name": "Brenner Stahl AG",
+      "account": {
+       "iban": "AT611904300234573201"
+      }
+     },
+     "requested_at": "2026-10-23T09:14:02.000Z",
+     "reference": "INV-1",
+     "agent_sig": "ed25519:PQqZtFi5ThfZfcAzjMgNeQdvPrT8Usdxdznk2xMYeAaM8CElKRRTY-K5bQ7SFKeQTPrzxCuC9F7_zSs_iJrkCw"
+    }
+   ],
+   "webauthn": {
+    "rp_id": "bank.example",
+    "origins": [
+     "https://bank.example"
+    ]
+   },
+   "now": [
+    "2026-10-23T09:14:02.000Z"
+   ],
+   "authority": [
+    {
+     "company": "Nordhafen Logistik GmbH",
+     "signer": "kberger@nordhafen.at",
+     "source": "bank_kyb",
+     "keys": [
+      "ecdsa-p256:MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEYJ9Z_sz9j9VBqSyRRR_DkfMeX6TdI0EjK-jEm4e-5Y9tukHIJdoAE0myDVu-lgOS9Ps2DF8nv9h3nCSFBTVFqA"
+     ],
+     "may_sign": true,
+     "joint": 1
+    },
+    {
+     "company": "Nordhafen Logistik GmbH",
+     "signer": "mhofer@nordhafen.at",
+     "source": "bank_kyb",
+     "keys": [
+      "ecdsa-p256:MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE02AzL62byDr6_0p0DeilFr8bj7P942D_HQOXnB-UPuLopmAH_SdrAnEmXG2wksSgxeuMRf3ENlAsiglfXVdF8g"
+     ],
+     "may_sign": true,
+     "joint": 1
+    }
+   ],
+   "revocations": [],
+   "status": null,
+   "ledger": true,
+   "expect": [
+    {
+     "v": "gleipnir/decision/0.2",
+     "payment": {
+      "id": "p_1",
+      "hash": "sha256:ec8d6a786fa20a774d51ec29e54892d381ae6c9aa2d2f88eb895912f651c98a1"
+     },
+     "mandate": {
+      "id": "m_vec",
+      "hash": "sha256:87d960d92d772454b5c1af9e7faae2ce41aedf82840190c95b1d4e1515d1c424"
+     },
+     "outcome": "allow",
+     "reasons": [],
+     "checks": [
+      "mandate_valid",
+      "signer_authorized:bank_kyb",
+      "not_revoked",
+      "agent_signed",
+      "payee_on_mandate",
+      "within_payment_limit",
+      "within_period_limit"
+     ],
+     "checked_at": "2026-10-23T09:14:02.000Z",
+     "checker": {
+      "id": "bank:VECTORS",
+      "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
+     }
+    }
+   ],
+   "receipt": {
+    "valid": true,
+    "problems": [],
+    "outcome": "allow",
+    "reasons": [],
+    "checker": "bank:VECTORS",
+    "company": "Nordhafen Logistik GmbH",
+    "agent": "ap-agent",
+    "signed_by": [
+     "kberger@nordhafen.at"
+    ],
+    "delegation": [],
+    "authority": [
+     "signer_authorized:bank_kyb"
+    ],
+    "payment": {
+     "id": "p_1",
+     "amount": "100.00",
+     "currency": "EUR",
+     "payee": {
+      "iban": "AT611904300234573201"
+     }
+    }
+   }
+  },
+  {
+   "name": "passkey_without_checker_config",
+   "mandate": {
+    "v": "gleipnir/mandate/0.2",
+    "id": "m_vec",
+    "company": {
+     "name": "Nordhafen Logistik GmbH",
+     "country": "AT"
+    },
+    "agent": {
+     "id": "ap-agent",
+     "public_key": "ed25519:gTl3Dqh9F19Wo1Rmw0x-zMuNipG07jeiXfYPW4_Js5Q"
+    },
+    "signer": {
+     "id": "kberger@nordhafen.at",
+     "public_key": "ecdsa-p256:MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEYJ9Z_sz9j9VBqSyRRR_DkfMeX6TdI0EjK-jEm4e-5Y9tukHIJdoAE0myDVu-lgOS9Ps2DF8nv9h3nCSFBTVFqA"
+    },
+    "scope": {
+     "rails": [
+      "sepa",
+      "sepa_instant"
+     ],
+     "currency": "EUR",
+     "max_per_payment": "25000.00",
+     "max_per_period": {
+      "amount": "40000.00",
+      "period": "P1M"
+     },
+     "payees": [
+      {
+       "name": "Brenner Stahl AG",
+       "account": {
+        "iban": "AT611904300234573201"
+       }
+      }
+     ]
+    },
+    "valid_until": "2026-12-31T23:59:59.000Z",
+    "issued_at": "2026-10-01T08:00:00.000Z",
+    "sig": {
+     "type": "webauthn",
+     "authenticator_data": "Bb5Vr1CMVVXYBtW9VJD14h2rmhAbiDZ_jR0GP4w7_D8FAAAAAQ",
+     "client_data_json": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoiODR2cFl0SGVidjFxdUx4dXEyZWJld3FBcjkyQURwOVctQmlkZXBPRk5URSIsIm9yaWdpbiI6Imh0dHBzOi8vYmFuay5leGFtcGxlIn0",
+     "signature": "MEUCIC0m9p5wVzspna1lHQYSyeqEVXwzbh1JoUgCSqlfm_KrAiEA49X1WSQy7eWdS6FJhvtV7ZSqf89Rx3lX_KzDWiKRmPQ"
+    }
+   },
+   "payments": [
+    {
+     "v": "gleipnir/payment/0.2",
+     "id": "p_1",
+     "mandate": {
+      "id": "m_vec",
+      "hash": "sha256:87d960d92d772454b5c1af9e7faae2ce41aedf82840190c95b1d4e1515d1c424"
+     },
+     "rail": "sepa",
+     "amount": "100.00",
+     "currency": "EUR",
+     "payee": {
+      "name": "Brenner Stahl AG",
+      "account": {
+       "iban": "AT611904300234573201"
+      }
+     },
+     "requested_at": "2026-10-23T09:14:02.000Z",
+     "reference": "INV-1",
+     "agent_sig": "ed25519:PQqZtFi5ThfZfcAzjMgNeQdvPrT8Usdxdznk2xMYeAaM8CElKRRTY-K5bQ7SFKeQTPrzxCuC9F7_zSs_iJrkCw"
+    }
+   ],
+   "webauthn": {},
+   "now": [
+    "2026-10-23T09:14:02.000Z"
+   ],
+   "authority": [
+    {
+     "company": "Nordhafen Logistik GmbH",
+     "signer": "kberger@nordhafen.at",
+     "source": "bank_kyb",
+     "keys": [
+      "ecdsa-p256:MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEYJ9Z_sz9j9VBqSyRRR_DkfMeX6TdI0EjK-jEm4e-5Y9tukHIJdoAE0myDVu-lgOS9Ps2DF8nv9h3nCSFBTVFqA"
+     ],
+     "may_sign": true,
+     "joint": 1
+    },
+    {
+     "company": "Nordhafen Logistik GmbH",
+     "signer": "mhofer@nordhafen.at",
+     "source": "bank_kyb",
+     "keys": [
+      "ecdsa-p256:MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE02AzL62byDr6_0p0DeilFr8bj7P942D_HQOXnB-UPuLopmAH_SdrAnEmXG2wksSgxeuMRf3ENlAsiglfXVdF8g"
+     ],
+     "may_sign": true,
+     "joint": 1
+    }
+   ],
+   "revocations": [],
+   "status": null,
+   "ledger": true,
+   "expect": [
+    {
+     "v": "gleipnir/decision/0.2",
+     "payment": {
+      "id": "p_1",
+      "hash": "sha256:ec8d6a786fa20a774d51ec29e54892d381ae6c9aa2d2f88eb895912f651c98a1"
+     },
+     "mandate": {
+      "id": "m_vec",
+      "hash": "sha256:87d960d92d772454b5c1af9e7faae2ce41aedf82840190c95b1d4e1515d1c424"
+     },
+     "outcome": "block",
+     "reasons": [
+      "mandate_bad_signature"
+     ],
+     "checks": [],
+     "checked_at": "2026-10-23T09:14:02.000Z",
+     "checker": {
+      "id": "bank:VECTORS",
+      "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
+     }
+    }
+   ],
+   "receipt": {
+    "valid": false,
+    "problems": [
+     "mandate_bad_signature"
+    ],
+    "outcome": "block",
+    "reasons": [
+     "mandate_bad_signature"
+    ],
+    "checker": "bank:VECTORS",
+    "company": "Nordhafen Logistik GmbH",
+    "agent": "ap-agent",
+    "signed_by": [],
+    "delegation": [],
+    "authority": [],
+    "payment": {
+     "id": "p_1",
+     "amount": "100.00",
+     "currency": "EUR",
+     "payee": {
+      "iban": "AT611904300234573201"
+     }
+    }
+   }
+  },
+  {
+   "name": "passkey_bare_hash_m1",
+   "mandate": {
+    "v": "gleipnir/mandate/0.2",
+    "id": "m_vec",
+    "company": {
+     "name": "Nordhafen Logistik GmbH",
+     "country": "AT"
+    },
+    "agent": {
+     "id": "ap-agent",
+     "public_key": "ed25519:gTl3Dqh9F19Wo1Rmw0x-zMuNipG07jeiXfYPW4_Js5Q"
+    },
+    "signer": {
+     "id": "kberger@nordhafen.at",
+     "public_key": "ecdsa-p256:MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEYJ9Z_sz9j9VBqSyRRR_DkfMeX6TdI0EjK-jEm4e-5Y9tukHIJdoAE0myDVu-lgOS9Ps2DF8nv9h3nCSFBTVFqA"
+    },
+    "scope": {
+     "rails": [
+      "sepa",
+      "sepa_instant"
+     ],
+     "currency": "EUR",
+     "max_per_payment": "25000.00",
+     "max_per_period": {
+      "amount": "40000.00",
+      "period": "P1M"
+     },
+     "payees": [
+      {
+       "name": "Brenner Stahl AG",
+       "account": {
+        "iban": "AT611904300234573201"
+       }
+      }
+     ]
+    },
+    "valid_until": "2026-12-31T23:59:59.000Z",
+    "issued_at": "2026-10-01T08:00:00.000Z",
+    "sig": {
+     "type": "webauthn",
+     "authenticator_data": "Bb5Vr1CMVVXYBtW9VJD14h2rmhAbiDZ_jR0GP4w7_D8FAAAAAQ",
+     "client_data_json": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoiaDlsZzJTMTNKRlMxd2EtZWY2cml6a0d1MzRLRUFaREpXeDFPRlJYUnhDUSIsIm9yaWdpbiI6Imh0dHBzOi8vYmFuay5leGFtcGxlIn0",
+     "signature": "MEUCIGCLXpVFSOw3j7X_7ZQ4NjaUDa0PZw8fxMmheUvjg7l3AiEA7vIKL61vNimasSBmyBx7p37fyKHdxVB7OZz6qxRimEI"
+    }
+   },
+   "payments": [
+    {
+     "v": "gleipnir/payment/0.2",
+     "id": "p_1",
+     "mandate": {
+      "id": "m_vec",
+      "hash": "sha256:87d960d92d772454b5c1af9e7faae2ce41aedf82840190c95b1d4e1515d1c424"
+     },
+     "rail": "sepa",
+     "amount": "100.00",
+     "currency": "EUR",
+     "payee": {
+      "name": "Brenner Stahl AG",
+      "account": {
+       "iban": "AT611904300234573201"
+      }
+     },
+     "requested_at": "2026-10-23T09:14:02.000Z",
+     "reference": "INV-1",
+     "agent_sig": "ed25519:PQqZtFi5ThfZfcAzjMgNeQdvPrT8Usdxdznk2xMYeAaM8CElKRRTY-K5bQ7SFKeQTPrzxCuC9F7_zSs_iJrkCw"
+    }
+   ],
+   "webauthn": {
+    "rp_id": "bank.example",
+    "origins": [
+     "https://bank.example"
+    ]
+   },
+   "now": [
+    "2026-10-23T09:14:02.000Z"
+   ],
+   "authority": [
+    {
+     "company": "Nordhafen Logistik GmbH",
+     "signer": "kberger@nordhafen.at",
+     "source": "bank_kyb",
+     "keys": [
+      "ecdsa-p256:MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEYJ9Z_sz9j9VBqSyRRR_DkfMeX6TdI0EjK-jEm4e-5Y9tukHIJdoAE0myDVu-lgOS9Ps2DF8nv9h3nCSFBTVFqA"
+     ],
+     "may_sign": true,
+     "joint": 1
+    },
+    {
+     "company": "Nordhafen Logistik GmbH",
+     "signer": "mhofer@nordhafen.at",
+     "source": "bank_kyb",
+     "keys": [
+      "ecdsa-p256:MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE02AzL62byDr6_0p0DeilFr8bj7P942D_HQOXnB-UPuLopmAH_SdrAnEmXG2wksSgxeuMRf3ENlAsiglfXVdF8g"
+     ],
+     "may_sign": true,
+     "joint": 1
+    }
+   ],
+   "revocations": [],
+   "status": null,
+   "ledger": true,
+   "expect": [
+    {
+     "v": "gleipnir/decision/0.2",
+     "payment": {
+      "id": "p_1",
+      "hash": "sha256:ec8d6a786fa20a774d51ec29e54892d381ae6c9aa2d2f88eb895912f651c98a1"
+     },
+     "mandate": {
+      "id": "m_vec",
+      "hash": "sha256:87d960d92d772454b5c1af9e7faae2ce41aedf82840190c95b1d4e1515d1c424"
+     },
+     "outcome": "block",
+     "reasons": [
+      "mandate_bad_signature"
+     ],
+     "checks": [],
+     "checked_at": "2026-10-23T09:14:02.000Z",
+     "checker": {
+      "id": "bank:VECTORS",
+      "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
+     }
+    }
+   ],
+   "receipt": {
+    "valid": false,
+    "problems": [
+     "mandate_bad_signature"
+    ],
+    "outcome": "block",
+    "reasons": [
+     "mandate_bad_signature"
+    ],
+    "checker": "bank:VECTORS",
+    "company": "Nordhafen Logistik GmbH",
+    "agent": "ap-agent",
+    "signed_by": [],
+    "delegation": [],
+    "authority": [],
+    "payment": {
+     "id": "p_1",
+     "amount": "100.00",
+     "currency": "EUR",
+     "payee": {
+      "iban": "AT611904300234573201"
+     }
+    }
+   }
+  },
+  {
+   "name": "passkey_wrong_origin",
+   "mandate": {
+    "v": "gleipnir/mandate/0.2",
+    "id": "m_vec",
+    "company": {
+     "name": "Nordhafen Logistik GmbH",
+     "country": "AT"
+    },
+    "agent": {
+     "id": "ap-agent",
+     "public_key": "ed25519:gTl3Dqh9F19Wo1Rmw0x-zMuNipG07jeiXfYPW4_Js5Q"
+    },
+    "signer": {
+     "id": "kberger@nordhafen.at",
+     "public_key": "ecdsa-p256:MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEYJ9Z_sz9j9VBqSyRRR_DkfMeX6TdI0EjK-jEm4e-5Y9tukHIJdoAE0myDVu-lgOS9Ps2DF8nv9h3nCSFBTVFqA"
+    },
+    "scope": {
+     "rails": [
+      "sepa",
+      "sepa_instant"
+     ],
+     "currency": "EUR",
+     "max_per_payment": "25000.00",
+     "max_per_period": {
+      "amount": "40000.00",
+      "period": "P1M"
+     },
+     "payees": [
+      {
+       "name": "Brenner Stahl AG",
+       "account": {
+        "iban": "AT611904300234573201"
+       }
+      }
+     ]
+    },
+    "valid_until": "2026-12-31T23:59:59.000Z",
+    "issued_at": "2026-10-01T08:00:00.000Z",
+    "sig": {
+     "type": "webauthn",
+     "authenticator_data": "Bb5Vr1CMVVXYBtW9VJD14h2rmhAbiDZ_jR0GP4w7_D8FAAAAAQ",
+     "client_data_json": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoiODR2cFl0SGVidjFxdUx4dXEyZWJld3FBcjkyQURwOVctQmlkZXBPRk5URSIsIm9yaWdpbiI6Imh0dHBzOi8vZXZpbC5leGFtcGxlIn0",
+     "signature": "MEUCIQCtAqejKZHbw2fpb_VZNAHwHr5ag4J8wwB-uGa38_ydLgIgT5U9IZQRViTL5rsBym4rWreYpPS1jIRafdxqteZACHo"
+    }
+   },
+   "payments": [
+    {
+     "v": "gleipnir/payment/0.2",
+     "id": "p_1",
+     "mandate": {
+      "id": "m_vec",
+      "hash": "sha256:87d960d92d772454b5c1af9e7faae2ce41aedf82840190c95b1d4e1515d1c424"
+     },
+     "rail": "sepa",
+     "amount": "100.00",
+     "currency": "EUR",
+     "payee": {
+      "name": "Brenner Stahl AG",
+      "account": {
+       "iban": "AT611904300234573201"
+      }
+     },
+     "requested_at": "2026-10-23T09:14:02.000Z",
+     "reference": "INV-1",
+     "agent_sig": "ed25519:PQqZtFi5ThfZfcAzjMgNeQdvPrT8Usdxdznk2xMYeAaM8CElKRRTY-K5bQ7SFKeQTPrzxCuC9F7_zSs_iJrkCw"
+    }
+   ],
+   "webauthn": {
+    "rp_id": "bank.example",
+    "origins": [
+     "https://bank.example"
+    ]
+   },
+   "now": [
+    "2026-10-23T09:14:02.000Z"
+   ],
+   "authority": [
+    {
+     "company": "Nordhafen Logistik GmbH",
+     "signer": "kberger@nordhafen.at",
+     "source": "bank_kyb",
+     "keys": [
+      "ecdsa-p256:MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEYJ9Z_sz9j9VBqSyRRR_DkfMeX6TdI0EjK-jEm4e-5Y9tukHIJdoAE0myDVu-lgOS9Ps2DF8nv9h3nCSFBTVFqA"
+     ],
+     "may_sign": true,
+     "joint": 1
+    },
+    {
+     "company": "Nordhafen Logistik GmbH",
+     "signer": "mhofer@nordhafen.at",
+     "source": "bank_kyb",
+     "keys": [
+      "ecdsa-p256:MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE02AzL62byDr6_0p0DeilFr8bj7P942D_HQOXnB-UPuLopmAH_SdrAnEmXG2wksSgxeuMRf3ENlAsiglfXVdF8g"
+     ],
+     "may_sign": true,
+     "joint": 1
+    }
+   ],
+   "revocations": [],
+   "status": null,
+   "ledger": true,
+   "expect": [
+    {
+     "v": "gleipnir/decision/0.2",
+     "payment": {
+      "id": "p_1",
+      "hash": "sha256:ec8d6a786fa20a774d51ec29e54892d381ae6c9aa2d2f88eb895912f651c98a1"
+     },
+     "mandate": {
+      "id": "m_vec",
+      "hash": "sha256:87d960d92d772454b5c1af9e7faae2ce41aedf82840190c95b1d4e1515d1c424"
+     },
+     "outcome": "block",
+     "reasons": [
+      "mandate_bad_signature"
+     ],
+     "checks": [],
+     "checked_at": "2026-10-23T09:14:02.000Z",
+     "checker": {
+      "id": "bank:VECTORS",
+      "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
+     }
+    }
+   ],
+   "receipt": {
+    "valid": false,
+    "problems": [
+     "mandate_bad_signature"
+    ],
+    "outcome": "block",
+    "reasons": [
+     "mandate_bad_signature"
+    ],
+    "checker": "bank:VECTORS",
+    "company": "Nordhafen Logistik GmbH",
+    "agent": "ap-agent",
+    "signed_by": [],
+    "delegation": [],
+    "authority": [],
+    "payment": {
+     "id": "p_1",
+     "amount": "100.00",
+     "currency": "EUR",
+     "payee": {
+      "iban": "AT611904300234573201"
+     }
+    }
+   }
+  },
+  {
+   "name": "passkey_gesamtprokura_allow",
+   "mandate": {
+    "v": "gleipnir/mandate/0.2",
+    "id": "m_vec",
+    "company": {
+     "name": "Nordhafen Logistik GmbH",
+     "country": "AT"
+    },
+    "agent": {
+     "id": "ap-agent",
+     "public_key": "ed25519:gTl3Dqh9F19Wo1Rmw0x-zMuNipG07jeiXfYPW4_Js5Q"
+    },
+    "scope": {
+     "rails": [
+      "sepa",
+      "sepa_instant"
+     ],
+     "currency": "EUR",
+     "max_per_payment": "25000.00",
+     "max_per_period": {
+      "amount": "40000.00",
+      "period": "P1M"
+     },
+     "payees": [
+      {
+       "name": "Brenner Stahl AG",
+       "account": {
+        "iban": "AT611904300234573201"
+       }
+      }
+     ]
+    },
+    "valid_until": "2026-12-31T23:59:59.000Z",
+    "issued_at": "2026-10-01T08:00:00.000Z",
+    "signers": {
+     "threshold": 2,
+     "of": [
+      {
+       "id": "kberger@nordhafen.at",
+       "public_key": "ecdsa-p256:MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEYJ9Z_sz9j9VBqSyRRR_DkfMeX6TdI0EjK-jEm4e-5Y9tukHIJdoAE0myDVu-lgOS9Ps2DF8nv9h3nCSFBTVFqA"
+      },
+      {
+       "id": "mhofer@nordhafen.at",
+       "public_key": "ecdsa-p256:MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE02AzL62byDr6_0p0DeilFr8bj7P942D_HQOXnB-UPuLopmAH_SdrAnEmXG2wksSgxeuMRf3ENlAsiglfXVdF8g"
+      }
+     ]
+    },
+    "sigs": [
+     {
+      "signer": "kberger@nordhafen.at",
+      "sig": {
+       "type": "webauthn",
+       "authenticator_data": "Bb5Vr1CMVVXYBtW9VJD14h2rmhAbiDZ_jR0GP4w7_D8FAAAAAQ",
+       "client_data_json": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoiVVE2RFU3dnZuQXNDU3h1ZlgxSk15OEQ4bGU3a0hUbHRRWGtieElMVXNVZyIsIm9yaWdpbiI6Imh0dHBzOi8vYmFuay5leGFtcGxlIn0",
+       "signature": "MEUCIQDzmqA_QnxAZraYmv5vs4QHGEgh2NDpQz8aEprx9h2KXgIgKG6wphaInwUd0MVSPASS0sP4C4MEfCQbuU6PjOz0DdU"
+      }
+     },
+     {
+      "signer": "mhofer@nordhafen.at",
+      "sig": {
+       "type": "webauthn",
+       "authenticator_data": "Bb5Vr1CMVVXYBtW9VJD14h2rmhAbiDZ_jR0GP4w7_D8FAAAAAQ",
+       "client_data_json": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoiVVE2RFU3dnZuQXNDU3h1ZlgxSk15OEQ4bGU3a0hUbHRRWGtieElMVXNVZyIsIm9yaWdpbiI6Imh0dHBzOi8vYmFuay5leGFtcGxlIn0",
+       "signature": "MEQCIGhG9B17tnpiHcljxfss2geo6GlLjh18w44zHRubfa-yAiAn45NdbOKf3yEIuRZwx8AJlR2COeLZAbNtQFzsjaSTIg"
+      }
+     }
+    ]
+   },
+   "payments": [
+    {
+     "v": "gleipnir/payment/0.2",
+     "id": "p_1",
+     "mandate": {
+      "id": "m_vec",
+      "hash": "sha256:8b2e679ef084b6a6d0c9f320b3e15d192fd6f0716b58431ea3335492252cfe17"
+     },
+     "rail": "sepa",
+     "amount": "100.00",
+     "currency": "EUR",
+     "payee": {
+      "name": "Brenner Stahl AG",
+      "account": {
+       "iban": "AT611904300234573201"
+      }
+     },
+     "requested_at": "2026-10-23T09:14:02.000Z",
+     "reference": "INV-1",
+     "agent_sig": "ed25519:cudedAE2hu1gxKHTRWegZfv1xlNLf8OJDDm_VoBPB9A2FGefIb07KhO9-GPUeNRuYBp19imUxhUFm9Y8DpKhCQ"
+    }
+   ],
+   "webauthn": {
+    "rp_id": "bank.example",
+    "origins": [
+     "https://bank.example"
+    ]
+   },
+   "now": [
+    "2026-10-23T09:14:02.000Z"
+   ],
+   "authority": [
+    {
+     "company": "Nordhafen Logistik GmbH",
+     "signer": "kberger@nordhafen.at",
+     "source": "bank_kyb",
+     "keys": [
+      "ecdsa-p256:MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEYJ9Z_sz9j9VBqSyRRR_DkfMeX6TdI0EjK-jEm4e-5Y9tukHIJdoAE0myDVu-lgOS9Ps2DF8nv9h3nCSFBTVFqA"
+     ],
+     "may_sign": true,
+     "joint": 1
+    },
+    {
+     "company": "Nordhafen Logistik GmbH",
+     "signer": "mhofer@nordhafen.at",
+     "source": "bank_kyb",
+     "keys": [
+      "ecdsa-p256:MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE02AzL62byDr6_0p0DeilFr8bj7P942D_HQOXnB-UPuLopmAH_SdrAnEmXG2wksSgxeuMRf3ENlAsiglfXVdF8g"
+     ],
+     "may_sign": true,
+     "joint": 1
+    }
+   ],
+   "revocations": [],
+   "status": null,
+   "ledger": true,
+   "expect": [
+    {
+     "v": "gleipnir/decision/0.2",
+     "payment": {
+      "id": "p_1",
+      "hash": "sha256:bca7a354877785829e43ff69c1f235a378f694915feb7abc7185f0abdb45f050"
+     },
+     "mandate": {
+      "id": "m_vec",
+      "hash": "sha256:8b2e679ef084b6a6d0c9f320b3e15d192fd6f0716b58431ea3335492252cfe17"
+     },
+     "outcome": "allow",
+     "reasons": [],
+     "checks": [
+      "mandate_valid",
+      "signer_authorized:bank_kyb",
+      "signer_authorized:bank_kyb",
+      "signatures:2/2",
+      "not_revoked",
+      "agent_signed",
+      "payee_on_mandate",
+      "within_payment_limit",
+      "within_period_limit"
+     ],
+     "checked_at": "2026-10-23T09:14:02.000Z",
+     "checker": {
+      "id": "bank:VECTORS",
+      "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
+     }
+    }
+   ],
+   "receipt": {
+    "valid": true,
+    "problems": [],
+    "outcome": "allow",
+    "reasons": [],
+    "checker": "bank:VECTORS",
+    "company": "Nordhafen Logistik GmbH",
+    "agent": "ap-agent",
+    "signed_by": [
+     "kberger@nordhafen.at",
+     "mhofer@nordhafen.at"
+    ],
+    "delegation": [],
+    "authority": [
+     "signer_authorized:bank_kyb",
+     "signer_authorized:bank_kyb"
+    ],
+    "payment": {
+     "id": "p_1",
+     "amount": "100.00",
+     "currency": "EUR",
+     "payee": {
+      "iban": "AT611904300234573201"
+     }
+    }
+   }
   }
  ],
  "signed": [
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_2d84bafe305aab3273266ae9",
+   "id": "d_f3b26ff99f22324943d1d03d",
    "payment": {
     "id": "p_1",
     "hash": "sha256:6e25fc31c9a41f758aee5400ed624e45cbd814085a64ca5903edd5a9190129ac"
@@ -9967,11 +10810,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:CQe415W0oHY0s3MqB5vR-ds_6-p6wnpohYLDhUZel7JkGthNt1ZJp6ZnYV_NsLBoYLjATknQOpmJgAVjcuEtAQ"
+   "sig": "ed25519:hj7wDip5JmkMDZwIJOFzkC4B8ta1VSgmmE1BOJHh-BvugNWxXDHG6N7EookplrFYodpBkb_rYkCK9J5T8zjnDg"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_da8fc9b2544618532dc1830a",
+   "id": "d_07aa1bca9053c261bb287642",
    "payment": {
     "id": "p_1",
     "hash": "sha256:a2f68f06a3d754535f5bc625521ef560bc0e8093524bddaee6f4e7d284766228"
@@ -9995,11 +10838,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:YvEfk1wtKH-ZE-xBMddw1yyo2elksk8rvvjeiBupeml79oxrSAeHnf541iBAA6GofWxCEPSm3zSGhzd8gskbCg"
+   "sig": "ed25519:CS5fXsoz87M4eAZJJWbeKdsqlXLHopZfx23mJT1e50lfgrzas74G73fGsAQVBMjMQGNqT4QgNJLmwglyBQq1DQ"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_9fd1f5e79e7c718d3657f51a",
+   "id": "d_97686e5962c46e96eab39009",
    "payment": {
     "id": "p_1",
     "hash": "sha256:45b76503678b637e518266b12b7ea457ca264e800293f42237813823c0395979"
@@ -10024,11 +10867,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:PWagg4cWN8oE-F9FNumcUjoTG7NPXYYvvvTBYyRzU7YrEtafGpnSp8XFOPCxjZCY3YiF6DX3jpGD3NVKoORwCA"
+   "sig": "ed25519:LcEnBHijmbQ5Q92mYkRBR4p_NKdNcwa1QtfQ2BgRKsEQAWX6WDGiwReJn-_xiss2jx6zVrF8ZU4niB1prYcFBQ"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_227c0f8878a39dfa5f4cb369",
+   "id": "d_bc7c4236f57d62c6cce54573",
    "payment": {
     "id": "p_1",
     "hash": "sha256:9d869eb24fdf60ade4d5d0b16c7c7a285ca9e820caed3848a5e9735b98fbcfc4"
@@ -10053,11 +10896,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:no_RZ8uG5_nEID4L1VVBouDPu08WNNDtqWLQa1PQzxLosOaLvVnhPa1UIOf0c_velsaXmwXJyeCCtLmAug8EAg"
+   "sig": "ed25519:kOS1dGHXxIuN1a7y-PsyKJkWbm-UgHv5KygBYzksVPiJ6XhR0WtPzEREikmnluMVnzmLs1kCgIU_fniM7n2oBQ"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_d519c3a8ce7971f5adc5ac4e",
+   "id": "d_ef73dc1b538ee2bf0a2d6c9e",
    "payment": {
     "id": "p_1",
     "hash": "sha256:ec3ff29c5660cccc985eb696609b9a10153872b5ae53daab30816018f436c40d"
@@ -10082,11 +10925,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:qNZmzNv0hyBsC85N--J5wc-QLhbZ-JNBN5SsWqLsyBKKSWCZG5I1CKegFdkH0aYPVcEaSERSNtxLecshhHW3DA"
+   "sig": "ed25519:rv7_DxW8Pd3T8nQMlUTAgiAR_jy_ZNPD-bYSBEM34itcN09ikkjFi2uoCJHfXr12b4P5-1ryoCZRnkINIsyzDA"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_951e2892a2dadb7f93cbdd7b",
+   "id": "d_e6c87c684e6885604f79f436",
    "payment": {
     "id": "p_1",
     "hash": "sha256:898dfdd53c9d2e2be1bc3bb350d3882907f7d423e3fefb1085709034e5cc215d"
@@ -10111,11 +10954,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:AxlC08W_aNtJg26vLrbWnZX4JpzKEoz1KDr9oiFmxTDprQmdIDR9Bk_vOB1AxUla_RTZh6LXAskWhkU6FC5BAg"
+   "sig": "ed25519:OlyiUTx0UDdmsguh1rcVVP64p0ebIAiIUBd6qrrI4OqGAnlKRv8D3Hl1oRINOM9bBSkGL0CZ9Y_8Ymhq_bGaAQ"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_33c972581809be51e515547e",
+   "id": "d_f1f7e2378d7f95ecd6fc09e6",
    "payment": {
     "id": "p_1",
     "hash": "sha256:91d9a951a11bac6fda57a19e7d893f933e54846a26e39d0438ebf057c41bcdb2"
@@ -10140,11 +10983,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:WANgN7HJd-jQHIlqxxR6ESqyhJ_6mh5xxvR2fDUc2MWGcWcGginvzVedFT2VYZAA00j5nDqlw3aZA7M2f_1GBg"
+   "sig": "ed25519:0SUNLl-2X_0UY-H4sLuDmWZ6XO860F4IKbFrP_vjvPOdiE1lt86P9taJ1sd_MpqZPPkRy7BN4xynjUK9XfU2Bg"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_f7ad05190fe1c61314a14e8a",
+   "id": "d_9abc8ea982697060480e3ea2",
    "payment": {
     "id": "p_1",
     "hash": "sha256:898dfdd53c9d2e2be1bc3bb350d3882907f7d423e3fefb1085709034e5cc215d"
@@ -10170,11 +11013,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:bqUlio5Rrd0G17TofaRMBS1O-3spz7JKVRDvCAV1157vBq2oJULnQQKCScmn3rSGViKbg0wfA3fih-FbDbQ2CQ"
+   "sig": "ed25519:8BKI1wjILa_RnasesWz86RxWhh67kJ9uNVKayp5bIe_TDejdszutj_ZKEkIm_JA0Tg4ufeJ9X3Om0jFqplJDCA"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_00c1093e16a839e7447a6ae8",
+   "id": "d_5e008142e51b329494f99c9c",
    "payment": {
     "id": "p_1",
     "hash": "sha256:b632f4e4a9361596f782f09e9afa242d8da1aa3d6f892dd845c0a47208310694"
@@ -10198,11 +11041,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:fYX69U7Ol2z9Z7lwiUu1l8qrKUsgrYAGIxowxtrPZRRyJvL_EoRIlCJeDi_HBJRbUE-qkkIikKu6RGS0TEDxDQ"
+   "sig": "ed25519:SDweQwudE41oiHcVwW-hyX56XeoTIqqecFleHzKamiQnvDXGPQq4sz2VZtgrx9HvdYwidwZx87tICXM2K0xtAg"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_d04cee6a6da6624ade70ac6d",
+   "id": "d_a863f9359beda0a98587968d",
    "payment": {
     "id": "p_1",
     "hash": "sha256:2c73272ee5e368ecdbd622d3a534bec813a1cb3eb62c4c49d92997b5b4aaa4f0"
@@ -10226,11 +11069,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:xnWVRsyh59JjVTHEfOl1F2FzyjegYgATd8yvPb33pH5XMZfdW-kpbxH_A1RWPyQqclJbJiRguB9ci6PzoI4pAg"
+   "sig": "ed25519:pNR7Z-q7hvcvRktJLJOKdYibLKiTjcYdLJSVRP9YmEy8AVcGgeSNwlIUzekQe72HJxiZiC5l8X4wVlEGfpxaBw"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_b3cc456ed9a6c73f1f4108cb",
+   "id": "d_01d66741bf2af3497bcea157",
    "payment": {
     "id": "p_1",
     "hash": "sha256:cd8897f41bff3647902cb554202f7091ab7df666de6730c846a39cac2bb7cc1a"
@@ -10254,11 +11097,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:wMrvK_0QexxmA2-Ab4QtKviYX1ulfZ3nBSsgOaadJDBz0DL-2JDWMtG8QQgyfrw0dvIUtniqLrrgmC6b7q5UAg"
+   "sig": "ed25519:JxAgs2WsC0vP1XL2g6LhkCxX9AJprGsNju5ahqOd3l68JaVp30VZJ9AP5aRVBZNGYdt-6adwxw-bVdU-G7e3Bg"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_54afc7470d1d8d377ca55b15",
+   "id": "d_27002d285ed35c733a143707",
    "payment": {
     "id": "p_1",
     "hash": "sha256:833c81dcb5717c56705795f9a75a22b0afbbf49a098c7a3665bbeaf366f4c1f8"
@@ -10282,11 +11125,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:nMlKS7ZV0mZheoRqECnXLdT7aEkXTE2wMKVri1HVs8XW109jh8AQpA1f2_yEu10AdonUNI0oob9D6IlV3Z4lAQ"
+   "sig": "ed25519:uUK4271th-i-9CBHP7jv1lN6DVDybXYgQYqhO6YOna_7rIflMeqGfa1Zct5B4d8pRfx1V-7MpnqOvZIorqWmAQ"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_f120fb96de13cb9b8171ca1b",
+   "id": "d_32e4632d22e86a1abd3896bf",
    "payment": {
     "id": "p_1",
     "hash": "sha256:d2dd8e7eb0799fa99af625bbe1696f83c799ddb04f5877c1ba749a08b330a403"
@@ -10309,11 +11152,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:i0WzwOgJ_bu-dUz4dzzzJZ2CAuAq8A0cizVaiFoeYwKlIchMaFapSqZ81Mu6xl3zrf5ZB6-hO720jwUJ7bcWAg"
+   "sig": "ed25519:L9J4E1Kz7zoXegpInYBCx04CD3j21LON_RZhdS6GxAvksRw41pk0iBl53XslIDP9gtAN4nX9JlEdSDeEnurDDw"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_b47b2c4ba9d28ac636a62199",
+   "id": "d_58dd1a1f606fca8dc4a96f78",
    "payment": {
     "id": "p_1",
     "hash": "sha256:07801b6cba008da7669b6d8ccc50958bb40f03ec812d000703962ff6c2add0a7"
@@ -10337,11 +11180,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:SFCYcOUbScFIU8qjA1E1kQTssmMnCc5AmhKbgohYRzOTYBj8nLox5UVlmbAeATWiqxZKND3Z1zNDaSaQ9tY6Cw"
+   "sig": "ed25519:bzSF0_NLZlDCOzqx70q6ChchZFEqS_By8Im1jaoNNa0zqZswDyhxBMwNDmM_UBjgVE8Tb-ZPwwlnkDU7m75tDg"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_09fc5d6f49113716d3569222",
+   "id": "d_f14f1d7e637a9030c13560ec",
    "payment": {
     "id": "p_1",
     "hash": "sha256:16da2b0b23aad338f7eb1f12fbefe89af15a24b28bcfd6462e92bc86eaf47cc2"
@@ -10360,11 +11203,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:1P1tB1v5cuFwH1scpyraBJT4wsB3F7dqYSSLQX4UcDAU5LzoNhmFhCXB8-YppkMY1FGhjYn6Xh0_DKb8HtctAQ"
+   "sig": "ed25519:JqooKuY0XRyYz8ehiebIweUX-NZ2wYaBB0HcI9Jg7DIqYkJMNWLwT2E5YJokmYubFLKWi4kFq6iz-QryYcGQDg"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_9096d5ec4f521e895161b98a",
+   "id": "d_c1f8d004dea1b803c22a72d5",
    "payment": {
     "id": "p_1",
     "hash": "sha256:16da2b0b23aad338f7eb1f12fbefe89af15a24b28bcfd6462e92bc86eaf47cc2"
@@ -10383,11 +11226,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:9QgnQWhbqBg5iXkWjPMjrglcn2mzikf-Conhsc7Tm29Bm_QTL_wGOUaXTlJqla4jv6SPOZ4fFhWd7efg1Yz_Cw"
+   "sig": "ed25519:2hmSB1hfa3h_-njhmGniTsFs-f-mPwLaQgJRkfnRsYceDECBVQM9ImmiIa5hxMR7sfgo90t0dKzNw1lkfj56Dw"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_e41551c26ad5b1bf862af6bf",
+   "id": "d_62940940ff8eacb079bb611d",
    "payment": {
     "id": "p_1",
     "hash": "sha256:898dfdd53c9d2e2be1bc3bb350d3882907f7d423e3fefb1085709034e5cc215d"
@@ -10408,11 +11251,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:MEe23rt7fRNqDHq01PDdCQAzPRBf9Qst-QbEwqjr77_nYOsuocWsQ5sbygXLYFRITyLqAG-j6LUm3OGYehegDg"
+   "sig": "ed25519:p3AMRctmngP61dgZj1tb7hbwwZqspaunEmY7Lj5pPl5dnapIGNcsKRQv1vRsR_A5Y1xaGwvG27Xkf_H6qSYxBQ"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_c92c398cd7f8eacb15d6074e",
+   "id": "d_39d61e05d4f5a4a9e9bd8ed4",
    "payment": {
     "id": "p_1",
     "hash": "sha256:898dfdd53c9d2e2be1bc3bb350d3882907f7d423e3fefb1085709034e5cc215d"
@@ -10433,11 +11276,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:YRRBA8P52r79XsC1FDmt_4kibDF3kRoizKBYdWDZ6PENfzj2Y9HCi1QiM5CDKxGSEdj2-vUpt-DTcSgNWaCsBg"
+   "sig": "ed25519:_O2DjcsjiNFRqyf8raaaF8ilcttrjrWZ5tVOY82huMM_ncvoPKmVz_t_MiiNZy0zpmlDreXQHUCEQawuMtlXDQ"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_fcccfd5cd300cf53aa29263e",
+   "id": "d_afb979e7d5897d302633a917",
    "payment": {
     "id": "p_1",
     "hash": "sha256:898dfdd53c9d2e2be1bc3bb350d3882907f7d423e3fefb1085709034e5cc215d"
@@ -10458,11 +11301,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:rYOqSSLAl_VNUfoDYG8RJ_qh6g5kLUQxLV4VVZJx1k9FVgorXOwI_IaAms0M6iUd4-gj4xK44x1ZPepYs8DaAg"
+   "sig": "ed25519:qnCxoSl_fo6W6JlI00ZTixi3HOYQHN6BMt4Q3nr574kusZVOUg1qr-HKhzcOY2KaPiOpi6js8JtqWSGoTsk5BA"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_a6b141f03bfe7766c6f48026",
+   "id": "d_f370b6c2f9f21e3f79dde14d",
    "payment": {
     "id": "p_1",
     "hash": "sha256:13f22780cc19952a5f237a1decbc57203089e592dbc545591e7a97f73243b560"
@@ -10484,11 +11327,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:flC2eMq2elG-j--Y-nX6pRbX4ivbPPr1Ql1-l1rwmnW4nbigH4rPiEcW0-g5EEKWPt5A97uEpmpJW0Ny7OMGBg"
+   "sig": "ed25519:uY_xt0dvOn0gXDUImuSmzyIVk9UIFBQhgOw7tM1YTEFx1rxWwPc8IBC9XdKTFaUPW-esv4RWUEuDfBYEpvVfBw"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_93337bd78c9aa9d2ff46240c",
+   "id": "d_9e2e20a74cde3c06eddcc881",
    "payment": {
     "id": "p_1",
     "hash": "sha256:e45bb62bf94f540f21ce92f7338a4f48b033ae0033e6ed2339b5024b0a88d935"
@@ -10510,11 +11353,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:RUUJ3UCuGF4EAsfo5nd1sckep0V1n5FnZHeJzh7_qt2uSUYNNt_gXCCqh5XjnLrzB0vaLHxr-3aVdv1tbJg7DQ"
+   "sig": "ed25519:4Nfm11Dl_bpaHRSem0AUf7DMVEbdL3ybgyjw9HHtjMynNDWZfZnjGYgB04B_SqZjg9b70x60sUkNUIHFMLlwDA"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_d853003492bdca146007094d",
+   "id": "d_afde762c2abdbbe56841f731",
    "payment": {
     "id": "p_1",
     "hash": "sha256:898dfdd53c9d2e2be1bc3bb350d3882907f7d423e3fefb1085709034e5cc215d"
@@ -10536,11 +11379,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:9rx0A-Trf2OMdnRuVhLzIDlYxJAEjvis4BY9sk7U78eG37gKqHUZxeRgT_cOq7EAkoSk1Vcx-KoSeyoNAloLAQ"
+   "sig": "ed25519:4RtQztysjOVKwTVwHquoZfWmS_eHiLkKuUFY50_gtI_MwLRsbDihan2HljiIEV9J1eVT71sR9fjOpaMKXAguAA"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_6daf619029eb1f798dd7dacc",
+   "id": "d_0fd8e786f6aa2bec1c829542",
    "payment": {
     "id": "p_1",
     "hash": "sha256:898dfdd53c9d2e2be1bc3bb350d3882907f7d423e3fefb1085709034e5cc215d"
@@ -10565,11 +11408,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:-Y1wewka-Cz2uD6E5F8itcHR_W3ybZwKmfVrQo_JOKXoaZ6ectycVjrwGkBAxtrp8Kh3OJ0kE1y8MgETJ4E6CA"
+   "sig": "ed25519:mOrfI4v3HhO87FMrhk014mM3A6uS1kYlzek9bbOPA-iUNbGguH4Z0j8WTlrTvPy6aIJZ5sJWWq8HwT2io5CZAw"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_86ae9b0165e3f11dba09f35c",
+   "id": "d_f3b1945ddb2f1929ebe9245e",
    "payment": {
     "id": "p_1",
     "hash": "sha256:898dfdd53c9d2e2be1bc3bb350d3882907f7d423e3fefb1085709034e5cc215d"
@@ -10594,11 +11437,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:9qhZVlf9p1C5trIa1Yn5bo0-NUMDbfRI7_Q715gnMsMPMFT8ZgdfyzfHCAyXqx0IG83Atmg3CoweNProeT9PBQ"
+   "sig": "ed25519:L57zCWBqbmOBsAHho4sT9BG-jW8J5kmlsWz-wC6g1DGeGVQxU2XQ1H7_eYtiuDEVVOhUfKvbsPF6K6n8eSkeDA"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_b9e1955b07f3420b960674b8",
+   "id": "d_a2b96b798112023e82e10805",
    "payment": {
     "id": "p_1",
     "hash": "sha256:6a280137f8bcd46e4e112966e3b422a420aae5b8109d556aa67b5b23237d2ca8"
@@ -10623,11 +11466,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:jEX2kPsCqa--_O4EAFC5MAXwLSmqiEvZDsINCiuffbAAyxRm5eHpjKI5hJ6NnMv-XeUq8HH8Gb_X-mpBeAjSBA"
+   "sig": "ed25519:KuOPraOSMjuKl2QANwgMehxQvNNLT6itTXlPaSOh8pIUkp4pko4MvFsMxzGs5bwqo_SRrjry6bCmqOwK8QOUDg"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_a429b2e59c63e0b0651296a3",
+   "id": "d_e114a4f04b18a363d8ead312",
    "payment": {
     "id": "p_1",
     "hash": "sha256:6a280137f8bcd46e4e112966e3b422a420aae5b8109d556aa67b5b23237d2ca8"
@@ -10649,11 +11492,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:W3K-w1MDIePZWUsr7mvxDL-1DfoMtbIuj_YRowLaTKGj8BOdLStGN3dnpFT_gqAj_MynwW-AVmG02kv1kK4MDw"
+   "sig": "ed25519:AN-7ofYFRlChjY9srgP8AYBME6JNIfYIUYSuP0nATL3a6_QJre0l1D5w83b6Zym7uK2PxLe-Vp2-Gl-VJ26tCA"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_a4d3eaf766f2b5429b855ea4",
+   "id": "d_6bf699455eacd5090ad37331",
    "payment": {
     "id": "p_1",
     "hash": "sha256:6a280137f8bcd46e4e112966e3b422a420aae5b8109d556aa67b5b23237d2ca8"
@@ -10675,11 +11518,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:aV0MvKMdItRfsOg-kJqXZpRG4q_eclmpVncXWQ0u_QC5dKVcIjbHP_PVWyDdwBNPekB9-R-hdwwZO1nLyWlHDw"
+   "sig": "ed25519:DgO1zYim_QDkqqLOSkxGAn3z7vr9uCXEtePFVbwQu-n7I5lA-yBCl_SSsVE2mflE0-RJSyQ7Eb0FiQKCgST_CA"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_2e69ca8bf7b03014bc2c53e5",
+   "id": "d_e6ad09ff3f279bc7329dfd09",
    "payment": {
     "id": "p_1",
     "hash": "sha256:6a280137f8bcd46e4e112966e3b422a420aae5b8109d556aa67b5b23237d2ca8"
@@ -10701,11 +11544,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:ErMUPeDs75VCCcJLGshpuc-YprtmrDMbh3yoik__Vxlc0zaQEYR2uQdu3mfAJz0bjxG89FC9eYMYc88XLHNjDw"
+   "sig": "ed25519:8JF5ih4BtsrQovFiKYhYjfDPplrRisC3Gprf1EFUdO0MqHWn5v2_0Y0IRNrGpo_G7bfcg5r8MHseD6S56gVjDQ"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_824bbb71b2a3e77b016d3f8d",
+   "id": "d_eb50cdefc00f39ebc4fad1ee",
    "payment": {
     "id": "p_1",
     "hash": "sha256:3fe2b0f17f38c16221d60a6f8eed78e118568a178a499a79238c965015e52d3c"
@@ -10724,11 +11567,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:-k0vIbbeaspL3BjSA_v5PPq6dz_yu_li0rx_in0paHBbm5k6fBkfSkbHanDCjCxcSy4JqWj19xcPcVwzMlUzDw"
+   "sig": "ed25519:MqgStfzGgXlfi193Ihnae5CbXo5ozDwkXDkl2zQllL2sirfkQ8LHYJeh1FYEo68psgSGLc_BeViG4Pi9siXJCg"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_ba45d7abf69fb25e72a83bcb",
+   "id": "d_887e37a9fd6d0539d0db9efb",
    "payment": {
     "id": "p_1",
     "hash": "sha256:d4159e44c6fdb2b1c783efb414bb8a0e99d7974e7aa01cbbf1f28d824c978748"
@@ -10747,11 +11590,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:Z-jSpQCSqj3DlrJwBvntc5twWstbQKs4Lo9zLofxxTS4xOCQyVTlL2OjK4AyMzn28FLPnT-0r261Zpk2DQNcCg"
+   "sig": "ed25519:YsenlRKGqnlX28sZ5MXxdqPlC_EjmC0bk5l2L2AY9424mLVa_HjnbeadmoT3PsJ1jXboYxO5Wj19SZlhfji0Bg"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_6aea3262454fbc64102a69eb",
+   "id": "d_4c48561e639bdeb97bcd97e7",
    "payment": {
     "id": "p_1",
     "hash": "sha256:898dfdd53c9d2e2be1bc3bb350d3882907f7d423e3fefb1085709034e5cc215d"
@@ -10776,11 +11619,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:qPonZarVS0D7hmpEEaBanXFcyzeTJInodCHG-v15DMdlu6wp26BOGoRKsYGYScVilVx3BUkQ4P62KGqlRrrlAQ"
+   "sig": "ed25519:YVpLm3mi9MwC2BIHXcuN6y3bEGgQsvu6Ib_2KJXBBowNkY8nt0P7T_LG5a5DjVCr80lxDq6W8l0rB3L1RUPwDA"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_aa7e37b5181fe8864a3c7576",
+   "id": "d_5023c36694a553f4673a4490",
    "payment": {
     "id": "p_1",
     "hash": "sha256:898dfdd53c9d2e2be1bc3bb350d3882907f7d423e3fefb1085709034e5cc215d"
@@ -10799,11 +11642,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:vvTWd3Qg8sPxOxUqO9TmALunAtdvjnbHa0kxqAV68cZaLEjeq_7DNwI5QO4pT3DIFeFG3IUQ-mxyRr1KVfp1Bg"
+   "sig": "ed25519:x-BJnG8VHexV5JSF-vLCzuLamC1wejCOKAvs0xlXitx7PyI6fgOhh673glz_oAb1ce43pxxBUAQ_PQf6VyHSDg"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_47e0099d8b7a2902110163b6",
+   "id": "d_1e6db08e97fe0d2815d90504",
    "payment": {
     "id": "p_1",
     "hash": "sha256:a94c1dbdc403d38a657818c72d91037af2e84be747ccc19a338f00f25a303fdc"
@@ -10830,11 +11673,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:hAA5VLTfbQqplgllcOUrXM2J-ET9clyV_RizTmyQ3o4WanC5ZQy2musalkxXYyp8ab-XnBoQMadLNh0PGtxFCw"
+   "sig": "ed25519:8v4nkntbJl6hbLk5btwD2XSWtvzvXwAfqvWIWYZF7ov8y7gVnbEMf0wajZb-QHdvcHEv26hEYKHi6XeYwUcuCw"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_fb92aa8b6bfa74066063f507",
+   "id": "d_d4845ecbd6304b28df1f9393",
    "payment": {
     "id": "p_1",
     "hash": "sha256:a94c1dbdc403d38a657818c72d91037af2e84be747ccc19a338f00f25a303fdc"
@@ -10855,11 +11698,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:FsUUi3lnoXUfJh-5Fl1s2h26H7qDDy8V9WqYLR3lPgTmtUcebTGVp21thnPJIxACl787otGMYuk_FBH8QZNJAg"
+   "sig": "ed25519:KFqjctCkyQzsSwVQvkbLPk-s606PTDAW74nPwR8ALxTD2C6ywODwnsIWkIOsiPGt3sD8wazBGVTAxXNsFcLzBw"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_0a29378574291077f683b4af",
+   "id": "d_24568ae49af478d6758a48b7",
    "payment": {
     "id": "p_1",
     "hash": "sha256:a94c1dbdc403d38a657818c72d91037af2e84be747ccc19a338f00f25a303fdc"
@@ -10878,11 +11721,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:yYh_SyHvrIyhp8rk8IIZmsu8e830uXESiRoWnMwzUZLw-GbfFuJI-XkFclyfPyCRcqIc6ounZJM1ayP70FxlAw"
+   "sig": "ed25519:Ld9xsO1qS5onvqALih-w2I1TMmOhx8pww4eO-l0phVMMWAMC3T3j_rBw7IpnrnTlK1wJ1Ux7qo3D2kXL-RaqBw"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_765dbd67d3b9d069894527ba",
+   "id": "d_178f54c1e1dfb4e48587083b",
    "payment": {
     "id": "p_1",
     "hash": "sha256:a94c1dbdc403d38a657818c72d91037af2e84be747ccc19a338f00f25a303fdc"
@@ -10903,11 +11746,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:tH2Tw64E8_qCorSRqYqRn2E_CcDOxnJXPNjQtEBA3iePICmdVHwO-nkqbikBTd8oyeG32RX7f_g0UOGY6JqaBg"
+   "sig": "ed25519:uTG9xzga20KatNEzu3PtIMbkihhMXNlzyE7vP9eqwcqpWnMumpe11qzUlSb8uNbz2qyU4cd-R37c9Eg3pEaWDw"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_a450f320477ab2297108b346",
+   "id": "d_d06cb3be82fe7fc50711fc95",
    "payment": {
     "id": "p_1",
     "hash": "sha256:a94c1dbdc403d38a657818c72d91037af2e84be747ccc19a338f00f25a303fdc"
@@ -10928,11 +11771,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:qEee0cnICqe3A7YtrAOtUKk4v21J5vvQu9wVQEFAfVZrUMV1fPziVWRl0MJ-H96yC8HscfewFTZRDf60ooxZBA"
+   "sig": "ed25519:0rjMg97yBDoOLaF46SnRThO6C38n4z8Yy0Efggpk-OnDf7CTrVWQJL_jIoHpvF6fjGFEPQyRnAaSO_hkffO6CQ"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_930e90b5123b2360e85e09fd",
+   "id": "d_6598b674f54264d7007ecbdb",
    "payment": {
     "id": "p_1",
     "hash": "sha256:4e460ca2c69e9429c93615523a5f4af21a10557111e50cea6109ba2405e4be9c"
@@ -10953,11 +11796,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:IOz6jZDVstzrt-n_xMRnSdttIbcARZCKGdj2oAkb7tiZmENrqiJ2bdhnyAkcP_4C4BsvFMVZh1kyloOACOVmBw"
+   "sig": "ed25519:xJM49sJ_yujhCNDUAlz3n2OzeUQGowCwBejHDpFkvWd806-cHQZtsQpRdO_YBQK7B9e_0KXv5htpmE5F7BRsCQ"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_5ac27336b10ce555c3aa6620",
+   "id": "d_59e9cc65cf4f99af0c5d15de",
    "payment": {
     "id": "p_1",
     "hash": "sha256:4e460ca2c69e9429c93615523a5f4af21a10557111e50cea6109ba2405e4be9c"
@@ -10984,11 +11827,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:h5k8ONy14dNn31D_9rZxqC20Ue2QbPPNPqzRtY9RQeJvyJQe_sqo0e7xCBJPw-dMX6Zk8_er_0WwXji3u4WfCA"
+   "sig": "ed25519:FSpSG5bUn-twKdhYWkcZR5qjSTfRYgsLgqcYaYV7ZRK4Ulgp0zsbWxLf505CC7o-5WdBe2_Q47DFFDjoRNVLBA"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_bbf0fcc22c240275f7e11c7e",
+   "id": "d_515cb0f04111fbef56410293",
    "payment": {
     "id": "p_1",
     "hash": "sha256:898dfdd53c9d2e2be1bc3bb350d3882907f7d423e3fefb1085709034e5cc215d"
@@ -11009,11 +11852,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:hZbM-U4iWPgK3aDs4vyviYU92V6KDfAYeaKYYEhxNV84umbIBINJ2N_g9qBtpSpsVJFtMkOlRLPVG2dAFoC5BQ"
+   "sig": "ed25519:xPFruLaSQ68qmZ_nmiRaujBjQ_fpdEqU0JccM0FCv5ULSeZk9b0LSyS5ldQdfJtLCs6gIOBkuVeM15IbqvGXCw"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_a64b7926969db6520b341814",
+   "id": "d_da1d066d29b58885ce2c0f29",
    "payment": {
     "id": "p_1",
     "hash": "sha256:898dfdd53c9d2e2be1bc3bb350d3882907f7d423e3fefb1085709034e5cc215d"
@@ -11032,11 +11875,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:7Wc11RWfYGXLusDHOeSdnpuUBPHKNy_f-xrhTGLa7DjwWFCs680xvpFlM0kVD-e4-CqZ3aLEfxEToq03zyc-DA"
+   "sig": "ed25519:ksdRauxZgd5w6Q2ojOv6iehZxcy_wVk3dFbmQvIQGJaGX-vCgLqjpYckSeQYRZSoAoN1tlU0JjgGPm1xFHygCw"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_76a0d9af83c6123f74bca668",
+   "id": "d_66362cc918824f7e67850445",
    "payment": {
     "id": "p_1",
     "hash": "sha256:2180db486264136cc4ba7913e0ed61362221018c11208271b0eb2604d89267a8"
@@ -11062,11 +11905,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:u0Jl89oHifgBevgbb9tSp0L8eCDztrniSgWZZQm7Aj4-M-YPTmT1ntEvUZN8nNjSRPo5CA6MwZKKy3HweRAxCg"
+   "sig": "ed25519:xdIrP_1xFZ4PHDi5diVn1f4u21KuZWR2SY7-doQ5vDvkcBkndgynSgU6a8fT8O0cdkrFJdryG7kCKfRTQ2o3Aw"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_4006b7e7bd907cda01016731",
+   "id": "d_65b6f13dd774e25794258b60",
    "payment": {
     "id": "p_1",
     "hash": "sha256:18fd49666bd5cb54272eac82c1d7ed8b869a588cb9b771f1b6130fb4c6373ba0"
@@ -11092,11 +11935,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:Men8m2kMlUqmP_EJYXTMr7IUPyos98D-IQRicDVJjo99P9aMxCSVXX_daZQIO9pv3knMh_-a4Ps4WDvpG3gQDg"
+   "sig": "ed25519:xrKXCUixWSFUiSKCGZ_VKrksSCo8iVelYUXp2SXORi7Z3QLTZeYMxRxjX9RiW4X0eGhbdS2uLn7fJVg_MrooCQ"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_238c5dad2f139e0329271a1f",
+   "id": "d_824092c4484e1df36fbc0e35",
    "payment": {
     "id": "p_1",
     "hash": "sha256:e47c00536bbcda8d000de8e81e1464510b615efa95b8cb35651d8edd026230ed"
@@ -11119,11 +11962,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:nnGr9-jgItTclGP2Nkz4ih1W7CMtvq2M2LUVkjHKMtazvU9ZPIl8zc85kvVIXvs5z8OCTe_UsXft17PFuGLHDg"
+   "sig": "ed25519:phy2ABRNsbYuZcmLdO0OZCY_vQhdGMzlHeVUcM6-tz80sgVUcXkqvinoi9uabIBC0YJGadomes3AXsSzuNsVCQ"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_c0ac2ab3efe6496e04b5eb80",
+   "id": "d_0a92849ed85305dd557a7c23",
    "payment": {
     "id": "p_1",
     "hash": "sha256:bf85d36f5ede8a83ce0a01af90a3d2af18923da3acd604a43f268eb6f0097f80"
@@ -11146,11 +11989,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:tsEgrJ7uFZmHk17iKrVJxTDL-Xd6zOCRxiBZjHausxQ60CBk9Uj1GnLlaYmMgLGJr9C5CmJ8xgUxFznh0lkvCw"
+   "sig": "ed25519:RwdXj3uglsjHP7xPiFmURDDZxvtW1Z5J8-OoJCQNXGFPzoWnq2gDrNQeokkBKVBJR2bQZan2XG9KgsnaD513CA"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_292fa7dbb500b19ee081749e",
+   "id": "d_a3096acfb6ddf7c1e8848b10",
    "payment": {
     "id": "p_1",
     "hash": "sha256:6ccab8138e4bda955bccc13710a40c1ee829b1d5808175098d071685a0cd04e6"
@@ -11173,11 +12016,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:NBuVU16aRzFBNuVCluiu3nkRdj_9xH-mmOg7cat8OCP-AF9JoMxETgWJdM-EzYgiTdEjYxxswdDHdfrcApuKBQ"
+   "sig": "ed25519:zwKQzIIVgXvZPvQARuxi93bH9ay-nc4H18YUrL79w_-0OvxyD5xwQ22OMal2Mgux7Lz_WWEFXGBGGkcaxeRiAA"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_0eed70874667741aed8979d0",
+   "id": "d_6a0b8d0cc53a92f49d0e851d",
    "payment": {
     "id": "p_1",
     "hash": "sha256:38dc51ab3ae060a5183b99f7102d7126d5a5eaf3694703912d0d69b4a3723185"
@@ -11200,11 +12043,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:jsnc6qFTOhrIWiPtsuiMp8bgLdOgIOl9ln-8L2GldgDtcx_eiyabsqpev7BmUJQ8dTqWpuV4fESpwFc7Ohq5Dw"
+   "sig": "ed25519:g9gOwgrj59VtxOz6kLdHjU_NwyAaKnVA-u578S17pkvPRYYjQdQ2uqkLBIbgateCtm1a3Qzd2rhPou00ONe1Bw"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_47f40f9cc9fe9bbf2ed08601",
+   "id": "d_368045a542373a44d26e24b8",
    "payment": {
     "id": "p_1",
     "hash": "sha256:bbe877e9b74f953ffc22af7c4de3b8bbfd3c7abd570e92416c5c801de4f64ca9"
@@ -11223,11 +12066,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:UZmjH8TAsA8TvgkngN9aYz4jdj6s0hSnDfOfQqskYgyIxLC4-PVsmYQyxqFxtZhw_pqvqm1ySm0-mpcmD2MYBw"
+   "sig": "ed25519:H9kSMQlCz0vsIyk4w_eOkaHGV72mDfELOvtDpprwMzkua7-Xv2eB91iSkML9d5C1XdMO_pnaaNKC3goZVZhyBw"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_480b25f45e228e6c2bcfdf48",
+   "id": "d_009d87648cf9f49121353359",
    "payment": {
     "id": "p_1",
     "hash": "sha256:f8ea4d9ad8d50f020ffc1af73252d043c53e76cb74eea79dc89f46cf2005c746"
@@ -11246,11 +12089,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:0ul-WeCzNoGE5F9tcee5Ni5iAWPEq2XaoTU9tkCXEF0NXMKeUHjLVZv7xCcx9DMgyKt82QCZrj8alc-N41bTAQ"
+   "sig": "ed25519:zUKFz0_IkZLE43DEdQKEmZhCZ7-ENa0sQmoe0xIeBSs9zWveu4lJJ7oWg4qVejjzeisGrogjTke390OOVCazDg"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_33685eba3b4e45ae5714f2f2",
+   "id": "d_ec9cee37b5808e6f3d7510b2",
    "payment": {
     "id": "p_1",
     "hash": "sha256:eb439aff812deb8df5a274ed6b473639f0c852fc0c992f8fda0692a65169fa4d"
@@ -11269,11 +12112,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:-n_4R3OR6YUsjhBS0IGdhIubtGsCNdO8yabL8Iou2Is23Dpl2q6m0veHwBSg9eqB5JbTSDL62SeeEjqU-9cUCA"
+   "sig": "ed25519:jd8nzEx3XfW_kRw_XooTPzkOH8XQ5JoVgEK1Ks7ynuVu7vjzrrEG-YDsJgg0J1fTtBioFlIrAJC4yUpR96-oBQ"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_b4ee89a4f7bb11d22646f7cc",
+   "id": "d_cdbf211d06003de23b96889d",
    "payment": {
     "id": "p_1",
     "hash": "sha256:2180db486264136cc4ba7913e0ed61362221018c11208271b0eb2604d89267a8"
@@ -11294,11 +12137,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:oNmqGyeZJWxq5GfURug4ywX0bD71d6Cxmv6AsNT4ugqwJXmVXUopnQlkvsHXGGbiMp69jQxq2LwTBKyRW6DyDg"
+   "sig": "ed25519:XyGzfaHOXFjT-S6dwhlKzddn_vccV9p0xwf6Q33glkPo5w0NTR5CSqu4scI_1z0jrnatTk_PYg959ji4a3L-Cg"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_20150a6194590b85b767c5c3",
+   "id": "d_59d11bde414dfe3545e1ebdd",
    "payment": {
     "id": "p_1",
     "hash": "sha256:2180db486264136cc4ba7913e0ed61362221018c11208271b0eb2604d89267a8"
@@ -11319,11 +12162,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:UqqI_vH0ovt4ejg7xcDvt0WexTWqFqcSaqxvC0BApqxwjaqbtk-ITfaTumwYf_3H3bERDSXPUbSspQ5E3mpcCA"
+   "sig": "ed25519:AD_8N0glSGenXx4H2fF9af1OcikMZMb0XoWiUsvn-zqrvUknjwbWXR-WThfZ3hfvPUr8A82dngpq1nx-OMxRBA"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_d2538e6ac80acc77694c17a7",
+   "id": "d_c47747479c8243384b0e3b7f",
    "payment": {
     "id": "p_1",
     "hash": "sha256:2180db486264136cc4ba7913e0ed61362221018c11208271b0eb2604d89267a8"
@@ -11344,11 +12187,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:on37VXbgXyfHd_2QyJJo4K-xkV4WC7AgfvLrGW29qFbS4YBwCq1O6D-6g8spw6kT1I7-vI0kBEMuOyzDTEvnAw"
+   "sig": "ed25519:3O4QtC0Sw4FHhRQu6h_NqWQ3fE0TcrLaQqDrTj4XvFwf9DCJ1rzddXgN_c1uWCPLFrGoPZ51Kaxni047-4UWDw"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_9697b03c56368534dc4ece96",
+   "id": "d_2b5666f8ef09d0413c5f4563",
    "payment": {
     "id": "p_1",
     "hash": "sha256:2180db486264136cc4ba7913e0ed61362221018c11208271b0eb2604d89267a8"
@@ -11371,11 +12214,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:lShYICmUCuLoPr7tG_PsJkzd-SPMECA3uXud3o6XP97RKEFOYOlNc_k_G9HnnqsMRqBK6Ki8goCimp8EZOJmAw"
+   "sig": "ed25519:mRpzqIyi57TMc2YVDjHLIq_OqRMl9IVnPdVTXas07GMhaBGTuvFlCRvS__p1BZB2th76dSf0eZgTeCVq9uHSCA"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_23c664b09ae9d2b2c739d599",
+   "id": "d_bcc5a5fff9cf635edf107afd",
    "payment": {
     "id": "p_1",
     "hash": "sha256:2180db486264136cc4ba7913e0ed61362221018c11208271b0eb2604d89267a8"
@@ -11398,11 +12241,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:dSyntaSqcWip_TT7xaij-HH0uCWUP6w_eacIATFEwlmdInUJeFzMJtWWt-NOWAdIdqaIrtv3GhSs0ssqJVTeDQ"
+   "sig": "ed25519:538HmNRxNQNIx0hJHdItz1n1CtmPeHMSHvTx2yueAxtA71CGTX3jckELfS1kH5bEgm0Ogy1W6OmimET55pMTAg"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_36e6f39e57cb8db618d986f4",
+   "id": "d_0b6eadf5063c762630e875d3",
    "payment": {
     "id": "p_1",
     "hash": "sha256:2180db486264136cc4ba7913e0ed61362221018c11208271b0eb2604d89267a8"
@@ -11428,11 +12271,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:C52BKYTg8VkKuRM0qyh-SUJLVeUK4c6-LpGB29uxEMeuVmm4Vg0hi_mFBnjnF0_W5R8D-yhygoyP6datUsUGDA"
+   "sig": "ed25519:l_k03Shfmj-xhGy4cQ9Ig2cTDijbHacJHctw4quoaRXjoIVrvuqcuTkT3voxA8PihMPq3M5_myiE5xiOvU30Bg"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_36dfb581a1755069c20e6bc1",
+   "id": "d_2bd46763a359bd02e16a8a00",
    "payment": {
     "id": "p_1",
     "hash": "sha256:898dfdd53c9d2e2be1bc3bb350d3882907f7d423e3fefb1085709034e5cc215d"
@@ -11453,11 +12296,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:hUc-vK07E3ypZRkCPe-ZiMMOOoIPznNoFafJoMNmFfaSzPLPZ3-deHod_pSoqCab1lB0Kl14Qlrv_SSx0wpOBg"
+   "sig": "ed25519:MGB4CYr2clBRA3ni4PtM5zKGSJO0cdtoRXCNtMmoHsdqndazFp3VTsWEbM3LPFuwzo0uUf36MkiEcUmfJrejAg"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_f1936b9ba6233ebe7f56ed5f",
+   "id": "d_2376571740dd43e546d1126c",
    "payment": {
     "id": "p_1",
     "hash": "sha256:898dfdd53c9d2e2be1bc3bb350d3882907f7d423e3fefb1085709034e5cc215d"
@@ -11478,11 +12321,11 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:rW86ocR-y25GAW7rx-6hWkad7KQw8SJYDW-o2zsU0R1UxYw038WuTEmigmUy17xilRfgfxKgxdKUW_KCnkiZCQ"
+   "sig": "ed25519:3LBlvUMh2_f64T7D_u6V0Zo-dabI3kd1o61GwT1eGPzpyjCVqK9G7zhtiMZHxZeKFwYAQr6NPNpfowOzVe3yDQ"
   },
   {
    "v": "gleipnir/decision/0.2",
-   "id": "d_9be95625bd012f6da11fbe0f",
+   "id": "d_0affc6647d97621bfe94cfd1",
    "payment": {
     "id": "p_1",
     "hash": "sha256:898dfdd53c9d2e2be1bc3bb350d3882907f7d423e3fefb1085709034e5cc215d"
@@ -11507,7 +12350,136 @@
     "id": "bank:VECTORS",
     "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
    },
-   "sig": "ed25519:vPOxmIknD0EuQTSZFm5aFmP4PQ6B09Id87wRwlfheB7FeEhpSiFbYNa02mAIDEPwKDRmnQBXYbpiPFXVWO3QBA"
+   "sig": "ed25519:KEH02MiAy7j8a03gc6Au_8zcqhfKppUgQifqjCXIm0r5TGr2I8vKY9MTowxOtVxI6GBeeLaikDqeYXGyNXUCCw"
+  },
+  {
+   "v": "gleipnir/decision/0.2",
+   "id": "d_7f2b51c0dee67b853ea1d994",
+   "payment": {
+    "id": "p_1",
+    "hash": "sha256:ec8d6a786fa20a774d51ec29e54892d381ae6c9aa2d2f88eb895912f651c98a1"
+   },
+   "mandate": {
+    "id": "m_vec",
+    "hash": "sha256:87d960d92d772454b5c1af9e7faae2ce41aedf82840190c95b1d4e1515d1c424"
+   },
+   "outcome": "allow",
+   "reasons": [],
+   "checks": [
+    "mandate_valid",
+    "signer_authorized:bank_kyb",
+    "not_revoked",
+    "agent_signed",
+    "payee_on_mandate",
+    "within_payment_limit",
+    "within_period_limit"
+   ],
+   "checked_at": "2026-10-23T09:14:02.000Z",
+   "checker": {
+    "id": "bank:VECTORS",
+    "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
+   },
+   "sig": "ed25519:8yXYftY7msfdP1OlzbeNRF1gPlwKa8asNOgnO0mDcO-UE-ixxy-RcVtlV4U6XBATBA3ElTgR-9O_7f4JdrLKDA"
+  },
+  {
+   "v": "gleipnir/decision/0.2",
+   "id": "d_6cad95e10689775a769f7b12",
+   "payment": {
+    "id": "p_1",
+    "hash": "sha256:ec8d6a786fa20a774d51ec29e54892d381ae6c9aa2d2f88eb895912f651c98a1"
+   },
+   "mandate": {
+    "id": "m_vec",
+    "hash": "sha256:87d960d92d772454b5c1af9e7faae2ce41aedf82840190c95b1d4e1515d1c424"
+   },
+   "outcome": "block",
+   "reasons": [
+    "mandate_bad_signature"
+   ],
+   "checks": [],
+   "checked_at": "2026-10-23T09:14:02.000Z",
+   "checker": {
+    "id": "bank:VECTORS",
+    "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
+   },
+   "sig": "ed25519:R4u4pe1uPwdnZ0NFSViNKHdAgkcEO_ADj9y8ZFuUr2st-pIEHJPvzBnIrC-wGkKbIu6ieg5GbbewI_APni7XAA"
+  },
+  {
+   "v": "gleipnir/decision/0.2",
+   "id": "d_319578a80dd3205a25c73e2f",
+   "payment": {
+    "id": "p_1",
+    "hash": "sha256:ec8d6a786fa20a774d51ec29e54892d381ae6c9aa2d2f88eb895912f651c98a1"
+   },
+   "mandate": {
+    "id": "m_vec",
+    "hash": "sha256:87d960d92d772454b5c1af9e7faae2ce41aedf82840190c95b1d4e1515d1c424"
+   },
+   "outcome": "block",
+   "reasons": [
+    "mandate_bad_signature"
+   ],
+   "checks": [],
+   "checked_at": "2026-10-23T09:14:02.000Z",
+   "checker": {
+    "id": "bank:VECTORS",
+    "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
+   },
+   "sig": "ed25519:oiYEmCDGTlFNzV3VDL6QMZnT-RAV82gg29aRPaL13PWvxbJrBfwTtpT4QeUYARxbYuMr_OIvWUxVmFZ_xYoyCg"
+  },
+  {
+   "v": "gleipnir/decision/0.2",
+   "id": "d_e2a1d4982708899c1e597e6d",
+   "payment": {
+    "id": "p_1",
+    "hash": "sha256:ec8d6a786fa20a774d51ec29e54892d381ae6c9aa2d2f88eb895912f651c98a1"
+   },
+   "mandate": {
+    "id": "m_vec",
+    "hash": "sha256:87d960d92d772454b5c1af9e7faae2ce41aedf82840190c95b1d4e1515d1c424"
+   },
+   "outcome": "block",
+   "reasons": [
+    "mandate_bad_signature"
+   ],
+   "checks": [],
+   "checked_at": "2026-10-23T09:14:02.000Z",
+   "checker": {
+    "id": "bank:VECTORS",
+    "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
+   },
+   "sig": "ed25519:H2ILKTdhb8HcIJ6n_qEMyZ-aoElDXjsa5KKlR8nq4giNUKDIwnb_6MmSaG90QbgUZYPF0FJchVQi8gAh8KacAw"
+  },
+  {
+   "v": "gleipnir/decision/0.2",
+   "id": "d_80884ff37919193594da1484",
+   "payment": {
+    "id": "p_1",
+    "hash": "sha256:bca7a354877785829e43ff69c1f235a378f694915feb7abc7185f0abdb45f050"
+   },
+   "mandate": {
+    "id": "m_vec",
+    "hash": "sha256:8b2e679ef084b6a6d0c9f320b3e15d192fd6f0716b58431ea3335492252cfe17"
+   },
+   "outcome": "allow",
+   "reasons": [],
+   "checks": [
+    "mandate_valid",
+    "signer_authorized:bank_kyb",
+    "signer_authorized:bank_kyb",
+    "signatures:2/2",
+    "not_revoked",
+    "agent_signed",
+    "payee_on_mandate",
+    "within_payment_limit",
+    "within_period_limit"
+   ],
+   "checked_at": "2026-10-23T09:14:02.000Z",
+   "checker": {
+    "id": "bank:VECTORS",
+    "public_key": "ed25519:7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
+   },
+   "sig": "ed25519:ffxXtyrvofLiH-afoKs-tRjUuU1qutxp35o_Ma4L24i-t2Dhwi5urD5QH1movycKlDlXJN_CNV2oR_0aI58lAg"
   }
  ]
 }
