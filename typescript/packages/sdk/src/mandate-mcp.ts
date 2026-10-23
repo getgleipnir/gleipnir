@@ -20,6 +20,9 @@ import { pathToFileURL } from "node:url";
 import {
   Checker,
   InMemoryLedger,
+  MANDATE_VERSION,
+  SCHEMES,
+  account,
   attach,
   issue,
   mandateHash,
@@ -60,19 +63,24 @@ export const TOOLS: J[] = [
       signer_public_key: { type: "string" },
       currency: { type: "string" }, max_per_payment: { type: "string", description: "e.g. 25000.00" },
       max_per_month: { type: "string" },
-      payees: { type: "array", items: { type: "string", description: "NAME=IBAN" } },
+      payees: { type: "array", items: { type: "string", description: "NAME=ACCOUNT" } },
+      from_accounts: { type: "array", items: { type: "string" },
+        description: "the company's accounts to pay from: IBAN, or SCHEME:FIELD/FIELD" },
       valid_until: { type: "string", description: "RFC 3339 UTC" }, purpose: { type: "string" },
-    }, ["company", "country", "signer_id", "signer_public_key", "currency", "max_per_payment", "payees", "valid_until"]),
+    }, ["company", "country", "signer_id", "signer_public_key", "currency", "max_per_payment", "payees", "from_accounts",
+      "valid_until"]),
     annotations: { title: "Ask a person for a mandate", readOnlyHint: false, destructiveHint: false, openWorldHint: false },
   },
   {
     name: "attach_mandate",
-    description: "Build a payment under the loaded mandate, signed with your agent key. Submit the result "
+    description: "Build a payment under the loaded mandate, from one of its accounts, signed with your agent key. Submit the result "
       + "to the bank together with the mandate. Check it first with check_payment.",
     inputSchema: schema({
       payment_id: { type: "string", description: "unique per payer, e.g. the invoice number" },
       amount: { type: "string", description: "e.g. 18400.00" },
-      payee: { type: "string", description: "NAME=IBAN, exactly as on the invoice" },
+      payee: { type: "string", description: "NAME=ACCOUNT exactly as on the invoice: an IBAN, or SCHEME:FIELD/FIELD "
+        + "(us_aba:ROUTING/ACCOUNT, uk_sort_code:SORT_CODE/ACCOUNT, ...)" },
+      from_account: { type: "string", description: "which mandate account to pay from (default: the only one)" },
       reference: { type: "string" }, rail: { type: "string" },
     }, ["payment_id", "amount", "payee"]),
     annotations: { title: "Prepare a payment", readOnlyHint: true, openWorldHint: false },
@@ -82,7 +90,8 @@ export const TOOLS: J[] = [
     description: "Submit a payment built by attach_mandate to the bank's check. This is the real check, not a "
       + "dry run: an allowed payment is recorded under its id and counts against the limits, so "
       + "call it only for a payment you intend to make. Returns allow, block or escalate with a "
-      + "reason. Never pay on block; on escalate, ask a person. To retry, resubmit the same payment.",
+      + "reason. Never pay on block; on escalate, ask a person (they sign an override at the bank). "
+      + "To retry, resubmit the same payment; after a block you may correct it and reuse the id.",
     inputSchema: schema({ payment: { type: "object" } }, ["payment"]),
     annotations: { title: "Ask the bank", readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   },
@@ -108,11 +117,31 @@ export function argumentsProblem(spec: J, args: unknown): string | null {
   return null;
 }
 
+/** An IBAN ("AT61 1904 ..."), or SCHEME:FIELD/FIELD in the scheme's field order ("us_aba:021000021/1234"). */
+export function parseAccount(text: string): J {
+  const i = text.indexOf(":");
+  const scheme = i < 0 ? "iban" : text.slice(0, i).trim().toLowerCase();
+  const rest = i < 0 ? text : text.slice(i + 1);
+  if (!Object.prototype.hasOwnProperty.call(SCHEMES, scheme)) {
+    throw new ToolError(`unknown account scheme ${JSON.stringify(scheme)}: one of ${Object.keys(SCHEMES).join(", ")}`);
+  }
+  const names = Object.keys(SCHEMES[scheme]!);
+  const parts = rest.split("/");
+  if (parts.length !== names.length) {
+    throw new ToolError(`a ${scheme} account is ${scheme}:${names.map((n) => n.toUpperCase()).join("/")}, got ${JSON.stringify(text)}`);
+  }
+  try {
+    return account(scheme, Object.fromEntries(names.map((n, k) => [n, parts[k]!])));
+  } catch (e) {
+    throw new ToolError(`bad account ${JSON.stringify(text)}: ${(e as Error).message}`);
+  }
+}
+
 export function parsePayee(text: string): J {
   const i = text.lastIndexOf("=");
-  const name = text.slice(0, i).trim(), iban = text.slice(i + 1).trim();
-  if (i < 0 || !name || !iban) throw new ToolError(`payee must be NAME=IBAN, got ${JSON.stringify(text)}`);
-  return { name, account: { iban } };
+  const name = text.slice(0, i).trim(), acc = text.slice(i + 1).trim();
+  if (i < 0 || !name || !acc) throw new ToolError(`payee must be NAME=ACCOUNT, got ${JSON.stringify(text)}`);
+  return { name, account: parseAccount(acc) };
 }
 
 /** The 32-byte seed of an Ed25519 private key PEM (as written by `gleipnir mandate keygen`). */
@@ -145,6 +174,13 @@ export interface Options {
   drafts?: string;
 }
 
+function loadHolds(path: string) {
+  const doc = readJson(path) as J;
+  const rows = (doc.accounts ?? []) as J[];
+  const key = (v: unknown) => JSON.stringify(v, Object.keys((v ?? {}) as J).sort());
+  return (company: J, acc: J): boolean => rows.some((r) => r.company === company.name && key(r.account) === key(acc));
+}
+
 function loadAuthority(path: string) {
   const doc = readJson(path) as J;
   const rows = (doc.signers ?? []) as J[];
@@ -153,7 +189,8 @@ function loadAuthority(path: string) {
     // Pass the values through as they are: the Checker refuses odd ones (fail closed), never coerces them.
     return r ? { source: String(doc.source ?? "bank_kyb"), keys: r.keys as string[],
       maySign: (r.may_sign === undefined ? true : r.may_sign) as boolean,
-      joint: (r.joint === undefined ? 1 : r.joint) as number } : null;
+      joint: (r.joint === undefined ? 1 : r.joint) as number,
+      retired: (r.retired === undefined ? {} : r.retired) as Record<string, string> } : null;
   };
 }
 
@@ -165,7 +202,7 @@ export class MandateTools {
     this.agentSeed = o.agentKey ? seedFromPem(readFileSync(o.agentKey, "utf8")) : null;
     this.local = !o.bankUrl && o.bankKey && o.authority
       ? new Checker({ id: "bank:local-demo", seed: seedFromPem(readFileSync(o.bankKey, "utf8")),
-        authority: loadAuthority(o.authority), ledger: new InMemoryLedger() })
+        authority: loadAuthority(o.authority), holds: loadHolds(o.authority), ledger: new InMemoryLedger() })
       : null;
   }
 
@@ -185,7 +222,8 @@ export class MandateTools {
     return {
       mandate: m.id, company: (m.company as J | undefined)?.name, agent: (m.agent as J | undefined)?.id,
       currency: sc.currency, max_per_payment: sc.max_per_payment, max_per_period: sc.max_per_period ?? null,
-      rails: sc.rails ?? "any", payees: sc.payees ?? "any payee", valid_from: m.valid_from ?? null,
+      rails: sc.rails ?? "any", payees: sc.payees ?? "any payee", from_accounts: sc.from_accounts ?? null,
+      valid_from: m.valid_from ?? null,
       valid_until: m.valid_until, signed_by: signedBy,
       delegation: ((m.delegation ?? []) as J[]).map((d) => `${(d.from as J).id} -> ${(d.to as J).id}`),
       problem: mandateProblem(m),
@@ -194,7 +232,7 @@ export class MandateTools {
 
   request_mandate(a: J): J {
     const scope: J = { rails: ["sepa", "sepa_instant"], currency: a.currency, max_per_payment: a.max_per_payment,
-      payees: (a.payees as string[]).map(parsePayee) };
+      payees: (a.payees as string[]).map(parsePayee), from_accounts: (a.from_accounts as string[]).map(parseAccount) };
     if (a.max_per_month) scope.max_per_period = { amount: a.max_per_month, period: "P1M" };
     if (a.purpose) scope.purpose = a.purpose;
     const agent: J = { id: "agent" };
@@ -222,9 +260,16 @@ export class MandateTools {
     const sc = m.scope;
     if (!isObj(sc)) throw new ToolError("cannot use the loaded mandate: no scope");
     const rails = Array.isArray(sc.rails) ? (sc.rails as string[]) : [];
-    const p = attach(m, { id: a.payment_id as string, rail: (a.rail as string | undefined) || rails[0] || "sepa",
-      amount: a.amount as string, currency: sc.currency as string, payee: parsePayee(a.payee as string),
-      reference: (a.reference as string | undefined) ?? "", agentSeed: this.agentSeed ?? undefined });
+    let p: J;
+    try {
+      p = attach(m, { id: a.payment_id as string, rail: (a.rail as string | undefined) || rails[0] || "sepa",
+        amount: a.amount as string, currency: sc.currency as string, payee: parsePayee(a.payee as string),
+        fromAccount: a.from_account ? parseAccount(a.from_account as string) : undefined,
+        reference: (a.reference as string | undefined) ?? "", agentSeed: this.agentSeed ?? undefined });
+    } catch (e) {
+      if (e instanceof ToolError) throw e;
+      throw new ToolError(`cannot use the loaded mandate: ${(e as Error).message}`);
+    }
     const problem = paymentProblem(p);
     if (problem) throw new ToolError(`payment rejected: ${problem}`);
     return { payment: p };
@@ -280,7 +325,7 @@ export async function handle(tools: MandateTools, msg: unknown): Promise<J | nul
       return result(id, {
         protocolVersion: typeof asked === "string" && PROTOCOL_VERSIONS.includes(asked) ? asked : PROTOCOL_VERSIONS[0],
         capabilities: { tools: {}, resources: {} },
-        serverInfo: { name: "gleipnir-mandate", version: "0.2" },
+        serverInfo: { name: "gleipnir-mandate", version: MANDATE_VERSION },
         instructions: "Pay only under a mandate a person signed. Check every payment with check_payment first; never pay on block.",
       });
     }

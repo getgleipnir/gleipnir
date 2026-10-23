@@ -11,13 +11,14 @@ from collections import Counter
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from kit import DEBTOR, holds
 
 from gleipnir_verify import mandate as M
 
 T0 = datetime(2026, 10, 23, 9, 14, 2, tzinfo=timezone.utc)
 COMPANY = {"name": "Nordhafen Logistik GmbH", "country": "AT"}
-BRENNER = {"name": "Brenner Stahl AG", "account": {"iban": "AT611904300234573201"}}
-MUELLER = {"name": "Müller Transporte", "account": {"iban": "DE89370400440532013000"}}
+BRENNER = {"name": "Brenner Stahl AG", "account": {"scheme": "iban", "iban": "AT611904300234573201"}}
+MUELLER = {"name": "Müller Transporte", "account": {"scheme": "iban", "iban": "DE89370400440532013000"}}
 UNTIL = "2026-12-31T23:59:59.000Z"
 
 
@@ -62,11 +63,12 @@ class World:
 
     def checker(self, bank_id: str, key: str, authority: M.Authority, **kw) -> M.Checker:
         return M.Checker(id=bank_id, sk=self.sk(key), authority=authority, ledger=M.InMemoryLedger(),
-                         clock=lambda: self.now, **kw)
+                         clock=lambda: self.now, holds=kw.pop("holds", holds), **kw)
 
     def scope(self, **kw) -> dict:
         s = {"rails": ["sepa", "sepa_instant"], "currency": "EUR", "max_per_payment": "25000.00",
-             "max_per_period": {"amount": "40000.00", "period": "P1M"}, "payees": [BRENNER], **kw}
+             "max_per_period": {"amount": "40000.00", "period": "P1M"}, "payees": [BRENNER],
+             "from_accounts": [DEBTOR], **kw}
         return {k: v for k, v in s.items() if v is not None}
 
     def mandate(self, signer: str = "berger", agent: str = "agent", mid: str = "m_ap", **kw) -> dict:
@@ -169,23 +171,40 @@ def test_uc05_normal_invoice(w):
     m = w.mandate()
     d = w.bank.check(m, w.pay(m))
     assert outcome(d) == ("allow", [])
-    assert d["checks"] == ["mandate_valid", "signer_authorized:bank_kyb", "agent_signed", "not_revoked",
-                           "payee_on_mandate", "within_payment_limit", "within_period_limit"]
+    assert d["checks"] == ["mandate_valid", "agent_signed", "signer_authorized:bank_kyb", "not_revoked",
+                           "account_held", "payee_on_mandate", "within_payment_limit", "within_period_limit"]
 
 
 def test_uc06_new_iban(w):
     """'We changed our bank details': a different account is a different payee."""
     m = w.mandate()
-    swapped = {"name": "Brenner Stahl AG", "account": {"iban": "LT121000011101001000"}}
+    swapped = {"name": "Brenner Stahl AG", "account": {"scheme": "iban", "iban": "LT121000011101001000"}}
     assert outcome(w.bank.check(m, w.pay(m, payee=swapped))) == ("block", ["payee_not_on_mandate"])
-    same = {"name": "Brenner Stahl", "account": {"iban": "at61 1904 3002 3457 3201"}}
+    same = {"name": "Brenner Stahl", "account": M.iban("at61 1904 3002 3457 3201")}  # as typed from the invoice
     assert outcome(w.bank.check(m, w.pay(m, payee=same))) == ("allow", [])
+    # After the block the agent may correct the payment and use the same invoice id again.
+    assert outcome(w.bank.check(m, w.pay(m, payee=swapped, pid="INV-77")))[0] == "block"
+    assert outcome(w.bank.check(m, w.pay(m, pid="INV-77"))) == ("allow", [])
 
 
 def test_uc07_over_payment_limit(w):
+    """Above the limit a person decides: a signatory signs an override in the bank app, the bank re-checks."""
     m = w.mandate()
-    assert outcome(w.bank.check(m, w.pay(m, "25000.01"))) == ("escalate", ["over_payment_limit"])
-    assert outcome(w.bank.check(m, w.pay(m, "25000.00"))) == ("allow", [])
+    p = w.pay(m, "25000.01")
+    d = w.bank.check(m, p)
+    assert outcome(d) == ("escalate", ["over_payment_limit"])
+    assert w.bank.check(m, p) == d  # still waiting: the id stays held
+    o = M.sign_override(M.make_override(d, outcome="allow", id="o_1", reason="Annual contract",
+                                        decided_at=ts(w.now)), w.sk("berger"), w.p("berger"))
+    final = w.bank.resolve(m, p, d, o)
+    assert outcome(final) == ("allow", []) and "override:company:1/1" in final["checks"]
+    assert final["escalation"] == {"id": d["id"], "hash": M.obj_hash(d)}
+    assert w.bank.check(m, p) == final  # the agent's retry gets the final answer
+    r = M.verify_receipt(m, p, final, [w.pk("bank")], override=o)
+    assert r["valid"] and r["approved_by"] == ["kberger@nordhafen.at"]
+    assert M.verify_receipt(m, p, final, [w.pk("bank")])["problems"] == ["override_missing"]
+    assert outcome(w.bank.check(m, w.pay(m, "25000.00"))) == ("escalate", ["over_period_limit"])  # 40k a month
+    assert outcome(w.bank.check(m, w.pay(m, "14999.99"))) == ("allow", [])
 
 
 def test_uc08_monthly_limit_used_up(w):
@@ -284,19 +303,26 @@ def test_uc16_mandate_expired(w):
     assert outcome(w.bank.check(later, w.pay(later))) == ("block", ["mandate_not_yet_valid"])
 
 
-@pytest.mark.parametrize("status", [None, "down", "garbage", "revoked"])
+@pytest.mark.parametrize("status", [None, "down", "garbage", "unsigned", "revoked"])
 def test_uc17_revocation_status_unreachable(w, status):
-    """status_url that cannot be read escalates, never allows."""
+    """status_url that cannot be read, or answers without a valid signature, escalates; never allows."""
     m = w.mandate(status_url="https://bank.example/mandates/m_ap/status")
 
-    def fetch(url: str) -> str:
+    def answer(st):
+        return M.status_response(m, status=st, signer=w.p("berger"), sk=w.sk("berger"), at=ts(w.now))
+
+    def fetch(url: str):
         if status == "down":
             raise ConnectionError(url)
+        if status == "revoked":
+            return answer("revoked")
+        if status == "unsigned":
+            return {k: v for k, v in answer("active").items() if k != "sig"}
         return status
     w.bank.status = None if status is None else fetch
     expected = ("block", ["mandate_revoked"]) if status == "revoked" else ("escalate", ["status_unavailable"])
     assert outcome(w.bank.check(m, w.pay(m))) == expected
-    w.bank.status = lambda url: "active"
+    w.bank.status = lambda url: answer("active")
     assert outcome(w.bank.check(m, w.pay(m)))[0] == "allow"
 
 
@@ -323,12 +349,16 @@ def test_uc19_second_bank(w):
         return vlei_creds.get(pid) if company.get("name") == COMPANY["name"] else None
 
     second = w.checker("bank:OTHERDEFF", "bank2", M.combine(lambda company, pid: None, vlei))
+    # The mandate names the debtor account; it works at the bank that holds it (here: both do).
     d = second.check(m, w.pay(m))
     assert outcome(d) == ("allow", [])
     assert "signer_authorized:vlei" in d["checks"]
     # A vLEI credential bound to another key does not help.
     vlei_creds[w.p("berger")["id"]] = M.AuthorityResult("vlei", (w.pk("hofer"),))
     assert outcome(second.check(m, w.pay(m))) == ("block", ["signer_not_authorized"])
+    # A bank that does not hold the debtor account cannot be used to replay the mandate.
+    elsewhere = w.checker("bank:THIRDFRPP", "bank2", w.kyb_authority, holds=lambda company, account: False)
+    assert outcome(elsewhere.check(m, w.pay(m))) == ("block", ["account_not_held"])
 
 
 # ---------- after the fact ----------
@@ -348,7 +378,8 @@ def test_uc20_dispute_three_months_later(w):
     assert r["signed_by"] == ["cfo@nordhafen.at"]
     assert r["delegation"] == ["ceo@nordhafen.at -> cfo@nordhafen.at"]
     assert r["authority"] == ["signer_authorized:bank_kyb"]
-    assert r["payment"] == {"id": p["id"], "amount": "18400.00", "currency": "EUR", "payee": BRENNER["account"]}
+    assert r["payment"] == {"id": p["id"], "amount": "18400.00", "currency": "EUR", "from": DEBTOR,
+                            "payee": BRENNER["account"]}
     assert r["company"] == COMPANY["name"] and r["checker"] == "bank:NORDATWW"
     # Every way to rewrite history fails.
     assert M.verify_receipt(m, p, {**d, "outcome": "block"}, bank_keys)["problems"] == ["decision_bad_signature"]

@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 import pytest
+from kit import DEBTOR, holds
 from passkey import WEBAUTHN, Passkey
 
 from gleipnir_verify import mandate as M
@@ -12,8 +13,9 @@ from gleipnir_verify.approvals import approval_challenge
 
 NOW = datetime(2026, 10, 23, 9, 14, 2, tzinfo=timezone.utc)
 COMPANY = {"name": "Nordhafen Logistik GmbH", "country": "AT"}
-BRENNER = {"name": "Brenner Stahl AG", "account": {"iban": "AT611904300234573201"}}
-SCOPE = {"rails": ["sepa"], "currency": "EUR", "max_per_payment": "25000.00", "payees": [BRENNER]}
+BRENNER = {"name": "Brenner Stahl AG", "account": {"scheme": "iban", "iban": "AT611904300234573201"}}
+SCOPE = {"rails": ["sepa"], "currency": "EUR", "max_per_payment": "25000.00", "payees": [BRENNER],
+         "from_accounts": [DEBTOR]}
 
 
 @pytest.fixture()
@@ -23,7 +25,7 @@ def keys():
 
 def checker(keys, kyb, **kw):
     return M.Checker(id="bank:test", sk=keys["bank"], authority=lambda c, pid: kyb.get(pid), clock=lambda: NOW,
-                     webauthn=WEBAUTHN, **kw)
+                     webauthn=WEBAUTHN, holds=holds, **kw)
 
 
 def pay(m, pid="p_1"):

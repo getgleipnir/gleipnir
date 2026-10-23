@@ -1,4 +1,4 @@
-"""Smoke test of the mandate flow: issue, sign, attach, check, verify the decision.
+"""Smoke test of the mandate flow: issue, sign, attach, check, override, verify the decision.
 
     uv run python examples/mandate_demo.py
 
@@ -15,7 +15,8 @@ berger_sk, berger_pk = m.new_key()
 agent_sk, agent_pk = m.new_key()
 bank_sk, bank_pk = m.new_key()
 
-BRENNER = {"name": "Brenner Stahl AG", "account": {"iban": "AT611904300234573201"}}
+BRENNER = {"name": "Brenner Stahl AG", "account": m.iban("AT61 1904 3002 3457 3201")}
+NORDHAFEN = m.iban("AT48 3200 0000 1234 5864")  # the company's own account the agent pays from
 
 mandate = m.sign_mandate(m.issue(
     id="m_demo_nordhafen_ap",
@@ -28,6 +29,7 @@ mandate = m.sign_mandate(m.issue(
         "max_per_payment": "25000.00",
         "max_per_period": {"amount": "100000.00", "period": "P1M"},
         "payees": [BRENNER],
+        "from_accounts": [NORDHAFEN],
         "purpose": "Supplier invoices",
     },
     valid_until="2026-12-31T23:59:59.000Z",
@@ -42,13 +44,18 @@ def authority(company: dict, signer_id: str) -> m.AuthorityResult | None:
     return m.AuthorityResult("bank_kyb", keys) if keys else None
 
 
-bank = m.Checker(id="bank:DEMOATWW", sk=bank_sk, authority=authority, ledger=m.InMemoryLedger())
+def holds(company: dict, account: dict) -> bool:
+    """The bank's books: Nordhafen holds this account here."""
+    return company["name"] == "Nordhafen Logistik GmbH" and account == NORDHAFEN
+
+
+bank = m.Checker(id="bank:DEMOATWW", sk=bank_sk, authority=authority, holds=holds, ledger=m.InMemoryLedger())
 BANK_KEYS = [bank_pk]  # what a company or auditor gets from the bank, out of band
 
 cases = [
     ("18 400 EUR to Brenner Stahl, IBAN on mandate", "18400.00", BRENNER, "allow"),
     ("UC6 new IBAN for Brenner Stahl", "18400.00",
-     {"name": "Brenner Stahl AG", "account": {"iban": "LT121000011101001000"}}, "block"),
+     {"name": "Brenner Stahl AG", "account": {"scheme": "iban", "iban": "LT121000011101001000"}}, "block"),
     ("26 000 EUR to Brenner Stahl", "26000.00", BRENNER, "escalate"),
 ]
 
@@ -66,6 +73,22 @@ for i, (label, amount, payee, expected) in enumerate(cases, 1):
     ok &= passed
     print(f"{i}. {label:<48} {decision['outcome']:<9} reason={reason:<22} "
           f"decision_sig={'VALID' if valid else 'INVALID'}  {'ok' if passed else 'UNEXPECTED'}")
+
+# 2b. After the block the agent corrects payment 2 (the IBAN on the mandate) and reuses the invoice id.
+fixed = bank.check(mandate, m.attach(mandate, id="p_demo_2", rail="sepa", amount="18400.00", currency="EUR",
+                                     payee=BRENNER, reference="INV-2026-0902", agent_sk=agent_sk))
+ok &= fixed["outcome"] == "allow"
+print(f"   {'payment 2 corrected, same invoice id':<48} {fixed['outcome']}")
+
+# 3b. Payment 3 waits for a person: K. Berger approves it in the bank app (a signed override).
+override = m.sign_override(m.make_override(decisions[2], outcome="allow", id="o_demo_3",
+                                           reason="Annual maintenance contract"),
+                           berger_sk, {"id": "kberger@nordhafen.at", "public_key": berger_pk})
+final = bank.resolve(mandate, payments[2], decisions[2], override)
+receipt = m.verify_receipt(mandate, payments[2], final, BANK_KEYS, override=override)
+ok &= final["outcome"] == "allow" and receipt["valid"] and bank.check(mandate, payments[2]) == final
+print(f"   {'payment 3 approved by K. Berger (override)':<48} {final['outcome']:<9} "
+      f"approved_by={receipt['approved_by']}")
 
 # 4. The agent sends payment 1 again: the bank gets the same decision back, nothing is booked twice.
 again = bank.check(mandate, payments[0])
@@ -105,14 +128,17 @@ def kyb_with_delegates(company: dict, person_id: str) -> m.AuthorityResult | Non
 
 
 link = m.delegate(id="g_ceo_cfo", company={"name": "Nordhafen Logistik GmbH", "country": "AT"}, from_=CEO, to=CFO,
-                  scope={"rails": ["sepa"], "currency": "EUR", "max_per_payment": "50000.00"},
+                  scope={"rails": ["sepa"], "currency": "EUR", "max_per_payment": "50000.00",
+                         "from_accounts": [NORDHAFEN]},
                   valid_until="2027-03-31T23:59:59.000Z", sk=ceo_sk)
 cfo_mandate = m.sign_mandate(m.issue(
     id="m_demo_cfo", company={"name": "Nordhafen Logistik GmbH", "country": "AT"},
     agent={"id": "ap-agent", "public_key": agent_pk}, signer=CFO, delegation=[link],
-    scope={"rails": ["sepa"], "currency": "EUR", "max_per_payment": "25000.00", "payees": [BRENNER]},
+    scope={"rails": ["sepa"], "currency": "EUR", "max_per_payment": "25000.00", "payees": [BRENNER],
+           "from_accounts": [NORDHAFEN]},
     valid_until="2026-12-31T23:59:59.000Z"), cfo_sk)
-bank2 = m.Checker(id="bank:DEMOATWW", sk=bank_sk, authority=kyb_with_delegates, ledger=m.InMemoryLedger())
+bank2 = m.Checker(id="bank:DEMOATWW", sk=bank_sk, authority=kyb_with_delegates, holds=holds,
+                  ledger=m.InMemoryLedger())
 
 
 def cfo_pay(n: int) -> dict:
@@ -129,7 +155,7 @@ ok &= passed
 print(f"6. {'UC14 CFO (via CEO delegation) pays, then leaves':<48} {before['outcome']} -> {after['outcome']:<9} "
       f"reason={after['reasons'][0]:<22} {'ok' if passed else 'UNEXPECTED'}")
 
-# UC19. The agent pays through a second bank that never onboarded Nordhafen: no KYB there.
+# UC19. The agent pays through a second bank that holds the account but has no KYB on Nordhafen's signatories.
 second_sk, second_pk = m.new_key()
 VLEI = {("Nordhafen Logistik GmbH", "kberger@nordhafen.at"): (berger_pk,)}  # OOR credential, issued by a QVI
 
@@ -145,7 +171,7 @@ def vlei(company: dict, person_id: str) -> m.AuthorityResult | None:
 
 results = []
 for label, auth in (("without vLEI", no_kyb), ("with vLEI", m.combine(no_kyb, vlei))):
-    other = m.Checker(id="bank:OTHERDEFF", sk=second_sk, authority=auth, ledger=m.InMemoryLedger())
+    other = m.Checker(id="bank:OTHERDEFF", sk=second_sk, authority=auth, holds=holds, ledger=m.InMemoryLedger())
     d = other.check(mandate, m.attach(mandate, id=f"p_demo_2nd_{len(results)}", rail="sepa", amount="5000.00",
                                       currency="EUR", payee=BRENNER, agent_sk=agent_sk))
     results.append(d)

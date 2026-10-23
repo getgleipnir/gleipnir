@@ -12,6 +12,7 @@ import { MandateTools, TOOLS, handle, parseArgs, seedFromPem, serveLines } from 
 type J = Record<string, unknown>;
 const IBAN = "AT611904300234573201";
 const PAYEE = `Brenner Stahl AG=${IBAN}`;
+const DEBTOR = { scheme: "iban", iban: "AT483200000012345864" };
 let dir: string;
 
 function pem(name: string): string {
@@ -31,12 +32,14 @@ beforeAll(() => {
     agent: { id: "ap-agent", public_key: publicKeyOf(agent) },
     signer: { id: "kberger@nordhafen.at", public_key: publicKeyOf(signer) },
     scope: { rails: ["sepa"], currency: "EUR", max_per_payment: "25000.00",
-      max_per_period: { amount: "40000.00", period: "P1M" }, payees: [{ name: "Brenner Stahl AG", account: { iban: IBAN } }] },
+      max_per_period: { amount: "40000.00", period: "P1M" }, payees: [{ name: "Brenner Stahl AG", account: { scheme: "iban", iban: IBAN } }],
+      from_accounts: [DEBTOR] },
     validUntil: "2099-01-01T00:00:00.000Z",
   }), signer);
   writeFileSync(join(dir, "mandate.json"), JSON.stringify(m));
   writeFileSync(join(dir, "kyb.json"), JSON.stringify({ source: "bank_kyb", signers: [
-    { company: "Nordhafen Logistik GmbH", signer: "kberger@nordhafen.at", keys: [publicKeyOf(signer)], may_sign: true }] }));
+    { company: "Nordhafen Logistik GmbH", signer: "kberger@nordhafen.at", keys: [publicKeyOf(signer)], may_sign: true }],
+  accounts: [{ company: "Nordhafen Logistik GmbH", account: DEBTOR }] }));
 });
 
 const tools = (extra: J = {}) => new MandateTools({ mandate: join(dir, "mandate.json"), agentKey: join(dir, "agent.pem"),
@@ -80,9 +83,10 @@ describe("gleipnir-mandate-mcp (TypeScript)", () => {
     const out = (await call(tools(), "request_mandate", { company: "Nordhafen Logistik GmbH", country: "AT",
       signer_id: "kberger@nordhafen.at", signer_public_key: publicKeyOf(seedFromPem(readFileSync(join(dir, "signer.pem"), "utf8"))),
       currency: "EUR", max_per_payment: "5000.00", max_per_month: "20000.00", payees: [PAYEE],
-      valid_until: "2099-01-01T00:00:00.000Z" })).structuredContent as J;
+      from_accounts: ["AT48 3200 0000 1234 5864"], valid_until: "2099-01-01T00:00:00.000Z" })).structuredContent as J;
     const draft = JSON.parse(readFileSync(out.draft as string, "utf8")) as J;
     expect(draft.sig).toBeUndefined();
+    expect((draft.scope as J).from_accounts).toEqual([DEBTOR]);
     expect(mandateHash(draft)).toBe(out.mandate_hash);
   });
 
@@ -90,7 +94,9 @@ describe("gleipnir-mandate-mcp (TypeScript)", () => {
     ["attach_mandate", { payment_id: "x", amount: 100, payee: PAYEE }, "amount must be a string"],
     ["attach_mandate", { payment_id: "x", amount: "1.00", payee: PAYEE, agentKey: "/x" }, "unknown arguments"],
     ["attach_mandate", { payment_id: "x", amount: "1.5", payee: PAYEE }, "bad amount"],
-    ["attach_mandate", { payment_id: "x", amount: "1.00", payee: "no-iban" }, "NAME=IBAN"],
+    ["attach_mandate", { payment_id: "x", amount: "1.00", payee: "no-iban" }, "NAME=ACCOUNT"],
+    ["attach_mandate", { payment_id: "x", amount: "1.00", payee: "X=AT62 1904 3002 3457 3201" }, "check digits"],
+    ["attach_mandate", { payment_id: "x", amount: "1.00", payee: "X=telex:1" }, "unknown account scheme"],
     ["check_payment", { payment: [] }, "payment must be a object"],
     ["mandate_scope", [], "arguments must be an object"],
   ])("rejects bad arguments for %s", async (name, args, text) => {

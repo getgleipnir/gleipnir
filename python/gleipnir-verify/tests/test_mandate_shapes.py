@@ -1,19 +1,21 @@
-"""Malformed multi-signature, delegation and revocation shapes (spec 0.2) are rejected, never crash."""
+"""Malformed multi-signature, delegation, revocation, account, status and override shapes are rejected, never crash."""
 
 from __future__ import annotations
 
 import pytest
+from kit import DEBTOR, holds
 
 from gleipnir_verify import mandate as M
 
 SK, PK = M.new_key()
 P = {"id": "a@x", "public_key": PK}
 Q = {"id": "b@x", "public_key": M.new_key()[1]}
-SCOPE = {"currency": "EUR", "max_per_payment": "10.00"}
-BASE = {"v": "gleipnir/mandate/0.2", "id": "m", "company": {"name": "X", "country": "AT"}, "agent": {"id": "a"},
-        "scope": SCOPE, "valid_until": "2099-01-01T00:00:00.000Z"}
-LINK = {"v": "gleipnir/delegation/0.2", "id": "g", "company": {"name": "X"}, "from": P, "to": P, "scope": SCOPE,
-        "valid_until": "2099-01-01T00:00:00.000Z"}
+SCOPE = {"currency": "EUR", "max_per_payment": "10.00", "from_accounts": [DEBTOR]}
+T = "2026-01-01T00:00:00.000Z"
+BASE = {"v": "gleipnir/mandate/0.3", "id": "m", "company": {"name": "X", "country": "AT"}, "agent": {"id": "a"},
+        "scope": SCOPE, "valid_until": "2099-01-01T00:00:00.000Z", "issued_at": T}
+LINK = {"v": "gleipnir/delegation/0.3", "id": "g", "company": {"name": "X"}, "from": P, "to": P, "scope": SCOPE,
+        "valid_until": "2099-01-01T00:00:00.000Z", "issued_at": T}
 
 
 @pytest.mark.parametrize("extra, problem", [
@@ -47,11 +49,11 @@ def test_mandate_shape_problems(extra, problem):
 
 
 @pytest.mark.parametrize("r, problem", [
-    ({"v": "gleipnir/revocation/0.2", "id": "r"}, "exactly one mandate or delegation"),
-    ({"v": "gleipnir/revocation/0.2", "id": "r", "mandate_hash": "h", "delegation_hash": "h"}, "exactly one"),
-    ({"v": "gleipnir/revocation/0.2", "id": "r", "delegation_hash": "h", "revoked_at": "x", "signer": P},
+    ({"v": "gleipnir/revocation/0.3", "id": "r"}, "exactly one mandate or delegation"),
+    ({"v": "gleipnir/revocation/0.3", "id": "r", "mandate_hash": "h", "delegation_hash": "h"}, "exactly one"),
+    ({"v": "gleipnir/revocation/0.3", "id": "r", "delegation_hash": "h", "revoked_at": "x", "signer": P},
      "missing delegation"),
-    ({"v": "gleipnir/revocation/0.2", "id": "r", "delegation": "g", "delegation_hash": "h", "revoked_at": "x",
+    ({"v": "gleipnir/revocation/0.3", "id": "r", "delegation": "g", "delegation_hash": "h", "revoked_at": "x",
       "signer": P}, "bad timestamp"),
 ])
 def test_revocation_shape_problems(r, problem):
@@ -76,7 +78,103 @@ def test_bad_authority_answer_is_checker_unavailable():
     m = M.sign_mandate(M.issue(id="m", company={"name": "X", "country": "AT"}, agent={"id": "a"},
                                signer={"id": "s", "public_key": pk}, scope=SCOPE,
                                valid_until="2099-01-01T00:00:00.000Z"), sk)
-    p = M.attach(m, id="p", rail="sepa", amount="1.00", currency="EUR", payee={"account": {"iban": "AT1"}})
+    p = M.attach(m, id="p", rail="sepa", amount="1.00", currency="EUR",
+                 payee={"account": {"scheme": "iban", "iban": "AT611904300234573201"}})
     for bad in ["yes", M.AuthorityResult("kyb", (pk,), joint=0), M.AuthorityResult("kyb", (pk,), joint=1.5)]:
-        c = M.Checker(id="b", sk=sk, authority=lambda co, pid, bad=bad: bad)
+        c = M.Checker(id="b", sk=sk, authority=lambda co, pid, bad=bad: bad, holds=holds)
         assert c.check(m, {**p, "id": f"p_{bad!r}"[:20]})["reasons"] == ["checker_unavailable"]
+
+
+@pytest.mark.parametrize("acc, problem", [
+    (None, "must be an object"),
+    ({"iban": "AT611904300234573201"}, "unknown account scheme"),
+    ({"scheme": "telex", "number": "1"}, "unknown account scheme"),
+    ({"scheme": "iban", "iban": "AT611904300234573201", "bic": "RZBAATWW"}, "exactly the fields"),
+    ({"scheme": "iban", "iban": "AT61 1904 3002 3457 3201"}, "canonical"),
+    ({"scheme": "iban", "iban": "at611904300234573201"}, "canonical"),
+    ({"scheme": "iban", "iban": "AT621904300234573201"}, "check digits"),
+    ({"scheme": "iban", "iban": 5}, "canonical"),
+    ({"scheme": "us_aba", "routing": "021000022", "account": "1"}, "check digit"),
+    ({"scheme": "us_aba", "routing": "02100002", "account": "1"}, "canonical"),
+    ({"scheme": "us_aba", "routing": "021000021", "account": "12-34"}, "canonical"),
+    ({"scheme": "uk_sort_code", "sort_code": "60-16-13", "account": "31926819"}, "canonical"),
+    ({"scheme": "uk_sort_code", "sort_code": "601613", "account": "3192681"}, "canonical"),
+    ({"scheme": "in_ifsc", "ifsc": "SBIN1000300", "account": "000000123456"}, "canonical"),
+    ({"scheme": "mx_clabe", "clabe": "002010077777777772"}, "check digit"),
+    ({"scheme": "swift", "bic": "MHCB", "account": "1"}, "canonical"),
+    ({"scheme": "swift", "bic": "MHCBJPJT", "account": "١٢٣"}, "canonical"),
+])
+def test_account_problems(acc, problem):
+    assert problem in (M.account_problem(acc) or "")
+
+
+def test_account_normalizes_human_input():
+    assert M.account("uk_sort_code", sort_code="60-16-13", account="3192 6819") == \
+        {"scheme": "uk_sort_code", "sort_code": "601613", "account": "31926819"}
+    assert M.account("swift", bic="mhcbjpjt", account="ab 12") == {"scheme": "swift", "bic": "MHCBJPJT",
+                                                                  "account": "AB12"}
+    with pytest.raises(ValueError, match="check digits"):
+        M.iban("AT62 1904 3002 3457 3201")
+
+
+@pytest.mark.parametrize("rail, currency, schemes, fits", [
+    ("sepa", "EUR", ["iban", "iban"], True),
+    ("sepa", "USD", ["iban", "iban"], False),
+    ("sepa", "EUR", ["iban", "uk_sort_code"], False),
+    ("ach", "USD", ["us_aba", "us_aba"], True),
+    ("faster_payments", "GBP", ["uk_sort_code", "uk_sort_code"], True),
+    ("faster_payments", "GBP", ["iban", "uk_sort_code"], False),
+    ("wire", "JPY", ["us_aba", "swift"], True),
+    ("spei", "MXN", ["mx_clabe", "mx_clabe"], True),
+])
+def test_rail_fits(rail, currency, schemes, fits):
+    assert M.rail_fits(rail, currency, [{"scheme": s} for s in schemes]) is fits
+
+
+@pytest.mark.parametrize("extra, problem", [
+    ({"scope": {**SCOPE, "from_accounts": "AT48"}}, "from_accounts"),
+    ({"scope": {**SCOPE, "from_accounts": [DEBTOR, DEBTOR]}}, "twice"),
+    ({"scope": {k: v for k, v in SCOPE.items() if k != "from_accounts"}}, "from_accounts is required"),
+    ({"scope": {**SCOPE, "payees": []}}, "payees must be a non-empty"),
+    ({"scope": {**SCOPE, "payees": [{"name": "x"}]}}, "must be an object"),
+])
+def test_mandate_account_lists(extra, problem):
+    assert problem in (M.mandate_problem({**BASE, "signer": P, **extra}) or "")
+
+
+def test_link_period_limit_needs_from_accounts():
+    sc = {"currency": "EUR", "max_per_payment": "1.00", "max_per_period": {"amount": "5.00", "period": "P1M"}}
+    assert "with a period limit" in M.delegation_problem({**LINK, "scope": sc})
+    assert M.delegation_problem({**LINK, "scope": {"currency": "EUR", "max_per_payment": "1.00"}}) is None
+
+
+@pytest.mark.parametrize("s, problem", [
+    ({}, "unknown status version"),
+    ({"v": "gleipnir/status/0.3"}, "missing mandate.id"),
+    ({"v": "gleipnir/status/0.3", "mandate": {"id": "m", "hash": "h"}, "status": "paused", "at": T, "signer": P},
+     "active or revoked"),
+    ({"v": "gleipnir/status/0.3", "mandate": {"id": "m", "hash": "h"}, "status": "active", "at": "now", "signer": P},
+     "bad timestamp"),
+])
+def test_status_shape_problems(s, problem):
+    assert problem in (M.status_problem(s) or "")
+
+
+GOOD_OVERRIDE = {"v": "gleipnir/override/0.3", "id": "o", "decision": {"id": "d", "hash": "h"}, "outcome": "allow",
+                 "decided_at": T, "sigs": [{"signer": P, "sig": "x"}]}
+
+
+@pytest.mark.parametrize("extra, problem", [
+    ({"v": "x"}, "unknown override version"),
+    ({"outcome": "escalate"}, "allow or block"),
+    ({"reason": 5}, "reason must be a string"),
+    ({"sigs": []}, "at least one signature"),
+    ({"sigs": [{"signer": {"id": "a"}, "sig": "x"}]}, "every sigs entry"),
+    ({"sigs": [{"signer": P, "sig": 5}]}, "every sigs entry"),
+    ({"sigs": [{"signer": P, "sig": "x"}, {"signer": {**Q, "public_key": PK}, "sig": "y"}]}, "one signature per"),
+    ({"decided_at": "soon"}, "bad timestamp"),
+    ({"x": 1.5}, "I-JSON"),
+])
+def test_override_shape_problems(extra, problem):
+    assert M.override_problem(GOOD_OVERRIDE) is None
+    assert problem in (M.override_problem({**GOOD_OVERRIDE, **extra}) or "")

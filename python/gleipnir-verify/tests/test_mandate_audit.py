@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
+from kit import DEBTOR, holds
 
 from gleipnir_verify import mandate as M
 
@@ -42,7 +43,8 @@ def make_world(*, scope_extra=None, agent_key=True, **issue_kw):
     bank_sk, bank_pk = M.new_key()
     scope = {"rails": ["sepa"], "currency": "EUR", "max_per_payment": "25000.00",
              "max_per_period": {"amount": "30000.00", "period": "P1M"},
-             "payees": [{"name": "Brenner Stahl AG", "account": {"iban": IBAN}}]}
+             "payees": [{"name": "Brenner Stahl AG", "account": {"scheme": "iban", "iban": IBAN}}],
+             "from_accounts": [DEBTOR]}
     scope.update(scope_extra or {})
     agent = {"id": "ap-agent", "public_key": agent_pk} if agent_key else {"id": "ap-agent"}
     kw = {"valid_from": "2026-01-01T00:00:00.000Z", "valid_until": "2026-12-31T23:59:59.000Z"}
@@ -51,7 +53,7 @@ def make_world(*, scope_extra=None, agent_key=True, **issue_kw):
                                signer={"id": SIGNER_ID, "name": "K. Berger", "public_key": signer_pk},
                                scope=scope, **kw), signer_sk)
     checker = M.Checker(id="bank:TEST", sk=bank_sk, authority=kyb_authority({SIGNER_ID: [signer_pk]}),
-                        ledger=M.InMemoryLedger(), clock=lambda: NOW)
+                        ledger=M.InMemoryLedger(), clock=lambda: NOW, holds=holds)
     return dict(m=m, checker=checker, signer_sk=signer_sk, signer_pk=signer_pk, agent_sk=agent_sk,
                 bank_sk=bank_sk, bank_pk=bank_pk)
 
@@ -61,7 +63,7 @@ def pay(w, *, amount="18400.00", iban=IBAN, pid=None, requested_at="2026-10-23T0
     mandate = mandate or w["m"]
     pid = pid or f"p_{next(_ids)}"
     return M.attach(mandate, id=pid, rail=kw.get("rail", "sepa"), amount=amount, currency=kw.get("currency", "EUR"),
-                    payee={"name": "Brenner Stahl AG", "account": account or {"iban": iban}},
+                    payee={"name": "Brenner Stahl AG", "account": account or {"scheme": "iban", "iban": iban}},
                     agent_sk=kw.get("agent_sk", w["agent_sk"]), requested_at=requested_at)
 
 
@@ -86,12 +88,13 @@ def test_C1_authority_by_signer_id_alone_lets_anyone_forge_a_mandate():
     agent_sk, agent_pk = M.new_key()
     forged = M.sign_mandate(M.issue(id="m_evil", company=dict(COMPANY), agent={"id": "x", "public_key": agent_pk},
                                     signer={"id": SIGNER_ID, "public_key": evil_pk},
-                                    scope={"currency": "EUR", "max_per_payment": "999999.00"},
+                                    scope={"currency": "EUR", "max_per_payment": "999999.00",
+                                           "from_accounts": [DEBTOR]},
                                     valid_until="2026-12-31T23:59:59.000Z"), evil_sk)
     # The bank looks the signer up by id only; the key comes from its own KYB records.
     w["checker"].authority = kyb_authority({SIGNER_ID: [w["signer_pk"]]})
     p = M.attach(forged, id="p", rail="sepa", amount="999999.00", currency="EUR",
-                 payee={"account": {"iban": "LT121000011101001000"}}, agent_sk=agent_sk,
+                 payee={"account": {"scheme": "iban", "iban": "LT121000011101001000"}}, agent_sk=agent_sk,
                  requested_at="2026-10-23T09:14:02.000Z")
     d = w["checker"].check(forged, p)
     assert d["outcome"] != "allow"
@@ -280,32 +283,36 @@ def test_ok_huge_amount(w):
 
 
 def test_ok_iban_case_and_spaces(w):
-    assert w["checker"].check(w["m"], pay(w, iban="at61 1904 3002 3457 3201"))["outcome"] == "allow"
+    """0.3: the wire carries canonical accounts only; producers normalize with M.iban()."""
+    assert w["checker"].check(w["m"], pay(w, iban="at61 1904 3002 3457 3201"))["reasons"] == ["payment_malformed"]
+    assert w["checker"].check(w["m"], pay(w, account=M.iban("at61 1904 3002 3457 3201")))["outcome"] == "allow"
 
 
 def test_ok_same_name_other_account(w):
     assert w["checker"].check(w["m"], pay(w, iban="DE89370400440532013000"))["reasons"] == ["payee_not_on_mandate"]
 
 
-@pytest.mark.xfail(strict=True, reason="L4 open: IBAN mod-97 check on issue")
 def test_L4_iban_checksum_not_validated():
     """A mandate can list an IBAN with a wrong check digit; it should be refused at issue time."""
     with pytest.raises(ValueError):
-        make_world(scope_extra={"payees": [{"account": {"iban": "AT001904300234573201"}}]})
+        make_world(scope_extra={"payees": [{"account": {"scheme": "iban", "iban": "AT001904300234573201"}}]})
 
 
-@pytest.mark.xfail(strict=True, reason="M5 open: IBAN normalization per ISO 13616")
 def test_M5_iban_with_tabs_or_dashes(w):
-    """Only spaces are stripped; 'AT61-1904-...' or tabs are a different string and get blocked. Fail-closed,
-    but a real bank payload with formatting is rejected; normalization should follow ISO 13616."""
-    assert w["checker"].check(w["m"], pay(w, iban="AT61\t1904\t3002\t3457\t3201"))["outcome"] == "allow"
+    """Fixed in 0.3: producers normalize (whitespace and dashes, ISO 13616 print format); the wire is canonical."""
+    assert M.iban("AT61\t1904-3002 3457\t3201") == {"scheme": "iban", "iban": IBAN}
+    assert w["checker"].check(w["m"], pay(w, account=M.iban("AT61\t1904-3002 3457\t3201")))["outcome"] == "allow"
+    assert w["checker"].check(w["m"], pay(w, iban="AT61\t1904\t3002\t3457\t3201"))["reasons"] == \
+        ["payment_malformed"]
 
 
 def test_ok_us_account_extra_fields_fail_closed():
-    w = make_world(scope_extra={"rails": ["ach"], "currency": "USD",
-                                "payees": [{"account": {"aba": "021000021", "account": "123456789"}}]})
+    w = make_world(scope_extra={"rails": ["ach"], "currency": "USD", "max_per_payment": "25000.00",
+                                "max_per_period": {"amount": "30000.00", "period": "P1M"},
+                                "payees": [{"account": M.account("us_aba", routing="021000021",
+                                                                 account="123456789")}]})
     p = pay(w, rail="ach", currency="USD", amount="10.00",
-            account={"aba": "021000021", "account": "123456789", "type": "checking"})
+            account={"scheme": "us_aba", "routing": "021000021", "account": "123456789", "type": "checking"})
     assert w["checker"].check(w["m"], p)["outcome"] == "block"
 
 
@@ -352,21 +359,20 @@ def test_H6_malformed_revocation_in_list_crashes_every_check(w):
     assert w["checker"].check(w["m"], pay(w))["outcome"] in ("allow", "block", "escalate")
 
 
-@pytest.mark.xfail(strict=True, reason="M6 open: revocation distribution (status_url required) is a spec 0.2 decision")
 def test_M6_no_status_url_and_no_revocation_list_means_irrevocable():
-    """A mandate without status_url is revocable only if this bank happens to hold the revocation.
-    Another bank, or the same bank after a restart, keeps allowing. Spec should require status_url (or a
-    published revocation list) for any mandate above a threshold."""
+    """Was: a revocation held by the home bank did not reach another bank. Fixed in 0.3 by from_accounts: the
+    mandate only works at the bank that holds its debtor accounts, which is where the revocation goes (spec 9).
+    A mandate listing accounts at several banks must be revoked at each, or carry a status_url."""
     w = make_world()
     r = M.revoke(w["m"], signer={"id": SIGNER_ID, "public_key": w["signer_pk"]}, sk=w["signer_sk"], id="r",
                  revoked_at="2026-01-02T00:00:00.000Z")
     other_bank = M.Checker(id="bank:OTHER", sk=M.new_key()[0], authority=w["checker"].authority,
-                           ledger=M.InMemoryLedger(), clock=lambda: NOW)
+                           ledger=M.InMemoryLedger(), clock=lambda: NOW, holds=lambda c, a: False)
     assert r  # revoked at the company's home bank only
-    assert other_bank.check(w["m"], pay(w))["outcome"] != "allow"
+    assert other_bank.check(w["m"], pay(w))["reasons"] == ["account_not_held"]
 
 
-@pytest.mark.parametrize("answer", ["Active", "", None, "ACTIVE ", 1, "revoked "])
+@pytest.mark.parametrize("answer", ["Active", "", None, "ACTIVE ", 1, "revoked ", "active", {"status": "active"}])
 def test_ok_status_answers_fail_closed(answer):
     w = make_world(status_url="https://x/status")
     w["checker"].status = lambda _: answer

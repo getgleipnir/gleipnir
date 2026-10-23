@@ -20,6 +20,8 @@ from gleipnir_verify import mandate as M
 
 IBAN = "AT611904300234573201"
 PAYEE = f"Brenner Stahl AG={IBAN}"
+DEBTOR = "AT483200000012345864"
+ISSUE = ["mandate", "issue", "--from-account", DEBTOR]
 
 
 @pytest.fixture()
@@ -27,7 +29,7 @@ def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.chdir(tmp_path)
     for name in ("signer", "agent", "bank"):
         assert main(["mandate", "keygen", "-o", f"{name}.pem"]) == 0
-    assert main(["mandate", "issue", "--id", "m_ap", "--company", "Nordhafen Logistik GmbH", "--country", "AT",
+    assert main([*ISSUE, "--id", "m_ap", "--company", "Nordhafen Logistik GmbH", "--country", "AT",
                  "--signer-id", "kberger@nordhafen.at", "--signer-key", "signer.pem", "--agent-id", "ap-agent",
                  "--agent-key", "agent.pem", "--currency", "EUR", "--max-per-payment", "25000.00",
                  "--max-per-period", "40000.00/P1M", "--payee", PAYEE, "-o", "mandate.json"]) == 0
@@ -172,11 +174,13 @@ def test_mcp_request_mandate_writes_unsigned_draft(world):
     pub = M.public_key_of(M.new_key()[0])
     args = {"company": "Nordhafen Logistik GmbH", "country": "AT", "signer_id": "kberger@nordhafen.at",
             "signer_public_key": pub, "currency": "EUR", "max_per_payment": "5000.00", "max_per_month": "20000.00",
-            "payees": [PAYEE], "valid_until": "2026-12-31T23:59:59.000Z", "purpose": "Freight invoices"}
+            "payees": [PAYEE], "from_accounts": [DEBTOR], "valid_until": "2026-12-31T23:59:59.000Z",
+            "purpose": "Freight invoices"}
     out = call(t, "request_mandate", args)["structuredContent"]
     assert out["status"] == "awaiting_signature"
     draft = json.loads(Path(out["draft"]).read_text())
     assert "sig" not in draft and draft["scope"]["max_per_period"] == {"amount": "20000.00", "period": "P1M"}
+    assert draft["scope"]["from_accounts"] == [{"scheme": "iban", "iban": DEBTOR}]
     assert M.mandate_hash(draft) == out["mandate_hash"]
     second = call(t, "request_mandate", args)["structuredContent"]
     assert second["draft"] != out["draft"]
@@ -229,7 +233,8 @@ def test_mcp_scope_and_resource(world):
     ("attach_mandate", {"payment_id": "x" * 3000, "amount": "1.00", "payee": PAYEE}, "too long"),
     ("check_payment", {"payment": "p"}, "payment must be a object"),
     ("request_mandate", {"company": "X", "country": "AT", "signer_id": "a", "signer_public_key": "k",
-                         "currency": "EUR", "max_per_payment": "1.00", "payees": [1], "valid_until": "x"},
+                         "currency": "EUR", "max_per_payment": "1.00", "payees": [1], "from_accounts": [DEBTOR],
+                         "valid_until": "x"},
      "list of strings"),
     ("mandate_scope", [], "arguments must be an object"),
 ])
@@ -369,3 +374,22 @@ def test_audit_R6_revoke_needs_a_valid_signature(server, world):
     assert post(url, {**r, "reason": "edited after signing"}, "/revoke")[0] == 400
     assert post(url, r, "/revoke") == (200, {"ok": True})
     assert post(url, r, "/revoke") == (200, {"ok": True})  # idempotent, stored once
+
+
+def test_http_resolve_override(server, world):
+    url, bank = server
+    mandate = json.loads(Path("mandate.json").read_text())
+    t = tools(world)
+    p = call(t, "attach_mandate", {"payment_id": "INV-BIG", "amount": "26000.00", "payee": PAYEE})[
+        "structuredContent"]["payment"]
+    code, d = post(url, {"mandate": mandate, "payment": p})
+    assert (code, d["reasons"]) == (200, ["over_payment_limit"])
+    from gleipnir.mandate_cli import load_key
+
+    sk = load_key("signer.pem")
+    o = M.sign_override(M.make_override(d, outcome="allow", id="o_1"), sk,
+                        {"id": "kberger@nordhafen.at", "public_key": M.public_key_of(sk)})
+    code, final = post(url, {"mandate": mandate, "payment": p, "decision": d, "override": o}, "/resolve")
+    assert code == 200 and final["outcome"] == "allow" and final["override"]["id"] == "o_1"
+    assert post(url, {"mandate": mandate, "payment": p}, "/resolve")[0] == 400
+    assert post(url, {"mandate": mandate, "payment": p})[1] == final

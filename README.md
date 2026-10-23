@@ -2,11 +2,11 @@
 
 **Know Your Agent for bank transfers.** A power of attorney for AI agents that any bank can check.
 
-AI agents are starting to pay supplier invoices by SEPA, ACH and wire. Gleipnir lets the bank verify, before it executes, that a person who may sign for the company actually allowed this agent to make this payment: to this payee, up to this amount, until this date. Open spec, Python and TypeScript, Apache-2.0.
+AI agents are starting to pay supplier invoices by SEPA, ACH, Faster Payments and wire. Gleipnir lets the bank verify, before it executes, that a person who may sign for the company actually allowed this agent to make this payment: from this account, to this payee, up to this amount, until this date. Open spec, Python and TypeScript, Apache-2.0.
 
 ```mermaid
 flowchart LR
-    S["Signatory<br/>(known to the bank)"] -- "mandate, signed with a passkey<br/>payees · limits · rails · expiry" --> A["AI agent"]
+    S["Signatory<br/>(known to the bank)"] -- "mandate, signed with a passkey<br/>accounts · payees · limits · expiry" --> A["AI agent"]
     A -- "payment, signed by the agent<br/>+ the mandate" --> B["Bank / PSP<br/>checker"]
     K[("bank's own KYB:<br/>who may sign,<br/>enrolled keys")] -.-> B
     B -- "signed decision" --> D{"allow · block · escalate"}
@@ -22,7 +22,7 @@ flowchart LR
 
 1. **Mandate.** A person who may sign for the company (alone, or two together where company law requires joint signing; or on the strength of a signed CEO → CFO delegation) signs what one agent may pay. They sign in their bank's app or on a static passkey page.
 2. **Payment.** The agent signs every payment with its own key and attaches the mandate.
-3. **Check.** Before executing, the bank checks the signatures, that the signer may sign for the company and with that key, **from its own KYB records, never from the mandate**, that nothing is revoked or expired, that the payee, rail and amounts are covered, and that it is not a replay. 21 steps, deterministic ([spec §7](spec/mandate.md#7-check)).
+3. **Check.** Before executing, the bank checks the signatures, that the signer may sign for the company and with that key, **from its own KYB records, never from the mandate**, that nothing is revoked or expired, that the company holds the debtor account, that the payee, rail and amounts are covered, and that it is not a replay. 23 steps, deterministic ([spec §7](spec/mandate.md#7-check)).
 4. **Decision.** Allow, block, or send to a person. The bank signs the decision, which becomes the receipt.
 
 Gleipnir does not move money and does not verify identities: the bank (KYB) or a vLEI issuer does that once, and everything after is a signature. See the [chain of trust and threat model](spec/mandate.md#11-threat-model).
@@ -31,12 +31,12 @@ Gleipnir does not move money and does not verify identities: the bank (KYB) or a
 
 | | |
 |---|---|
-| **Spec** | [spec/mandate.md](spec/mandate.md), v0.2 draft: enrollment, multi-signature, delegation, revocation, receipts, threat model, reason codes, conformance |
+| **Spec** | [spec/mandate.md](spec/mandate.md), v0.3 draft: enrollment, multi-signature, delegation, debtor accounts, accounts and rails worldwide, overrides, signed status, revocation, receipts, threat model, reason codes, conformance |
 | **Reference checker** | Python `gleipnir_verify.mandate` |
 | **TypeScript port** | `@getgleipnir/verify/mandate` (Node and browsers), same results on every test vector |
-| **Test vectors** | [76 shared cases](typescript/packages/verify/test/fixtures/mandate-vectors.json): both implementations run them and verify each other's decisions |
-| **CLI** | `gleipnir mandate keygen · issue · sign · delegate · pay · check · revoke · verify · serve · mcp` |
-| **Bank side** | `gleipnir mandate serve`: reference `POST /check` server |
+| **Test vectors** | [119 shared cases](typescript/packages/verify/test/fixtures/mandate-vectors.json): both implementations run them and verify each other's decisions |
+| **CLI** | `gleipnir mandate keygen · issue · sign · delegate · pay · check · override · resolve · status · revoke · verify · serve · mcp` |
+| **Bank side** | `gleipnir mandate serve`: reference `POST /check` and `POST /resolve` server |
 | **Agent side** | MCP server (Python, or `npx gleipnir-mandate-mcp`) for Claude, Cursor and any MCP client |
 | **Signatory side** | [site/mandate](site/mandate/index.html): review a mandate and sign it with a passkey; no network |
 | **Use cases** | all [21 scenarios](python/gleipnir-verify/tests/test_mandate_usecases.py) as named tests, from issuing to a dispute three months later |
@@ -48,13 +48,14 @@ git clone https://github.com/getgleipnir/gleipnir && cd gleipnir && alias g="uv 
 for k in signer agent bank; do g keygen -o $k.pem; done
 g issue --id m_ap --company "Nordhafen Logistik GmbH" --country AT --signer-id kberger@nordhafen.at --signer-key signer.pem \
   --agent-id ap-agent --agent-key agent.pem --currency EUR --max-per-payment 25000.00 \
-  --max-per-period 100000.00/P1M --payee "Brenner Stahl AG=AT611904300234573201" -o mandate.json
+  --max-per-period 100000.00/P1M --from-account "AT48 3200 0000 1234 5864" \
+  --payee "Brenner Stahl AG=AT611904300234573201" -o mandate.json
 g sign mandate.json --key signer.pem && g kyb mandate.json -o kyb.json   # kyb: dev stand-in for the bank's records
 g pay mandate.json --id p_1 --amount 18400.00 --payee "Brenner Stahl AG=AT611904300234573201" --agent-key agent.pem -o p1.json
 g check mandate.json p1.json --authority kyb.json --bank-key bank.pem -o decision.json   # allow, exit 0
 ```
 
-Change the IBAN in `pay` and `check` blocks it (`payee_not_on_mandate`, exit 1). Go over 25 000.00 and it escalates (`over_payment_limit`, exit 3). Resend `p_1` and you get the same decision back, booked once. `g revoke mandate.json --key signer.pem --id r_1 -o rev.json`, then `check ... --revocation rev.json` blocks with `mandate_revoked`. `g verify decision.json --bank-pub bank.pem` checks the bank's signature; an edited decision is INVALID.
+Change the IBAN in `pay` and `check` blocks it (`payee_not_on_mandate`, exit 1); correct it and the same payment id goes through. Go over 25 000.00 and it escalates (`over_payment_limit`, exit 3); `g override p_2.decision.json --key signer.pem --signer-id kberger@nordhafen.at -o o.json` and `g resolve mandate.json p_2.json p_2.decision.json o.json --authority kyb.json --bank-key bank.pem` approve it. Resend `p_1` and you get the same decision back, booked once. `g revoke mandate.json --key signer.pem --id r_1 -o rev.json`, then `check ... --revocation rev.json` blocks with `mandate_revoked`. `g verify decision.json --bank-pub bank.pem` checks the bank's signature; an edited decision is INVALID.
 
 ## Two signers and delegation
 
@@ -64,16 +65,21 @@ g issue ... --cosigner mhofer@nordhafen.at=hofer.pem --threshold 2 -o joint.json
 g sign joint.json --key signer.pem && g sign joint.json --key hofer.pem           # each with their own key
 
 g delegate --id g1 --company "Nordhafen Logistik GmbH" --from-id ceo@nordhafen.at --key ceo.pem \
-  --to cfo@nordhafen.at=cfo.pem --currency EUR --max-per-payment 50000.00 --max-per-period 200000.00/P1M -o g1.json
+  --to cfo@nordhafen.at=cfo.pem --currency EUR --max-per-payment 50000.00 --max-per-period 200000.00/P1M \
+  --from-account "AT48 3200 0000 1234 5864" -o g1.json
 g issue ... --signer-id cfo@nordhafen.at --signer-key cfo.pem --delegation g1.json -o cfo.json
 g revoke g1.json --key ceo.pem --id r_g1 -o r_g1.json                              # cuts everything below
 ```
 
 A delegate can never grant more than they received, and a link's monthly limit is shared by every mandate under it.
 
+## Accounts worldwide
+
+IBAN is Europe, the Middle East and some of Africa and Latin America. Elsewhere banks address accounts their own way, so accounts are typed: `--payee "Supplier=us_aba:021000021/123456789"`, `uk_sort_code:601613/31926819`, `ca_eft:004/54321/7654321`, `au_bsb:033000/87654321`, `in_ifsc:SBIN0000300/00000012345678`, `mx_clabe:002010077777777771`, `swift:MHCBJPJT/1234567`. IBAN, ABA and CLABE check digits are verified, and each rail only carries its own schemes and currency (SEPA: IBAN in EUR; ACH: ABA in USD; wire: anything). [Spec §6.1](spec/mandate.md#61-accounts-and-rails).
+
 ## Libraries
 
-Python: [examples/mandate_demo.py](examples/mandate_demo.py) walks through allow, a changed IBAN, an amount over the limit, a resend, a forged decision, a CFO who leaves, and a second bank with and without vLEI (`uv run python examples/mandate_demo.py`).
+Python: [examples/mandate_demo.py](examples/mandate_demo.py) walks through allow, a changed IBAN and its correction, an amount over the limit approved by an override, a resend, a forged decision, a CFO who leaves, and a second bank with and without vLEI (`uv run python examples/mandate_demo.py`).
 
 ```python
 from gleipnir_verify import mandate as m
@@ -90,7 +96,7 @@ const bank = new Checker({ id: "bank:ATXX", seed, authority: kybLookup, ledger, 
 const decision = await bank.check(parseStrict(mandateText), parseStrict(paymentText));
 ```
 
-A bank plugs in its own authority source (`authority(company, person_id)`), payment log (`lookup`, `register`, `remember`, `forget`) and period ledger (`reserve`, `release`). The CLI's `.gleipnir/mandate-state/` file is a development stand-in for both.
+A bank plugs in its own authority source (`authority(company, person_id)`), account records (`holds(company, account)`), payment log (`lookup`, `register`, `remember`, `forget`, `take`) and period ledger (`reserve`, `release`). The CLI's `.gleipnir/mandate-state/` file is a development stand-in for both.
 
 ## For agents, signatories and banks
 
@@ -105,20 +111,20 @@ A bank plugs in its own authority source (`authority(company, person_id)`), paym
 
 Four tools and one resource: `mandate_scope` (what may I pay), `request_mandate` (an unsigned draft for a person to sign; the agent never signs one itself), `attach_mandate` (a payment signed with the agent key), `check_payment` (asks the bank's checker before paying: allow, block or escalate, with advice); `gleipnir://mandate/current` is the mandate itself.
 
-**Signatories.** [site/mandate](site/mandate/index.html) is a single static page: paste or open a draft, read what the agent may pay (payees, limits, validity, delegation), sign with a passkey, alone or as one of several co-signers. It makes no network requests. The passkey signs `SHA-256("gleipnir/mandate/v0.2\n" || mandate_hash)`, so the signature is valid for this mandate and nothing else.
+**Signatories.** [site/mandate](site/mandate/index.html) is a single static page: paste or open a draft, read what the agent may pay (payees, limits, validity, delegation), sign with a passkey, alone or as one of several co-signers. It makes no network requests. The passkey signs `SHA-256("gleipnir/mandate/v0.3\n" || mandate_hash)`, so the signature is valid for this mandate and nothing else.
 
 **Banks.** A reference HTTP checker (JSON only, Origin allow-list, no auth: put it behind your own gateway):
 
 ```bash
-g serve --authority kyb.json --bank-key bank.pem --port 8787   # POST /check, GET /keys, POST /revoke
+g serve --authority kyb.json --bank-key bank.pem --port 8787   # POST /check, POST /resolve, GET /keys, POST /revoke
 ```
 
 ## Status and security
 
-- **Draft 0.2.** The format may still change; feedback from payment, fraud and compliance people is very welcome.
+- **Draft 0.3.** The format may still change; feedback from payment, fraud and compliance people is very welcome.
 - **Audited twice on 23.10.2026** by independent reviewers who wrote every attack as a test: [first audit](docs/audit-2026-10-23.md), [second audit and re-verification](docs/audit-2026-10-23-evening.md). Every finding is fixed and has a regression test.
 - **Not solved by design:** a fake invoice from a real payee within the limits, collusion between real signatories, a compromised signer phone within the signed scope. They are bounded and visible in the receipt; see [residual risks](spec/mandate.md#11-threat-model).
-- **Open:** IBAN checksum and wider normalization, a standard revocation-list format, joint signing inside delegation links, real vLEI (ACDC/KERI) credential verification (today vLEI is an authority source).
+- **Open:** a standard revocation-list format, joint signing inside delegation links, ISO 20022 mapping, real vLEI (ACDC/KERI) credential verification (today vLEI is an authority source).
 
 ---
 
