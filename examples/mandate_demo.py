@@ -44,9 +44,9 @@ def authority(company: dict, signer_id: str) -> m.AuthorityResult | None:
     return m.AuthorityResult("bank_kyb", keys) if keys else None
 
 
-def holds(company: dict, account: dict) -> bool:
-    """The bank's books: Nordhafen holds this account here."""
-    return company["name"] == "Nordhafen Logistik GmbH" and account == NORDHAFEN
+def holds(company: dict, account: dict) -> str | None:
+    """The bank's books: its customer Nordhafen holds this account here (returns the customer id)."""
+    return "cust:nordhafen" if company["name"] == "Nordhafen Logistik GmbH" and account == NORDHAFEN else None
 
 
 bank = m.Checker(id="bank:DEMOATWW", sk=bank_sk, authority=authority, holds=holds, ledger=m.InMemoryLedger())

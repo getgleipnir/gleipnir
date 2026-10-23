@@ -77,9 +77,17 @@ export const ESCALATE: ReadonlySet<string> = new Set([
   "override_invalid", "override_not_authorized",
 ]);
 /** Escalations that keep the payment id while a person decides; every other non-allow outcome releases it. */
-export const HOLDS: ReadonlySet<string> = new Set(["signer_unknown", "over_payment_limit"]);
+export const HOLDS: ReadonlySet<string> = new Set(["over_payment_limit"]);
 /** Escalations a company signatory may resolve; every escalation may be resolved by a bank officer. */
 export const COMPANY_OVERRIDABLE: ReadonlySet<string> = new Set(["over_payment_limit", "over_period_limit"]);
+/** Escalations no override can resolve: the bank fixes the dependency and the agent retries. */
+export const NOT_OVERRIDABLE: ReadonlySet<string> = new Set(["ledger_missing", "checker_unavailable", "override_invalid", "override_not_authorized"]);
+/** A re-check after an override that stops on one of these keeps the escalation, so the override can be retried. */
+const RETRYABLE: ReadonlySet<string> = new Set(["checker_unavailable", "status_unavailable", "ledger_missing"]);
+/** Nesting of objects and arrays (spec 13). */
+export const MAX_DEPTH = 32;
+/** Entries in signers.of, and signatures on an override. */
+export const MAX_SIGNERS = 16;
 export const MANDATE_SIG_FIELDS: readonly string[] = ["sig", "sigs"];
 const COUNTRY_RE = /^[A-Z]{2}$/;
 export const MAX_DELEGATION_DEPTH = 5;
@@ -160,13 +168,30 @@ export function railFits(rail: string, currency: string, accounts: readonly Json
   return (cur === null || cur === currency) && accounts.every((a) => schemes.has(a.scheme as string));
 }
 
+function pyStr(t: string): string {
+  const q = t.includes("'") && !t.includes('"') ? '"' : "'";
+  let out = "";
+  for (const ch of t) {
+    const c = ch.codePointAt(0)!;
+    if (ch === "\\") out += "\\\\";
+    else if (ch === q) out += "\\" + q;
+    else if (ch === "\n") out += "\\n";
+    else if (ch === "\r") out += "\\r";
+    else if (ch === "\t") out += "\\t";
+    else if (c < 0x20 || (c >= 0x7f && c <= 0xa0) || c === 0xad) out += "\\x" + c.toString(16).padStart(2, "0");
+    else if (c >= 0xd800 && c <= 0xdfff) out += "\\u" + c.toString(16).padStart(4, "0");
+    else out += ch;
+  }
+  return q + out + q;
+}
+
 /** Python's repr() of a JSON value, for messages identical to the reference. */
 function pyRepr(v: unknown): string {
   if (v === null || v === undefined) return "None";
-  if (typeof v === "string") return `'${v}'`;
+  if (typeof v === "string") return pyStr(v);
   if (typeof v === "boolean") return v ? "True" : "False";
   if (Array.isArray(v)) return pyList(v);
-  if (isDict(v)) return `{${Object.keys(v).map((k) => `'${k}': ${pyRepr(v[k])}`).join(", ")}}`;
+  if (isDict(v)) return `{${Object.keys(v).map((k) => `${pyStr(k)}: ${pyRepr(v[k])}`).join(", ")}}`;
   return String(v);
 }
 
@@ -250,21 +275,21 @@ function nowMicros(): Micros {
 
 /** Strict RFC 3339 in UTC (`YYYY-MM-DDTHH:MM:SS[.ffffff]Z`), same grammar as the Python reference. */
 function ts(text: unknown): Micros {
-  if (typeof text !== "string" || !text.endsWith("Z")) throw new Error(`bad timestamp: ${JSON.stringify(text)}`);
+  if (typeof text !== "string" || !text.endsWith("Z")) throw new Error(`bad timestamp: ${pyRepr(text)}`);
   return parseTime(text);
 }
 
 /** A strictly formatted, positive amount as bigint minor units, else throws. */
 export function parseAmount(text: unknown, currency: unknown): bigint {
   if (typeof currency !== "string" || !Object.prototype.hasOwnProperty.call(MINOR_UNITS, currency)) {
-    throw new Error(`unsupported currency: ${JSON.stringify(currency)}`);
+    throw new Error(`unsupported currency: ${pyRepr(currency)}`);
   }
   const units = MINOR_UNITS[currency]!;
   if (typeof text !== "string" || !AMOUNT_RE[units]!.test(text)) {
-    throw new Error(`bad amount for ${currency}: ${JSON.stringify(text)}`);
+    throw new Error(`bad amount for ${currency}: ${pyRepr(text)}`);
   }
   const v = BigInt(text.replace(".", ""));
-  if (v <= 0n) throw new Error(`amount must be positive: ${JSON.stringify(text)}`);
+  if (v <= 0n) throw new Error(`amount must be positive: ${pyRepr(text)}`);
   return v;
 }
 
@@ -510,7 +535,21 @@ function numbersOk(obj: unknown, depth = 0): boolean {
   return false;
 }
 
+/** At most MAX_DEPTH nested objects and arrays, counted without recursion (spec 13). */
+function depthOk(obj: unknown): boolean {
+  const stack: [unknown, number][] = [[obj, 1]];
+  while (stack.length) {
+    const [v, d] = stack.pop()!;
+    if (Array.isArray(v) || isDict(v)) {
+      if (d > MAX_DEPTH) return false;
+      for (const x of Array.isArray(v) ? v : Object.keys(v).map((k) => (v as JsonDict)[k])) stack.push([x, d + 1]);
+    }
+  }
+  return true;
+}
+
 function jcsOk(obj: unknown): boolean {
+  if (!depthOk(obj)) return false;
   try {
     canonicalize(obj);
   } catch {
@@ -592,6 +631,7 @@ function signersProblem(m: JsonDict): string | null {
   const ss = m.signers;
   if (hasKey(m, "sig") || hasKey(m, "delegation")) return "multi-signature mandates sign in sigs and take no delegation";
   if (!isDict(ss) || !Array.isArray(ss.of) || ss.of.length === 0) return "signers needs a non-empty list 'of'";
+  if (ss.of.length > MAX_SIGNERS) return `at most ${MAX_SIGNERS} signers`;
   const of = ss.of as unknown[];
   const th = ss.threshold;
   if (typeof th !== "number" || !Number.isInteger(th) || th < 1 || th > of.length) {
@@ -711,6 +751,7 @@ export function overrideProblem(o: unknown): string | null {
   if (hasKey(o, "reason") && typeof o.reason !== "string") return "reason must be a string";
   const sigs = hasKey(o, "sigs") ? o.sigs : null;
   if (!Array.isArray(sigs) || sigs.length === 0) return "an override needs at least one signature";
+  if (sigs.length > MAX_SIGNERS) return `at most ${MAX_SIGNERS} signatures`;
   for (const s of sigs) {
     if (!isDict(s) || personProblem(hasKey(s, "signer") ? s.signer : null, "sigs[].signer")
       || !(typeof s.sig === "string" || isDict(s.sig))) {
@@ -781,7 +822,8 @@ function same(a: unknown, b: unknown): boolean {
 function sameCompany(link: JsonDict, mandate: JsonDict): boolean {
   if (link.name !== mandate.name) return false;
   for (const k of ["country", "ids"]) {
-    if (hasKey(link, k) && canonicalizeOrNull(link[k]) !== canonicalizeOrNull(hasKey(mandate, k) ? mandate[k] : undefined)) return false;
+    // exact JSON equality; absent is not null, true is not 1
+    if (hasKey(link, k) && !(hasKey(mandate, k) && same(link[k], mandate[k]))) return false;
   }
   return true;
 }
@@ -850,13 +892,18 @@ export interface AuthorityResult {
   joint?: number; // signatures their power requires, including their own (default 1; joint signing with one other: 2)
   /** Rotated-out keys -> retirement time: still accepted for objects issued before that time (spec 8). */
   retired?: Readonly<Record<string, string>>;
+  /** The source's own id for this person; several ids or keys of one person count once (spec 8). */
+  person?: string | null;
 }
 
 /** authority(company, personId) -> AuthorityResult, or null if no source knows the person. */
 export type Authority = (company: JsonDict, personId: string) => Awaitable<AuthorityResult | null>;
 
-/** holds(company, account) -> true if the company holds this account at this bank. */
-export type Holds = (company: JsonDict, account: JsonDict) => Awaitable<boolean>;
+/**
+ * holds(company, account) -> the bank's customer id of the holder if this company holds this account at this
+ * bank, else null. The customer id keys the payment log.
+ */
+export type Holds = (company: JsonDict, account: JsonDict) => Awaitable<string | null | false>;
 
 /** Ask several authority sources in order (bank KYB first, then vLEI); the first that knows the person wins. */
 export function combine(...sources: Authority[]): Authority {
@@ -894,10 +941,12 @@ export interface Ledger {
   release(key: string, period: string, amount: bigint, at: Micros): Awaitable<void>;
 }
 
-/** The payment log key: payment ids are unique per payer, so the payer is part of the key. */
-export function paymentKey(company: JsonDict, paymentId: string): string {
-  // JCS of [country, name, ids, id]: unambiguous, and the same bytes as the Python reference.
-  return canonicalizeString([company.country ?? null, company.name ?? null, company.ids ?? null, paymentId]);
+/**
+ * The payment log key: payment ids are unique per payer, so the payer is part of the key. `customer` is the
+ * bank's own id for the account holder (what `holds` returns), never text from the mandate. JCS of [customer, id].
+ */
+export function paymentKey(customer: string, paymentId: string): string {
+  return canonicalizeString([customer, paymentId]);
 }
 
 /** Payment log for tests and demos. Production needs a persistent, shared store. */
@@ -950,7 +999,7 @@ export function periodKey(period: string, at: Micros): string {
     const week = Math.ceil(((t.getTime() - Date.UTC(isoYear, 0, 1)) / 86_400_000 + 1) / 7);
     return `${pad(isoYear, 4)}-W${pad(week)}`;
   }
-  throw new Error(`unknown period ${JSON.stringify(period)}`);
+  throw new Error(`unknown period ${pyRepr(period)}`);
 }
 
 /** Period ledger for tests and demos: calendar periods in UTC. */
@@ -982,7 +1031,10 @@ interface Accepted {
   source: string;
   maySign: boolean;
   joint: number;
+  person: string | null;
 }
+
+type Person = { id: string; public_key: string };
 
 /** Whether the payment log keeps this decision (and so the payment id): spec 7, "Idempotency". */
 function holdsId(d: JsonDict): boolean {
@@ -990,7 +1042,21 @@ function holdsId(d: JsonDict): boolean {
   return d.outcome === "allow" || (r.length === 1 && (HOLDS.has(r[0]!) || r[0] === "blocked_by_override"));
 }
 
-type State = { registered: boolean; key: string; refs?: JsonDict };
+/** A list of {id, public_key} as person keys, or null if it is not one. */
+function persons(v: unknown): string[] | null {
+  if (!Array.isArray(v) || !v.every((x) => isDict(x) && Object.keys(x).length === 2 && typeof x.id === "string"
+    && typeof x.public_key === "string")) return null;
+  return (v as JsonDict[]).map(personKey);
+}
+
+function unkey(k: string): Person {
+  const [id, public_key] = JSON.parse(k) as [string, string];
+  return { id, public_key };
+}
+
+type State = {
+  registered: boolean; key: string; refs?: JsonDict; signers?: Person[]; unknown?: string[]; restore?: JsonDict;
+};
 
 // ---------- checking ----------
 
@@ -999,7 +1065,7 @@ export interface CheckerOptions {
   /** The bank's Ed25519 signing key (32-byte seed). */
   seed: Seed;
   authority: Authority;
-  /** holds(company, account): the company holds this account at this bank. Required. */
+  /** holds(company, account): the bank's customer id if the company holds this account here. Required. */
   holds?: Holds | null;
   ledger?: Ledger | null;
   payments?: PaymentLog;
@@ -1071,9 +1137,10 @@ export class Checker {
     const joint: unknown = typeof res === "object" ? (res.joint === undefined ? 1 : res.joint) : 0;
     const maySignRaw: unknown = typeof res === "object" ? (res.maySign === undefined ? true : res.maySign) : null;
     const retired: unknown = typeof res === "object" ? (res.retired === undefined ? {} : res.retired) : null;
+    const who: unknown = typeof res === "object" ? (res.person === undefined ? null : res.person) : 0;
     if (typeof res !== "object" || typeof res.source !== "string" || !Array.isArray(res.keys)
       || !res.keys.every((k) => typeof k === "string") || typeof joint !== "number" || !Number.isInteger(joint)
-      || joint < 1 || typeof maySignRaw !== "boolean" || !isDict(retired)) {
+      || joint < 1 || typeof maySignRaw !== "boolean" || !isDict(retired) || !(who === null || typeof who === "string")) {
       throw new Stop("checker_unavailable");
     }
     const key = person.public_key as string;
@@ -1086,7 +1153,7 @@ export class Checker {
       }
     }
     if (!ok || (needPower && !maySignRaw)) throw new Stop("signer_not_authorized");
-    return { source: res.source, maySign: maySignRaw, joint };
+    return { source: res.source, maySign: maySignRaw, joint, person: who as string | null };
   }
 
   /** Check one payment against one mandate. Never throws on input; always resolves to a signed decision. */
@@ -1102,6 +1169,32 @@ export class Checker {
   async resolve(mandate: unknown, payment: unknown, decision: unknown, override: unknown): Promise<JsonDict> {
     return this.checked(mandate, payment, (pHash, at, checks, state) =>
       this.resolveRun(mandate, payment, decision, override, pHash, at, checks, state));
+  }
+
+  /**
+   * Whether this revocation would switch off this mandate (or a link of its chain) now: well formed, validly
+   * signed, aimed at it, by someone who may revoke it (section 9). For a store that accepts revocations from
+   * outside. Never throws; a source that is down gives false.
+   */
+  async revocationCounts(mandate: unknown, revocation: unknown): Promise<boolean> {
+    try {
+      if (mandateProblem(mandate) || revocationProblem(revocation)) return false;
+      const md = mandate as JsonDict, r = revocation as JsonDict;
+      const [sigs] = signatures(md);
+      const chain = hasKey(md, "delegation") ? (md.delegation as JsonDict[]) : [];
+      const [mandateParties, linkParties] = Checker.parties(chain, sigs);
+      let parties: Set<string>;
+      if (hasKey(r, "mandate_hash")) {
+        if (r.mandate_hash !== mandateHash(md)) return false;
+        parties = mandateParties;
+      } else if (linkParties.has(r.delegation_hash as string)) parties = linkParties.get(r.delegation_hash as string)!;
+      else return false;
+      const signer = r.signer as JsonDict;
+      if (!verify("revocation", objHash(r), hasKey(r, "sig") ? r.sig : null, signer.public_key, this.webauthn)) return false;
+      return await this.mayRevoke(md, signer, parties, r.revoked_at);
+    } catch {
+      return false;
+    }
   }
 
   private async checked(
@@ -1124,10 +1217,14 @@ export class Checker {
       reason = e instanceof Stop ? e.reason : "payment_malformed"; // unexpected input never allows
     }
     if (isDict(reason)) return reason; // idempotent retry: the decision the log holds, unchanged
-    const d = this.decision(mandate, payment, pHash, reason, checks, at, state.refs ?? {});
+    const extra: JsonDict = { ...(state.refs ?? {}) };
+    if (state.signers) extra.signers = state.signers;
+    if (reason === "signer_unknown" && state.unknown && state.unknown.length) extra.unknown = state.unknown.map(unkey);
+    const d = this.decision(mandate, payment, pHash, reason, checks, at, extra);
     if (state.registered) {
       try {
         if (holdsId(d)) await this.payments.remember(state.key, d);
+        else if (state.restore && reason !== null && RETRYABLE.has(reason)) await this.payments.remember(state.key, state.restore);
         else await this.payments.forget(state.key);
       } catch {
         // the decision still stands; the log is the bank's to fix
@@ -1157,57 +1254,81 @@ export class Checker {
     return sign(this.seed, "decision", d);
   }
 
-  /** authorized(), except that an unknown person is null when a bank override waived signer_unknown. */
-  private async person(company: JsonDict, p: JsonDict, needPower: boolean, issued: unknown, waive: ReadonlySet<string>): Promise<Accepted | null> {
+  /** authorized(), except for unknown people: null if a bank override vouched for exactly this person, else recorded. */
+  private async person(
+    company: JsonDict, p: JsonDict, needPower: boolean, issued: unknown, vouched: ReadonlySet<string>, unknown: string[],
+  ): Promise<Accepted | null> {
     try {
       return await this.authorized(company, p, needPower, issued);
     } catch (e) {
-      if (e instanceof Stop && e.reason === "signer_unknown" && waive.has("signer_unknown")) return null;
+      if (e instanceof Stop && e.reason === "signer_unknown") {
+        const k = personKey(p);
+        if (vouched.has(k)) return null;
+        if (!unknown.includes(k)) unknown.push(k);
+      }
       throw e;
     }
   }
 
-  /** Steps 9-11: every signer through authority separately, then threshold and joint. Throws Stop. */
-  private async signersOk(m: JsonDict, sigs: Signed[], threshold: number, checks: string[], waive: ReadonlySet<string>): Promise<void> {
+  /** Steps 10-12: every signer through authority separately, then threshold and joint. Throws Stop. */
+  private async signersOk(m: JsonDict, sigs: Signed[], threshold: number, checks: string[], vouched: ReadonlySet<string>,
+    state: State): Promise<void> {
     const counted: Accepted[] = [];
-    let vouched = 0;
-    let unknown = false;
-    const seenKeys = new Set<unknown>();
+    const signers: Person[] = [];
+    const seen = new Set<string>();
+    let nVouched = 0;
+    const unknown = (state.unknown ??= []);
     for (const [signer] of sigs) {
-      if (seenKeys.has(signer.public_key)) continue; // one person counts once
-      seenKeys.add(signer.public_key);
       let res: Accepted | null;
       try {
-        res = await this.person(m.company as JsonDict, signer, true, m.issued_at, waive);
+        res = await this.person(m.company as JsonDict, signer, true, m.issued_at, vouched, unknown);
       } catch (e) {
         if (!(e instanceof Stop) || e.reason !== "signer_unknown") throw e;
-        unknown = true;
         continue;
       }
-      if (res === null) vouched += 1; // unknown to every source, vouched for by a bank officer's override
+      const who = res === null || res.person === null ? "id:" + (signer.id as string) : "person:" + res.person;
+      if (seen.has(who)) continue; // one person counts once, whatever ids or keys they appear under
+      seen.add(who);
+      signers.push({ id: signer.id as string, public_key: signer.public_key as string });
+      if (res === null) nVouched += 1; // unknown to every source, vouched for by a bank officer's override
       else counted.push(res);
     }
     const needed = Math.max(threshold, ...counted.map((r) => r.joint));
-    const have = counted.length + vouched;
+    const have = counted.length + nVouched;
     if (have < needed) {
-      if (unknown) throw new Stop("signer_unknown");
+      if (unknown.length) throw new Stop("signer_unknown");
       throw new Stop(have >= threshold ? "joint_signature_required" : "signature_threshold_not_met");
     }
     checks.push(...counted.map((r) => `signer_authorized:${r.source}`));
-    for (let i = 0; i < vouched; i++) checks.push("signer_authorized:override");
+    for (let i = 0; i < nVouched; i++) checks.push("signer_authorized:override");
     if (hasKey(m, "signers")) checks.push(`signatures:${have}/${needed}`);
+    state.signers = signers;
   }
 
   /** Section 5, steps 3-4: authority per link and narrowing. Throws Stop; returns a reason or null. */
-  private async chainOk(m: JsonDict, chain: JsonDict[], checks: string[], waive: ReadonlySet<string>): Promise<string | null> {
+  private async chainOk(m: JsonDict, chain: JsonDict[], checks: string[], vouched: ReadonlySet<string>,
+    state: State): Promise<string | null> {
     const company = m.company as JsonDict;
-    const root = await this.person(company, chain[0]!.from as JsonDict, true, chain[0]!.issued_at, waive);
-    if (root !== null && root.joint > 1) throw new Stop("joint_signature_required");
+    const unknown = (state.unknown ??= []);
     const children = [...chain.slice(1), m];
     // Each delegate's key is checked as of the object it signed next: the next link, or the mandate.
-    for (let i = 0; i < chain.length; i++) await this.person(company, chain[i]!.to as JsonDict, false, children[i]!.issued_at, waive);
+    const people: [JsonDict, boolean, unknown][] = [[chain[0]!.from as JsonDict, true, chain[0]!.issued_at],
+      ...chain.map((d, i) => [d.to as JsonDict, false, children[i]!.issued_at] as [JsonDict, boolean, unknown])];
+    const answers: (Accepted | null)[] = [];
+    for (const [p, power, issued] of people) { // everyone, so an escalation names every unknown person
+      try {
+        answers.push(await this.person(company, p, power, issued, vouched, unknown));
+      } catch (e) {
+        if (!(e instanceof Stop) || e.reason !== "signer_unknown") throw e;
+      }
+    }
+    if (unknown.length) throw new Stop("signer_unknown");
+    const root = answers[0]!;
+    if (root !== null && root.joint > 1) throw new Stop("joint_signature_required");
     checks.push(`delegation:${chain.length}`, `signer_authorized:${root ? root.source : "override"}`);
     for (let i = 0; i < chain.length; i++) if (!within(children[i]!, chain[i]!)) return "scope_exceeds_delegation";
+    const sg = m.signer as JsonDict;
+    state.signers = [{ id: sg.id as string, public_key: sg.public_key as string }];
     return null;
   }
 
@@ -1241,13 +1362,18 @@ export class Checker {
    */
   private async run(
     m: unknown, p: unknown, pHash: string | null, at: Micros, checks: string[], state: State,
-    waive: ReadonlySet<string> = new Set(), claimed: boolean | null = null,
+    waive: ReadonlySet<string> = new Set(), claimed: boolean | null = null, vouched: ReadonlySet<string> = new Set(),
   ): Promise<string | JsonDict | null> {
     const bad = this.authentic(m, p, pHash);
     if (bad) return bad;
     const md = m as JsonDict, pd = p as JsonDict;
     const mh = mandateHash(md);
-    const key = paymentKey(md.company as JsonDict, pd.id as string);
+    const chain = hasKey(md, "delegation") ? (md.delegation as JsonDict[]) : [];
+    const [notHeld, customer] = await this.held(md, chain, pd.from_account as JsonDict);
+    if (notHeld) return notHeld;
+    const key = paymentKey(customer, pd.id as string);
+    state.key = key;
+    if (claimed) state.registered = true; // the held escalation was taken over: whatever happens must settle it
     if (claimed === null) {
       let prior: JsonDict | null;
       try {
@@ -1262,15 +1388,15 @@ export class Checker {
     checks.push("mandate_valid");
     const agent = md.agent as JsonDict;
     if (hasKey(agent, "public_key")) checks.push("agent_signed");
+    checks.push("account_held");
     const [sigs, threshold] = signatures(md);
-    const chain = hasKey(md, "delegation") ? (md.delegation as JsonDict[]) : [];
     if (chain.length) {
-      const b = await this.chainOk(md, chain, checks, waive);
+      const b = await this.chainOk(md, chain, checks, vouched, state);
       if (b) return b;
     } else {
-      await this.signersOk(md, sigs, threshold, checks, waive);
+      await this.signersOk(md, sigs, threshold, checks, vouched, state);
     }
-    // Authentic and authorized from here on: only now may the payment id be claimed (step 13).
+    // Authentic and authorized from here on: only now may the payment id be claimed (step 14).
     if (!claimed) {
       let ok: boolean;
       try {
@@ -1279,9 +1405,8 @@ export class Checker {
         return "checker_unavailable";
       }
       if (!ok) return "duplicate_payment";
+      state.registered = true;
     }
-    state.registered = true;
-    state.key = key;
     if (hasKey(md, "valid_from") && at < ts(md.valid_from)) return "mandate_not_yet_valid";
     if (at > ts(md.valid_until)) return "mandate_expired";
     const revoked = await this.revoked(md, mh, chain, sigs, at);
@@ -1296,10 +1421,6 @@ export class Checker {
     checks.push("not_revoked");
     const sc = md.scope as JsonDict;
     const fa = pd.from_account as JsonDict;
-    if (!(sc.from_accounts as JsonDict[]).some((a) => accKey(a) === accKey(fa))) return "account_not_on_mandate";
-    const notHeld = await this.held(md, chain, fa);
-    if (notHeld) return notHeld;
-    checks.push("account_held");
     if (hasKey(sc, "rails") && !(sc.rails as string[]).includes(pd.rail as string)) return "rail_not_allowed";
     const payeeAcc = (pd.payee as JsonDict).account as JsonDict;
     if (!railFits(pd.rail as string, pd.currency as string, [fa, payeeAcc])) return "rail_mismatch";
@@ -1314,55 +1435,65 @@ export class Checker {
       if (!waive.has("over_payment_limit")) return "over_payment_limit";
       checks.push("over_payment_limit_approved");
     } else checks.push("within_payment_limit");
-    return this.reserve(md, mh, chain, amt, at, checks, waive.has("over_period_limit"));
+    // A bank officer's waiver lifts every period limit; the company's own signatories lift only the mandate's.
+    const force = waive.has("over_period_limit") ? "links" : waive.has("over_period_limit:mandate") ? "mandate" : "";
+    return this.reserve(md, mh, chain, amt, at, checks, force);
   }
 
   /**
-   * Step 17: the company holds the debtor account here, and so does every account a period-limited object
-   * lists (a period limit is enforced by one bank's ledger, so it cannot span banks).
+   * Step 7: the debtor account is on the mandate and the bank holds it for this company; with a period limit,
+   * the bank holds every account the limited object lists, for the same customer. Returns ["", customer] or [reason, ""].
    */
-  private async held(m: JsonDict, chain: JsonDict[], fa: JsonDict): Promise<string | null> {
-    if (this.holds === null) return "checker_unavailable";
+  private async held(m: JsonDict, chain: JsonDict[], fa: JsonDict): Promise<[string, string]> {
+    if (!((m.scope as JsonDict).from_accounts as JsonDict[]).some((a) => accKey(a) === accKey(fa))) {
+      return ["account_not_on_mandate", ""];
+    }
+    if (this.holds === null) return ["checker_unavailable", ""];
     const wanted: JsonDict[] = [fa];
     for (const obj of [m, ...chain]) {
       const sc = obj.scope as JsonDict;
       if (hasKey(sc, "max_per_period")) wanted.push(...(sc.from_accounts as JsonDict[]));
     }
+    const customers = new Set<string>();
     const seen = new Set<string>();
     for (const acc of wanted) {
       const k = accKey(acc);
       if (seen.has(k)) continue;
       seen.add(k);
-      let ok: unknown;
+      let c: unknown;
       try {
-        ok = await this.holds(m.company as JsonDict, acc);
+        c = await this.holds(m.company as JsonDict, acc);
       } catch {
-        return "checker_unavailable";
+        return ["checker_unavailable", ""];
       }
-      if (typeof ok !== "boolean") return "checker_unavailable";
-      if (!ok) return "account_not_held";
+      if (c === null || c === undefined || c === false) return ["account_not_held", ""];
+      if (typeof c !== "string" || !c) return ["checker_unavailable", ""];
+      customers.add(c);
     }
-    return null;
+    if (customers.size !== 1) return ["account_not_held", ""];
+    return ["", [...customers][0]!];
   }
 
   /**
    * Step 23: reserve the amount against the mandate's period limit and against every delegation link's own
    * period limit (a link's limit is shared by all mandates under it), all or nothing. `force`: an override
-   * approved going over, so the amount is added without the limit and the totals stay true.
+   * approved going over ("mandate": the mandate's own limit; "links": every limit).
    */
   private async reserve(
-    m: JsonDict, mh: string, chain: JsonDict[], amt: bigint, at: Micros, checks: string[], force = false,
+    m: JsonDict, mh: string, chain: JsonDict[], amt: bigint, at: Micros, checks: string[], force = "",
   ): Promise<string | null> {
-    const wanted: [string, JsonDict][] = [];
-    if (hasKey(m.scope as JsonDict, "max_per_period")) wanted.push([`mandate:${mh}`, m.scope as JsonDict]);
-    for (const d of chain) if (hasKey(d.scope as JsonDict, "max_per_period")) wanted.push([`delegation:${delegationHash(d)}`, d.scope as JsonDict]);
+    const wanted: [string, JsonDict, boolean][] = [];
+    if (hasKey(m.scope as JsonDict, "max_per_period")) wanted.push([`mandate:${mh}`, m.scope as JsonDict, force !== ""]);
+    for (const d of chain) {
+      if (hasKey(d.scope as JsonDict, "max_per_period")) wanted.push([`delegation:${delegationHash(d)}`, d.scope as JsonDict, force === "links"]);
+    }
     if (!wanted.length) return null;
     if (this.ledger === null) return "ledger_missing";
     const done: [string, string][] = [];
     try {
-      for (const [key, sc] of wanted) {
+      for (const [key, sc, forced] of wanted) {
         const per = sc.max_per_period as JsonDict;
-        const limit = force ? null : parseAmount(per.amount, sc.currency);
+        const limit = forced ? null : parseAmount(per.amount, sc.currency);
         if (!(await this.ledger.reserve(key, per.period as string, amt, limit, at))) {
           await this.releaseAll(done, amt, at);
           return "over_period_limit";
@@ -1436,7 +1567,7 @@ export class Checker {
   }
 
   /**
-   * Step 16: "active" or "revoked" from a valid, fresh status response signed by someone who could revoke the
+   * Step 17: "active" or "revoked" from a valid, fresh status response signed by someone who could revoke the
    * mandate; null if there is no such answer.
    */
   private async statusOf(m: JsonDict, mh: string, chain: JsonDict[], sigs: Signed[], at: Micros): Promise<string | null> {
@@ -1473,32 +1604,52 @@ export class Checker {
       || !same(od.decision, { id: hasKey(dd, "id") ? dd.id : null, hash: objHash(dd) })) {
       return "override_invalid";
     }
-    let escalated: Micros, decided: Micros;
+    // The window runs from the first escalation of this payment, however many overrides follow.
+    const first = hasKey(dd, "escalated_at") ? dd.escalated_at : dd.checked_at;
+    const earlier = hasKey(dd, "waived") ? dd.waived : [];
+    const vouchedBefore = persons(hasKey(dd, "vouched") ? dd.vouched : []);
+    const unknown = persons(hasKey(dd, "unknown") ? dd.unknown : []);
+    if (!Array.isArray(earlier) || !earlier.every((x) => typeof x === "string") || vouchedBefore === null || unknown === null) {
+      return "override_invalid";
+    }
+    let escalated: Micros, decided: Micros, checked: Micros;
     try {
-      escalated = ts(dd.checked_at);
+      escalated = ts(first);
       decided = ts(od.decided_at);
+      checked = ts(dd.checked_at);
     } catch {
       return "override_invalid";
     }
-    if (at - escalated > this.overrideWindow || decided < escalated || decided > at + this.maxSkew) return "override_invalid";
+    if (at - escalated > this.overrideWindow || decided < checked || decided > at + this.maxSkew) return "override_invalid";
     const oh = overrideHash(od);
     const osigs = od.sigs as JsonDict[];
     if (!osigs.every((s) => verify("override", oh, s.sig, (s.signer as JsonDict).public_key, this.webauthn))) return "override_invalid";
     const reason = dd.reasons[0] as string;
-    // Overrides add up: a re-check after one override can escalate again, and the next override keeps the
-    // earlier waivers (recorded in the escalation this checker signed).
-    const earlier = hasKey(dd, "waived") ? dd.waived : [];
-    if (!Array.isArray(earlier) || !earlier.every((x) => typeof x === "string")) return "override_invalid";
-    const waive = new Set<string>([...(earlier as string[]), reason]);
-    let who: string;
-    if (osigs.some((s) => this.officers.has((s.signer as JsonDict).public_key as string))) who = "override:bank";
-    else if (COMPANY_OVERRIDABLE.has(reason)) who = await this.companyOverride(md, od);
-    else return "override_not_authorized";
+    if (NOT_OVERRIDABLE.has(reason)) return "override_not_authorized";
+    const bankSigs = osigs.filter((s) => this.officers.has((s.signer as JsonDict).public_key as string));
+    let who: string, waiver: string, approvers: JsonDict[];
+    if (bankSigs.length) {
+      who = "override:bank";
+      waiver = reason;
+      approvers = bankSigs.map((s) => ({ ...(s.signer as JsonDict), role: "bank" }));
+    } else if (COMPANY_OVERRIDABLE.has(reason)) {
+      [who, approvers] = await this.companyOverride(md, od);
+      waiver = reason === "over_period_limit" ? "over_period_limit:mandate" : reason;
+    } else return "override_not_authorized";
+    // Overrides add up; a signer_unknown waiver vouches only for the people that escalation named.
+    const waive = new Set<string>([...(earlier as string[]), waiver]);
+    const vouched = new Set<string>([...vouchedBefore, ...(reason === "signer_unknown" ? unknown : [])]);
     state.refs = {
-      escalation: { id: dd.id, hash: objHash(dd) }, override: { id: od.id, hash: oh }, waived: [...waive].sort(),
+      escalation: { id: dd.id, hash: objHash(dd) }, override: { id: od.id, hash: oh },
+      approvers: approvers.map((a) => ({ id: a.id, public_key: a.public_key, role: a.role })),
+      waived: [...waive].sort(), escalated_at: first,
     };
+    if (vouched.size) state.refs.vouched = [...vouched].sort(pyCompare).map(unkey);
     checks.push(who);
-    const key = paymentKey(md.company as JsonDict, pd.id as string);
+    const [notHeld, customer] = await this.held(md, hasKey(md, "delegation") ? (md.delegation as JsonDict[]) : [],
+      pd.from_account as JsonDict);
+    if (notHeld) return notHeld;
+    const key = paymentKey(customer, pd.id as string);
     let prior: JsonDict | null;
     try {
       prior = await this.payments.lookup(key, pHash!);
@@ -1523,6 +1674,7 @@ export class Checker {
         }
         return isDict(again) ? again : "duplicate_payment";
       }
+      state.restore = dd;
     }
     if (od.outcome === "block") {
       if (!heldHere) {
@@ -1536,28 +1688,54 @@ export class Checker {
       state.key = key;
       return "blocked_by_override";
     }
-    return this.run(m, p, pHash, at, checks, state, waive, heldHere);
+    return this.run(m, p, pHash, at, checks, state, waive, heldHere, vouched);
   }
 
   /**
-   * Company signatories resolving an over-limit escalation: as many authorized signers as the mandate itself
-   * needed (its threshold and every signer's joint rule). Throws Stop.
+   * Company signatories resolving an over-limit escalation: as many authorized people as the mandate itself
+   * needed (its threshold and the joint rule of everyone who signed it or the override). Throws Stop.
    */
-  private async companyOverride(m: JsonDict, o: JsonDict): Promise<string> {
-    const [, threshold] = signatures(m);
-    const counted: Accepted[] = [];
-    for (const s of o.sigs as JsonDict[]) {
+  private async companyOverride(m: JsonDict, o: JsonDict): Promise<[string, JsonDict[]]> {
+    const [sigs, threshold] = signatures(m);
+    const joints = [threshold];
+    for (const [signer] of sigs) {
       try {
-        counted.push(await this.authorized(m.company as JsonDict, s.signer as JsonDict, true));
+        joints.push((await this.authorized(m.company as JsonDict, signer, true, m.issued_at)).joint);
+      } catch (e) {
+        if (e instanceof Stop && e.reason === "checker_unavailable") throw e;
+      }
+    }
+    const seen = new Set<string>();
+    const approvers: JsonDict[] = [];
+    for (const s of o.sigs as JsonDict[]) {
+      let res: Accepted;
+      try {
+        res = await this.authorized(m.company as JsonDict, s.signer as JsonDict, true);
       } catch (e) {
         if (e instanceof Stop && e.reason === "checker_unavailable") throw e;
         throw new Stop("override_not_authorized");
       }
+      const who = res.person !== null ? "person:" + res.person : "id:" + ((s.signer as JsonDict).id as string);
+      if (seen.has(who)) continue;
+      seen.add(who);
+      joints.push(res.joint);
+      approvers.push({ ...(s.signer as JsonDict), role: "company" });
     }
-    const needed = Math.max(threshold, ...counted.map((r) => r.joint));
-    if (counted.length < needed) throw new Stop("override_not_authorized");
-    return `override:company:${counted.length}/${needed}`;
+    const needed = Math.max(...joints);
+    if (approvers.length < needed) throw new Stop("override_not_authorized");
+    return [`override:company:${approvers.length}/${needed}`, approvers];
   }
+}
+
+/** Python's sort order on (id, public_key) tuples: by code point, like the reference. */
+function pyCompare(a: string, b: string): number {
+  const [x, y] = [JSON.parse(a) as string[], JSON.parse(b) as string[]];
+  for (let i = 0; i < 2; i++) {
+    const p = [...x[i]!].map((c) => c.codePointAt(0)!), q = [...y[i]!].map((c) => c.codePointAt(0)!);
+    for (let j = 0; j < Math.min(p.length, q.length); j++) if (p[j] !== q[j]) return p[j]! - q[j]!;
+    if (p.length !== q.length) return p.length - q.length;
+  }
+  return 0;
 }
 
 function personKey(p: JsonDict): string {
@@ -1621,8 +1799,17 @@ export function verifyReceipt(
     const mh = mandateHash(md);
     if (get(decision, "mandate.hash") !== mh) problems.push("decision_mandate_mismatch");
     const [sigs] = signatures(md);
-    signedBy = sigs.filter(([s, sig]) => verify("mandate", mh, sig, s.public_key, wa)).map(([s]) => s.id as string);
-    if (sigs.length === 0 || signedBy.length !== sigs.length) problems.push("mandate_bad_signature");
+    const valid = sigs.filter(([s, sig]) => verify("mandate", mh, sig, s.public_key, wa)).map(([s]) => s);
+    signedBy = valid.map((s) => s.id as string);
+    if (sigs.length === 0 || valid.length !== sigs.length) problems.push("mandate_bad_signature");
+    const recorded = get(decision, "signers");
+    if (recorded !== null) {
+      // The bank recorded whom it counted; the receipt shows exactly those, each with a valid signature here.
+      const counted = persons(recorded);
+      const have = new Set(valid.map(personKey));
+      if (counted === null || !counted.every((k) => have.has(k))) problems.push("mandate_signers_mismatch");
+      else signedBy = counted.map((k) => unkey(k).id);
+    }
     const chain = hasKey(md, "delegation") ? (md.delegation as JsonDict[]) : [];
     chainView = chain.map((d) => `${(d.from as JsonDict).id} -> ${(d.to as JsonDict).id}`);
     const bad = chain.length ? chainProblem(md, chain, wa) : null;
@@ -1652,10 +1839,15 @@ export function verifyReceipt(
     } else {
       const od = ov as JsonDict;
       const oh = overrideHash(od);
-      const osigs = od.sigs as JsonDict[];
-      approvedBy = osigs.filter((s) => verify("override", oh, s.sig, (s.signer as JsonDict).public_key, wa))
-        .map((s) => (s.signer as JsonDict).id as string);
-      if (approvedBy.length !== osigs.length) problems.push("override_bad_signature");
+      const valid = new Set((od.sigs as JsonDict[])
+        .filter((s) => verify("override", oh, s.sig, (s.signer as JsonDict).public_key, wa)).map((s) => personKey(s.signer as JsonDict)));
+      const approvers = get(decision, "approvers");
+      const listed = Array.isArray(approvers) && approvers.every((a) => isDict(a))
+        ? persons((approvers as JsonDict[]).map((a) => ({ id: hasKey(a, "id") ? a.id : null, public_key: hasKey(a, "public_key") ? a.public_key : null })))
+        : null;
+      // Who approved is what the bank recorded, each with a valid signature on this override.
+      if (listed === null || listed.length === 0 || !listed.every((k) => valid.has(k))) problems.push("override_bad_signature");
+      else approvedBy = (approvers as JsonDict[]).map((a) => a.id as string);
     }
   }
   const checks = get(decision, "checks");

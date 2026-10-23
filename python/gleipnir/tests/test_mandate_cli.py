@@ -81,7 +81,8 @@ def test_revoke(setup: Path) -> None:
 
 
 def test_unknown_signer_escalates(setup: Path) -> None:
-    Path("kyb.json").write_text(json.dumps({"signers": []}))
+    kyb = json.loads(Path("kyb.json").read_text())
+    Path("kyb.json").write_text(json.dumps({"signers": [], "accounts": kyb["accounts"]}))
     code, d = check(pay("p_1", "100.00"))
     assert (code, d["reasons"]) == (3, ["signer_unknown"])
 
@@ -250,31 +251,92 @@ def test_status_fetcher_refuses_internal_hosts() -> None:
         make_status_fetcher(["status.bank.example"])("https://evil.example/s")
 
 
-def test_status_fetcher_reads_a_public_https_answer(monkeypatch: pytest.MonkeyPatch) -> None:
-    import io
+@pytest.fixture()
+def tls_server(tmp_path: Path):
+    """A local HTTPS server with a certificate for status.example; handler behaviour set per test."""
+    import datetime
+    import http.server
+    import ssl
+    import threading
+
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from cryptography.x509.oid import NameOID
+
+    key = ec.generate_private_key(ec.SECP256R1())
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "status.example")])
+    now = datetime.datetime.now(datetime.timezone.utc)
+    cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name).public_key(key.public_key())
+            .serial_number(1).not_valid_before(now - datetime.timedelta(days=1))
+            .not_valid_after(now + datetime.timedelta(days=1))
+            .add_extension(x509.SubjectAlternativeName([x509.DNSName("status.example")]), critical=False)
+            .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
+            .sign(key, hashes.SHA256()))
+    (tmp_path / "c.pem").write_bytes(cert.public_bytes(serialization.Encoding.PEM))
+    (tmp_path / "k.pem").write_bytes(key.private_bytes(serialization.Encoding.PEM,
+                                                       serialization.PrivateFormat.PKCS8,
+                                                       serialization.NoEncryption()))
+    behaviour = {"mode": "ok", "seen": []}
+
+    class H(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_GET(self):
+            behaviour["seen"].append(self.path)
+            if behaviour["mode"] == "redirect":
+                self.send_response(302)
+                self.send_header("Location", "https://127.0.0.1/admin")
+                self.end_headers()
+                return
+            self.send_response(200)
+            self.end_headers()
+            if behaviour["mode"] == "drip":
+                for _ in range(10):
+                    self.wfile.write(b" ")
+                    self.wfile.flush()
+                    import time
+                    time.sleep(0.3)
+            self.wfile.write(b'{"status": "active"}')
+
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
+    sctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    sctx.load_cert_chain(tmp_path / "c.pem", tmp_path / "k.pem")
+    srv.socket = sctx.wrap_socket(srv.socket, server_side=True)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    cctx = ssl.create_default_context(cafile=str(tmp_path / "c.pem"))
+    yield srv.server_address[1], cctx, behaviour
+    srv.shutdown()
+
+
+def test_status_fetcher_end_to_end(tls_server, monkeypatch: pytest.MonkeyPatch) -> None:
     import socket
-    import urllib.request
 
     from gleipnir import mandate_cli
     from gleipnir.mandate_cli import CliError
 
-    seen = {}
+    port, ctx, behaviour = tls_server
+    calls = []
 
-    class Opener:
-        def open(self, req, timeout):
-            seen["url"], seen["timeout"] = req.full_url, timeout
-            return io.BytesIO(seen.get("body", b'{"status": "active"}'))
+    def resolve(host, port, *a, **k):
+        calls.append(host)
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", port))]
 
-    monkeypatch.setattr(urllib.request, "build_opener", lambda *h: Opener())
-    monkeypatch.setattr(socket, "getaddrinfo", lambda *a, **k: [(0, 0, 0, "", ("93.184.216.34", 443))])
-    fetch = mandate_cli.make_status_fetcher()
-    assert fetch("https://status.example/m_1") == {"status": "active"} and seen["timeout"] == 5
-    seen["body"] = b'{"a": 1, "a": 2}'
-    with pytest.raises(CliError, match="duplicate"):
+    monkeypatch.setattr(socket, "getaddrinfo", resolve)
+    fetch = mandate_cli.make_status_fetcher(["status.example"], context=ctx, _port=port)
+    assert fetch("https://status.example/m_1?x=1") == {"status": "active"} and behaviour["seen"] == ["/m_1?x=1"]
+    assert [c for c in calls if c != "127.0.0.1"] == ["status.example"]  # resolved once, connected there
+    behaviour["mode"] = "redirect"
+    with pytest.raises(CliError, match="HTTP 302"):
         fetch("https://status.example/m_1")
-    seen["body"] = b"x" * (mandate_cli.MAX_STATUS + 1)
-    with pytest.raises(CliError, match="too large"):
-        fetch("https://status.example/m_1")
-    seen["body"] = b'{"ok": true}'
-    assert mandate_cli.make_status_fetcher(["status.example"])("https://status.example/s") == {"ok": True}
-    assert mandate_cli._NoRedirect().redirect_request() is None
+    behaviour["mode"] = "drip"  # a byte every 0.3 s never trips a per-read timeout; the deadline still ends it
+    slow = mandate_cli.make_status_fetcher(["status.example"], deadline=1.0, context=ctx, _port=port)
+    with pytest.raises(CliError, match="too long"):
+        slow("https://status.example/m_1")
+    for url in ("https://status.example:8443/m", "https://u:p@status.example/m"):
+        with pytest.raises(CliError, match="port 443"):
+            fetch(url)
+    # Without an allow-list, every address the name resolves to must be public.
+    with pytest.raises(CliError, match="non-public"):
+        mandate_cli.make_status_fetcher(context=ctx, _port=port)("https://status.example/m")

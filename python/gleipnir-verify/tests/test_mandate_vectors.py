@@ -42,3 +42,8 @@ def test_signed_decisions_verify():
         assert M.verify_decision(d, keys)
         assert not M.verify_decision({**d, "outcome": "allow" if d["outcome"] != "allow" else "block"}, keys)
         assert not M.verify_decision(d, [DATA["other_public_key"]])
+
+
+def test_problem_messages():
+    for kind, obj, problem in DATA["problems"]:
+        assert (M.mandate_problem if kind == "mandate" else M.payment_problem)(obj) == problem

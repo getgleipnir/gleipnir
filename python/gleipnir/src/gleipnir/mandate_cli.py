@@ -33,14 +33,17 @@ from __future__ import annotations
 
 import argparse
 import fcntl
+import http.client
 import ipaddress
 import json
+import os
 import secrets
 import socket
+import ssl
 import sys
-import urllib.error
+import threading
+import time
 import urllib.parse
-import urllib.request
 from datetime import timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -154,23 +157,35 @@ class FileState:
 
     def __enter__(self) -> FileState:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self._fh = open(self.path, "a+", encoding="utf-8")  # noqa: SIM115
-        fcntl.flock(self._fh, fcntl.LOCK_EX)
-        self._fh.seek(0)
-        text = self._fh.read()
-        if text.strip():
-            self.data = json.loads(text)
-            for k in ("payments", "totals", "revocations"):
-                self.data.setdefault(k, {} if k != "revocations" else [])
+        # The lock lives in a file of its own, so the state file can be replaced atomically.
+        self._lock = open(self.path.with_name(self.path.name + ".lock"), "a")  # noqa: SIM115
+        fcntl.flock(self._lock, fcntl.LOCK_EX)
+        try:
+            text = self.path.read_text(encoding="utf-8") if self.path.exists() else ""
+            if text.strip():
+                self.data = json.loads(text)
+                for k in ("payments", "totals", "revocations"):
+                    self.data.setdefault(k, {} if k != "revocations" else [])
+        except BaseException:
+            self._unlock()
+            raise
         return self
 
-    def __exit__(self, *exc: object) -> None:
-        self._fh.seek(0)
-        self._fh.truncate()
-        json.dump(self.data, self._fh, indent=1, sort_keys=True)
-        self._fh.flush()
-        fcntl.flock(self._fh, fcntl.LOCK_UN)
-        self._fh.close()
+    def __exit__(self, exc_type: object, *exc: object) -> None:
+        try:
+            if exc_type is None:  # a failed block writes nothing: the previous state stays intact
+                tmp = self.path.with_name(self.path.name + ".tmp")
+                with open(tmp, "w", encoding="utf-8") as fh:
+                    json.dump(self.data, fh, indent=1, sort_keys=True)
+                    fh.flush()
+                    os.fsync(fh.fileno())
+                os.replace(tmp, self.path)
+        finally:
+            self._unlock()
+
+    def _unlock(self) -> None:
+        fcntl.flock(self._lock, fcntl.LOCK_UN)
+        self._lock.close()
 
     # PaymentLog (spec 7): keyed by payer and payment id
     def lookup(self, key: str, payment_hash: str) -> dict | None:
@@ -235,53 +250,100 @@ def load_authority(path: str) -> m.Authority:
 
 
 def load_holds(path: str) -> Any:
-    """The accounts the bank holds, from the KYB file's "accounts": [{"company", "account"}]."""
+    """The accounts the bank holds, from the KYB file's "accounts": [{"company", "account", "customer"}]; the
+    customer id (default: the company name) keys the payment log."""
     doc = read_json(path)
     try:
-        rows = [(a["company"], m.canonicalize(a["account"])) for a in doc.get("accounts", [])]
+        held = {(a["company"], m.canonicalize(a["account"])): str(a.get("customer", a["company"]))
+                for a in doc.get("accounts", [])}
     except (AttributeError, KeyError, TypeError) as exc:
         raise CliError(f"{path}: expected \"accounts\": [{{'company', 'account'}}]") from exc
-    held = set(rows)
 
-    def holds(company: dict, account: dict) -> bool:
-        return (company.get("name"), m.canonicalize(account)) in held
+    def holds(company: dict, account: dict) -> str | None:
+        return held.get((company.get("name"), m.canonicalize(account)))
 
     return holds
 
 
 MAX_STATUS = 64 * 1024
+STATUS_DEADLINE = 5.0  # seconds for the whole fetch: connect, TLS, headers and body
 
 
-class _NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, *args: Any, **kw: Any) -> None:
-        return None  # a status URL that redirects is not an answer
+class _PinnedHTTPS(http.client.HTTPSConnection):
+    """HTTPS to one vetted IP address, with SNI and certificate checks for the URL's host name."""
+
+    def __init__(self, host: str, ip: str, timeout: float, context: ssl.SSLContext, port: int = 443) -> None:
+        super().__init__(host, port, timeout=timeout, context=context)
+        self._ip = ip
+        self.raw: socket.socket | None = None
+
+    def connect(self) -> None:
+        sock = socket.create_connection((self._ip, self.port), self.timeout)
+        self.sock = self._context.wrap_socket(sock, server_hostname=self.host)  # type: ignore[attr-defined]
+        self.raw = self.sock  # kept: http.client drops self.sock once the response owns the connection
 
 
-def make_status_fetcher(allow_hosts: list[str] | None = None) -> Any:
-    """status(url) for the Checker: GET over https only, no redirects, 5 s, 64 KiB, strict JSON.
+def make_status_fetcher(allow_hosts: list[str] | None = None, deadline: float = STATUS_DEADLINE, *,
+                        context: ssl.SSLContext | None = None, _port: int = 443) -> Any:
+    """status(url) for the Checker: GET over https on port 443 only, no redirects, one deadline for the whole
+    fetch, 64 KiB, strict JSON.
 
     The URL comes from the company, so this is a request the bank makes on a customer's behalf: with
-    ``allow_hosts`` only those hosts are fetched; without, hosts that resolve to loopback, private, link-local
-    or reserved addresses are refused, so a mandate cannot point the bank at its own internal network.
+    ``allow_hosts`` only those hosts are fetched; without, the host is resolved once, every address must be
+    public (not loopback, private, link-local or reserved), and the connection goes to that vetted address,
+    so a second DNS answer cannot point the bank at its own network.
     """
     allowed = set(allow_hosts or [])
-    opener = urllib.request.build_opener(_NoRedirect)
+    context = context or ssl.create_default_context()
 
     def status(url: str) -> Any:
+        end = time.monotonic() + deadline
         u = urllib.parse.urlsplit(url)
-        if u.scheme != "https" or not u.hostname:
-            raise CliError("status_url must be https")
-        if allowed:
-            if u.hostname not in allowed:
-                raise CliError(f"status host {u.hostname} is not allowed")
-        else:
-            for info in socket.getaddrinfo(u.hostname, u.port or 443, proto=socket.IPPROTO_TCP):
-                ip = ipaddress.ip_address(info[4][0])
-                if not ip.is_global:
-                    raise CliError(f"status host {u.hostname} resolves to a non-public address")
-        req = urllib.request.Request(url, headers={"Accept": "application/json"})
-        with opener.open(req, timeout=5) as resp:  # noqa: S310 - https only, checked above
-            body = resp.read(MAX_STATUS + 1)
+        if u.scheme != "https" or not u.hostname or u.port not in (None, 443) or u.username or u.password:
+            raise CliError("status_url must be https on port 443")
+        if allowed and u.hostname not in allowed:
+            raise CliError(f"status host {u.hostname} is not allowed")
+        infos = socket.getaddrinfo(u.hostname, 443, proto=socket.IPPROTO_TCP)
+        ips = [info[4][0] for info in infos]
+        if not ips:
+            raise CliError(f"status host {u.hostname} does not resolve")
+        if not allowed and not all(ipaddress.ip_address(ip.split("%")[0]).is_global for ip in ips):
+            raise CliError(f"status host {u.hostname} resolves to a non-public address")
+        conn = _PinnedHTTPS(u.hostname, ips[0], deadline, context, _port)
+
+        def kill() -> None:  # the deadline covers a server that drips bytes, not just one that stalls
+            try:
+                if conn.raw is not None:
+                    conn.raw.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+
+        timer = threading.Timer(deadline, kill)
+        timer.daemon = True
+        timer.start()
+        try:
+            path = (u.path or "/") + (f"?{u.query}" if u.query else "")
+            conn.request("GET", path, headers={"Accept": "application/json", "Host": u.hostname})
+            resp = conn.getresponse()
+            if resp.status != 200:  # redirects included: a status URL that redirects is not an answer
+                raise CliError(f"status answered HTTP {resp.status}")
+            body = b""
+            while len(body) <= MAX_STATUS:
+                if time.monotonic() >= end:
+                    raise CliError("status fetch took too long")
+                chunk = resp.read1(MAX_STATUS + 1 - len(body))
+                if not chunk:
+                    break
+                body += chunk
+            if time.monotonic() >= end:  # the watchdog cut the connection: what arrived is not an answer
+                raise CliError("status fetch took too long")
+        except (OSError, http.client.HTTPException) as exc:
+            if time.monotonic() >= end:
+                raise CliError("status fetch took too long") from exc
+            raise
+        finally:
+            timer.cancel()
+            conn.close()
         if len(body) > MAX_STATUS:
             raise CliError("status response too large")
         return loads_strict(body.decode("utf-8"), "status response")

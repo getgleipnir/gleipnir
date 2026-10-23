@@ -103,9 +103,10 @@ const isObj = (x: unknown): x is J => typeof x === "object" && x !== null && !Ar
 export function argumentsProblem(spec: J, args: unknown): string | null {
   if (!isObj(args)) return "arguments must be an object";
   const props = spec.properties as Record<string, J>;
-  const missing = (spec.required as string[]).filter((k) => !(k in args));
+  const own = (o: object, k: string) => Object.prototype.hasOwnProperty.call(o, k);
+  const missing = (spec.required as string[]).filter((k) => !own(args, k));
   if (missing.length) return `missing arguments: ${JSON.stringify(missing)}`;
-  const extra = Object.keys(args).filter((k) => !(k in props)).sort();
+  const extra = Object.keys(args).filter((k) => !own(props, k)).sort();
   if (extra.length) return `unknown arguments: ${JSON.stringify(extra)}`;
   for (const [k, v] of Object.entries(args)) {
     const type = props[k]!.type;
@@ -178,7 +179,10 @@ function loadHolds(path: string) {
   const doc = readJson(path) as J;
   const rows = (doc.accounts ?? []) as J[];
   const key = (v: unknown) => JSON.stringify(v, Object.keys((v ?? {}) as J).sort());
-  return (company: J, acc: J): boolean => rows.some((r) => r.company === company.name && key(r.account) === key(acc));
+  return (company: J, acc: J): string | null => {
+    const r = rows.find((x) => x.company === company.name && key(x.account) === key(acc));
+    return r ? String(r.customer ?? r.company) : null;
+  };
 }
 
 function loadAuthority(path: string) {

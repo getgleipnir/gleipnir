@@ -159,6 +159,7 @@ def v02_cases() -> list[dict[str, Any]]:  # noqa: PLR0915
         *passkey_cases(),
         *audit2_cases(),
         *v03_cases(),
+        *audit3_cases(),
     ]
 
 
@@ -385,6 +386,75 @@ def v03_cases() -> list[dict[str, Any]]:  # noqa: PLR0915
     return out
 
 
+def audit3_cases() -> list[dict[str, Any]]:
+    """Inputs from the third audit (24.10.2026), pinned for both implementations."""
+    officer_sk = key(9)
+    officer = M.public_key_of(officer_sk)
+    ops = ((officer_sk, "ops@bank"),)
+    m = mandate()
+    both = multi()
+    lei = mandate(id="m_lei", company={**COMPANY, "ids": {"lei": "529900T8BM49AURSDO55"}})
+    lei_holds = [*HOLDS, {"company": COMPANY["name"], "account": DEBTOR}]
+    deep: Any = "x"
+    for _ in range(M.MAX_DEPTH):
+        deep = [deep]
+    deep_m = mandate(scope=scope(purpose=deep))
+    alias = {**HOFER_P, "id": "KBerger@nordhafen.at"}
+    aliased = mandate(sign=False, signer=None, signers={"threshold": 2, "of": [BERGER_P, alias]})
+    aliased = M.cosign(M.cosign(aliased, SIGNER, SIGNER_ID), HOFER, alias["id"])
+    alias_kyb = [row(SIGNER_ID, SIGNER, keys=[M.public_key_of(SIGNER), M.public_key_of(HOFER)]) | {"person": "p1"},
+                 row(alias["id"], HOFER, keys=[M.public_key_of(SIGNER), M.public_key_of(HOFER)]) | {"person": "p1"}]
+    null_ids = M.delegate(id="g_null", company={**COMPANY, "ids": None}, from_=CEO_P, to=CFO_P, scope=WIDE,
+                          valid_until="2027-03-31T23:59:59.000Z", sk=CEO, issued_at="2026-10-01T08:00:00.000Z")
+    d_null = delegated([null_ids])
+    big = pay(m, "p_big", "30000.00")
+    shared = link("g_cap", (CEO, CEO_P), CFO_P, sc={**WIDE, "max_per_period": {"amount": "30000.00", "period": "P1M"}})
+    capped = delegated([shared], scope=scope(max_per_period={"amount": "30000.00", "period": "P1M"}))
+    capped_kyb = [*CHAIN_KYB]
+    return [
+        case("A3_unknown_signer_named_in_escalation", both, [pay(both, "p_1"), pay(both, "p_1")],
+             authority=JOINT_KYB[:1], officers=[officer], ops=["check", resolve(0, signers=ops)]),
+        case("A3_one_customer_one_id_space", m, [pay(m, "INV-9"), pay(lei, "INV-9")], mandates=[m, lei], which=[0, 1],
+             holds=lei_holds),
+        case("A3_one_person_counts_once", aliased, [pay(aliased, "p_1")], authority=alias_kyb),
+        case("A3_nesting_limit", deep_m, [pay(deep_m, "p_1")]),
+        case("A3_link_ids_null_is_not_absent", d_null, [pay(d_null, "p_1")], authority=CHAIN_KYB),
+        case("A3_ledger_missing_not_overridable", m, [pay(m, "p_1"), pay(m, "p_1")], ledger=False, officers=[officer],
+             ops=["check", resolve(0, signers=ops)]),
+        case("A3_company_override_needs_mandate_joint", both, [pay(both, "p_big", "30000.00")] * 3,
+             authority=[row(SIGNER_ID, SIGNER, joint=2), row(HOFER_P["id"], HOFER, joint=2), row("c@x", OTHER)],
+             ops=["check", resolve(0, signers=((OTHER, "c@x"),)),
+                  resolve(0, signers=((OTHER, "c@x"), (SIGNER, SIGNER_ID)), oid="o_2")]),
+        case("A3_company_cannot_lift_delegated_cap", capped,
+             [pay(capped, "p_1", "20000.00"), pay(capped, "p_2", "20000.00"), pay(capped, "p_2", "20000.00"),
+              pay(capped, "p_2", "20000.00")],
+             authority=[*capped_kyb, row("boss@x", OTHER)], officers=[officer],
+             ops=["check", "check", resolve(1, signers=((OTHER, "boss@x"),)), resolve(2, signers=ops, oid="o_2")]),
+        case("A3_override_approvers_recorded", m, [big, big], ops=["check", resolve(0)]),
+    ]
+
+
+def problem_cases() -> list[list[Any]]:
+    """[kind, input, problem]: the exact messages both implementations give (third audit, F16)."""
+    m = mandate(sign=False)
+    p = pay(mandate(), "p_1")
+    out: list[list[Any]] = []
+    for sc in (scope(max_per_payment="1.0"), scope(currency="XAU"), scope(max_per_payment="it's"),
+               scope(rails=["sepa", "it's", 'say "x"']),
+               scope(from_accounts=[{"scheme": "it's"}]), scope(from_accounts=[{"scheme": "iban", "iban": "x"}]),
+               scope(payees=[{"account": {"scheme": "us_aba", "routing": "021000021"}}])):
+        mm = {**m, "scope": sc}
+        out.append(["mandate", mm, M.mandate_problem(mm)])
+    for extra in ({"valid_until": "2026-12-31T23:59:59+00:00"}, {"issued_at": "x\ny"}, {"status_url": "http://x"}):
+        mm = {**m, **extra}
+        out.append(["mandate", mm, M.mandate_problem(mm)])
+    for extra in ({"rail": "telex"}, {"rail": "it's"}, {"amount": "1,00"}, {"currency": "€"},
+                  {"from_account": {"scheme": "iban", "iban": "AT621904300234573201"}}):
+        pp = {**p, **extra}
+        out.append(["payment", pp, M.payment_problem(pp)])
+    return out
+
+
 def passkey_cases() -> list[dict[str, Any]]:
     """Passkey-signed mandates (fixed P-256 keys; ECDSA signatures are random but only ever verified)."""
     pk_b, pk_h = Passkey(0xB16B00B5), Passkey(0xC0FFEE)
@@ -541,7 +611,7 @@ def authority_fn(table: list[dict]) -> M.Authority:
         for row in table:
             if row["company"] == company.get("name") and row["signer"] == signer_id:
                 return M.AuthorityResult(row["source"], tuple(row["keys"]), row["may_sign"], row.get("joint", 1),
-                                         row.get("retired", {}))
+                                         row.get("retired", {}), row.get("person"))
         return None
     return authority
 
@@ -558,8 +628,11 @@ def status_fn(value: Any):
 
 
 def holds_fn(rows: list[dict]):
-    def holds(company: dict, account: dict) -> bool:
-        return any(r["company"] == company.get("name") and r["account"] == account for r in rows)
+    def holds(company: dict, account: dict) -> str | None:
+        for r in rows:
+            if r["company"] == company.get("name") and r["account"] == account:
+                return r.get("customer", "cust:" + r["company"])
+        return None
     return holds
 
 
@@ -639,10 +712,10 @@ def build() -> dict[str, Any]:
         "other_public_key": M.public_key_of(OTHER),
         "cases": out_cases,
         "signed": signed,
-        "payment_keys": [[co, pid, M.payment_key(co, pid)] for co, pid in [
-            ({"name": "Alpha", "country": "AT"}, "Beta|INV-1"), ({"name": "Alpha|Beta", "country": "AT"}, "INV-1"),
-            ({"name": "Müller \"&\" Söhne", "country": "DE", "ids": {"lei": "5299"}}, "INV-\u00e9"),
-            ({"name": "X"}, "1")]],
+        "problems": problem_cases(),
+        "payment_keys": [[cu, pid, M.payment_key(cu, pid)] for cu, pid in [
+            ("cust:Alpha", "Beta|INV-1"), ("cust:Alpha|Beta", "INV-1"),
+            ("Müller \"&\" Söhne", "INV-\u00e9"), ("X", "1")]],
     }
 
 

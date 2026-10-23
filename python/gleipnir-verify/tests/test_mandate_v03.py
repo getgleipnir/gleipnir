@@ -95,7 +95,7 @@ def test_override_after_mandate_revoked_blocks(w):
     final = w["bank"].resolve(w["m"], p, d, override(w, d))
     assert final["reasons"] == ["mandate_revoked"]
     # The block released the id: a corrected payment under a new mandate may use it.
-    assert w["bank"].payments.lookup(M.payment_key(CO, "p_1"), M.obj_hash(p, "agent_sig")) is None
+    assert w["bank"].payments.lookup(M.payment_key("cust:nordhafen", "p_1"), M.obj_hash(p, "agent_sig")) is None
 
 
 def test_concurrent_resolves_reserve_once(w):
@@ -145,7 +145,7 @@ def test_key_rotation_applies_to_delegation_and_revocation(w):
 
 
 def test_holds_hook_failures_never_allow(w):
-    for bad in (None, lambda c, a: "yes", lambda c, a: (_ for _ in ()).throw(TimeoutError())):
+    for bad in (None, lambda c, a: True, lambda c, a: "", lambda c, a: (_ for _ in ()).throw(TimeoutError())):
         w["bank"].holds = bad
         assert w["bank"].check(w["m"], pay(w, f"p_{id(bad)}", "100.00"))["reasons"] == ["checker_unavailable"]
 

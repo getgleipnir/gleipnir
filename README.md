@@ -34,7 +34,7 @@ Gleipnir does not move money and does not verify identities: the bank (KYB) or a
 | **Spec** | [spec/mandate.md](spec/mandate.md), v0.3 draft: enrollment, multi-signature, delegation, debtor accounts, accounts and rails worldwide, overrides, signed status, revocation, receipts, threat model, reason codes, conformance |
 | **Reference checker** | Python `gleipnir_verify.mandate` |
 | **TypeScript port** | `@getgleipnir/verify/mandate` (Node and browsers), same results on every test vector |
-| **Test vectors** | [119 shared cases](typescript/packages/verify/test/fixtures/mandate-vectors.json): both implementations run them and verify each other's decisions |
+| **Test vectors** | [128 shared cases](typescript/packages/verify/test/fixtures/mandate-vectors.json): both implementations run them and verify each other's decisions |
 | **CLI** | `gleipnir mandate keygen · issue · sign · delegate · pay · check · override · resolve · status · revoke · verify · serve · mcp` |
 | **Bank side** | `gleipnir mandate serve`: reference `POST /check` and `POST /resolve` server |
 | **Agent side** | MCP server (Python, or `npx gleipnir-mandate-mcp`) for Claude, Cursor and any MCP client |
@@ -122,7 +122,7 @@ g serve --authority kyb.json --bank-key bank.pem --port 8787   # POST /check, PO
 ## Status and security
 
 - **Draft 0.3.** The format may still change; feedback from payment, fraud and compliance people is very welcome.
-- **Audited twice on 23.10.2026** by independent reviewers who wrote every attack as a test: [first audit](docs/audit-2026-10-23.md), [second audit and re-verification](docs/audit-2026-10-23-evening.md). Every finding is fixed and has a regression test.
+- **Audited three times** by independent reviewers who wrote every attack as a test: [first audit](docs/audit-2026-10-23.md), [second audit and re-verification](docs/audit-2026-10-23-evening.md) (23.10.2026), [third audit, spec 0.3](docs/audit-2026-10-24.md) (24.10.2026). Every finding is fixed or documented, with regression tests.
 - **Not solved by design:** a fake invoice from a real payee within the limits, collusion between real signatories, a compromised signer phone within the signed scope. They are bounded and visible in the receipt; see [residual risks](spec/mandate.md#11-threat-model).
 - **Open:** a standard revocation-list format, joint signing inside delegation links, ISO 20022 mapping, real vLEI (ACDC/KERI) credential verification (today vLEI is an authority source).
 

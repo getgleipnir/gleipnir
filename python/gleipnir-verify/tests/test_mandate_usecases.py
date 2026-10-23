@@ -171,8 +171,8 @@ def test_uc05_normal_invoice(w):
     m = w.mandate()
     d = w.bank.check(m, w.pay(m))
     assert outcome(d) == ("allow", [])
-    assert d["checks"] == ["mandate_valid", "agent_signed", "signer_authorized:bank_kyb", "not_revoked",
-                           "account_held", "payee_on_mandate", "within_payment_limit", "within_period_limit"]
+    assert d["checks"] == ["mandate_valid", "agent_signed", "account_held", "signer_authorized:bank_kyb",
+                           "not_revoked", "payee_on_mandate", "within_payment_limit", "within_period_limit"]
 
 
 def test_uc06_new_iban(w):

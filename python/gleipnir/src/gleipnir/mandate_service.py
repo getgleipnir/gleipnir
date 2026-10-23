@@ -5,7 +5,8 @@
     POST /check    {"mandate": {...}, "payment": {...}}  -> the signed decision (200), or {"error": ...} (400)
     POST /resolve  {"mandate", "payment", "decision", "override"} -> the decision after a signed override
     GET  /keys     -> {"checker": id, "keys": [public key]}: what companies and auditors verify decisions with
-    POST /revoke   a signed revocation; the checker still verifies it on every payment before it counts
+    POST /revoke   {"revocation": {...}, "mandate": {...}}: stored only if it counts for that mandate now (signed,
+                   aimed at it or a link of its chain, by someone who may revoke it); verified again per payment
 
 Binds to 127.0.0.1 by default. Bodies are strict JSON (no duplicate keys, no NaN), at most 1 MiB. There is
 no authentication: put it behind the bank's own API gateway. State (period ledger, payment log) is the dev
@@ -55,6 +56,7 @@ from .mandate_cli import (
 
 MAX_BODY = 1 << 20
 MAX_REVOCATIONS = 10_000
+MAX_REVOCATION = 4096
 PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
 
 
@@ -79,26 +81,50 @@ class Bank:
         self.revocations: list[dict] = [read_json(r) for r in revocations or []]
         self._lock = threading.Lock()
 
-    def _checker(self, st: FileState) -> m.Checker:
-        return m.Checker(id=self.id, sk=self.sk, authority=self.authority, holds=self.holds, ledger=st, payments=st,
-                         revocations=[*self.revocations, *st.revocations], webauthn=self.webauthn,
-                         status=self.status, officers=self.officers, require_payees=self.require_payees)
+    def _checker(self, st: FileState | None, status: Any = None) -> m.Checker:
+        return m.Checker(id=self.id, sk=self.sk, authority=self.authority, holds=self.holds, ledger=st,
+                         payments=st if st is not None else m.InMemoryPaymentLog(),
+                         revocations=[*self.revocations, *(st.revocations if st is not None else [])],
+                         webauthn=self.webauthn, status=status, officers=self.officers,
+                         require_payees=self.require_payees)
+
+    def _prefetch(self, mandate: Any) -> Any:
+        """Fetch the mandate's status before taking any lock, so a slow status server delays only its own
+        payment. The checker then reads the answer (or the failure) from here."""
+        url = mandate.get("status_url") if isinstance(mandate, dict) else None
+        if not isinstance(url, str):
+            return None
+        try:
+            answer: Any = self.status(url)
+        except Exception as exc:  # noqa: BLE001 - the checker turns any failure into status_unavailable
+            answer = exc
+
+        def status(_url: str) -> Any:
+            if isinstance(answer, Exception):
+                raise answer
+            return answer
+        return status
 
     def check(self, mandate: Any, payment: Any) -> dict[str, Any]:
+        status = self._prefetch(mandate)
         with self._lock, FileState(self.state) as st:
-            return self._checker(st).check(mandate, payment)
+            return self._checker(st, status).check(mandate, payment)
 
     def resolve(self, mandate: Any, payment: Any, decision: Any, override: Any) -> dict[str, Any]:
+        status = self._prefetch(mandate)
         with self._lock, FileState(self.state) as st:
-            return self._checker(st).resolve(mandate, payment, decision, override)
+            return self._checker(st, status).resolve(mandate, payment, decision, override)
 
-    def add_revocation(self, r: Any) -> None:
-        """Store a signed revocation in the state file; the checker verifies it on every payment."""
+    def add_revocation(self, r: Any, mandate: Any) -> None:
+        """Store a revocation that counts for this mandate now; the checker verifies it again on every payment.
+        Junk, and revocations by people who may not revoke, are refused, so the store holds only real ones."""
         problem = m.revocation_problem(r)
         if problem:
             raise CliError(f"revocation rejected: {problem}")
-        if not m._verify("revocation", m.obj_hash(r), r.get("sig"), r["signer"]["public_key"], {}):
-            raise CliError("revocation rejected: bad signature")
+        if len(m.canonicalize(r)) > MAX_REVOCATION:
+            raise CliError(f"revocation rejected: larger than {MAX_REVOCATION} bytes")
+        if not self._checker(None).revocation_counts(mandate, r):
+            raise CliError("revocation rejected: not a valid revocation of this mandate by someone who may revoke it")
         with self._lock, FileState(self.state) as st:
             if r in st.revocations:
                 return
@@ -164,7 +190,10 @@ def make_handler(bank: Bank, allow_origins: frozenset[str] = frozenset()) -> typ
                     self._send(200, bank.resolve(body["mandate"], body["payment"], body["decision"],
                                                  body["override"]))
                 elif self.path == "/revoke":
-                    bank.add_revocation(self._body())
+                    body = self._body()
+                    if not isinstance(body, dict) or set(body) != {"revocation", "mandate"}:
+                        raise CliError('expected {"revocation": ..., "mandate": ...}')
+                    bank.add_revocation(body["revocation"], body["mandate"])
                     self._send(200, {"ok": True})
                 else:
                     self._send(404, {"error": "not found"})

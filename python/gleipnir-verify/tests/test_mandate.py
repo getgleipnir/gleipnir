@@ -319,7 +319,8 @@ def test_us_account_and_jpy():
                                scope={"rails": ["ach", "wire"], "currency": "USD", "max_per_payment": "500.00",
                                       "payees": [{"account": supplier}], "from_accounts": [acme]},
                                valid_until="2099-01-01T00:00:00.000Z"), signer_sk)
-    checker = M.Checker(id="bank:US", sk=M.new_key()[0], clock=lambda: NOW, holds=lambda c, a: a == acme,
+    checker = M.Checker(id="bank:US", sk=M.new_key()[0], clock=lambda: NOW,
+                        holds=lambda c, a: "cust:acme" if a == acme else None,
                         authority=lambda c, sid: M.AuthorityResult("bank_kyb", (signer_pk,)))
     p = M.attach(m, id="p_us", rail="ach", amount="10.00", currency="USD",
                  payee={"account": {"scheme": "us_aba", "account": "12345678", "routing": "021000021"}},

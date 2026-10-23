@@ -6,6 +6,9 @@ DEBTOR_IBAN = "AT483200000012345864"
 DEBTOR = M.iban(DEBTOR_IBAN)
 
 
+CUSTOMER = "cust:nordhafen"
+
+
 def holds(company, account):
-    """The bank's books: the company holds DEBTOR here, nothing else."""
-    return account == DEBTOR
+    """The bank's books: its customer Nordhafen holds DEBTOR here, nothing else."""
+    return CUSTOMER if account == DEBTOR else None
