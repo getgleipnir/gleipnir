@@ -27,6 +27,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from .approvals import webauthn_problem
 from .canon import canonicalize, hash_to_bytes, sha256_tagged
 from .crypto import b64u, decode_public_key, encode_public_key, verify_signature
+from .verifier import parse_time
 
 V = "0.1"
 RAILS = {"sepa", "sepa_instant", "ach", "wire", "faster_payments", "fednow", "rtp"}
@@ -80,9 +81,10 @@ def now() -> str:
 
 
 def _ts(text: Any) -> datetime:
+    """Strict RFC 3339 in UTC (``YYYY-MM-DDTHH:MM:SS[.ffffff]Z``), same grammar as the TypeScript port."""
     if not isinstance(text, str) or not text.endswith("Z"):
         raise ValueError(f"bad timestamp: {text!r}")
-    return datetime.fromisoformat(text[:-1] + "+00:00")
+    return parse_time(text)
 
 
 def parse_amount(text: Any, currency: Any) -> Decimal:
