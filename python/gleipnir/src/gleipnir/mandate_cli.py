@@ -403,7 +403,7 @@ def add_subcommands(p: argparse.ArgumentParser) -> None:
     i.add_argument("--payee", action="append", required=True, help="NAME=IBAN (repeatable)")
     i.add_argument("--purpose")
     i.add_argument("--cosigner", action="append", metavar="ID=KEY",
-                   help="another signatory (repeatable): makes a multi-signature mandate, e.g. Gesamtprokura")
+                   help="another signatory (repeatable): makes a multi-signature (joint signing) mandate")
     i.add_argument("--threshold", type=int, help="signatures needed (default: all signers)")
     i.add_argument("--delegation", action="append", metavar="FILE",
                    help="delegation link the signer's authority comes from (repeatable, root first)")

@@ -49,7 +49,7 @@ Each link answers "how would a bad actor fake this?" with a signature or a recor
 |---|---|---|---|
 | 1 | The company exists | Bank KYB (register extract, LEI) | Made-up company |
 | 2 | The person is who they say | Bank onboarding identity check, or a QVI for vLEI | Impersonator by phone or email |
-| 3 | The person may sign | Register (Geschäftsführer, Prokurist) or vLEI OOR, as recorded by the bank | "I'm the CFO" without powers |
+| 3 | The person may sign | Business register (directors, authorised signatories) or vLEI OOR, as recorded by the bank | "I'm the CFO" without powers |
 | 4 | Delegation | Signed delegation chain (section 5), or vLEI ECR | "I was allowed" without proof |
 | 5 | Signing the mandate | SCA or passkey in the bank's or platform's app (section 3) | Unattended logged-in session |
 | 6 | The right agent | Agent key signs every payment | Another agent with a stolen mandate |
@@ -65,7 +65,7 @@ A signature only means something if the key belongs to a known person. **Gleipni
 
 **(a) Bank or platform enrollment (default).** After KYB, the bank registers the signatory's key itself: a passkey created in the bank's app, or a key confirmed with the bank's strong customer authentication (SCA, PSD2). The person signs each mandate in that app, with a fresh SCA or passkey gesture over the mandate hash (section 4.3). The bank's KYB record then holds both facts: this person may sign for this company, and these are their keys. A platform (ERP, spend management) can do the same for its users if a bank accepts the platform as an authority source.
 
-**(b) Company register.** A register (Firmenbuch, Handelsregister, Companies House) says **who** may sign and how (alone, or jointly as Gesamtprokura), but holds no keys. A register is therefore never enough on its own: it supplies `may_sign` and `joint`, and path (a) supplies the key. A checker must not accept a key for a register entry unless the bank enrolled that key for that person.
+**(b) Business register.** A national business register (for example Firmenbuch, Handelsregister, RCS, Registro delle imprese, KvK, KRS or Companies House; across the EU interconnected through BRIS) says **who** may sign and how (alone, or only jointly with others), but holds no keys. A register is therefore never enough on its own: it supplies `may_sign` and `joint`, and path (a) supplies the key. A checker must not accept a key for a register entry unless the bank enrolled that key for that person.
 
 **(c) vLEI.** A GLEIF vLEI Official Organizational Role (OOR) or Engagement Context Role (ECR) credential, issued by a QVI after its own identity check, binds the role and the key in one credential chained to the company's LEI. This is the path for a bank that never onboarded the company (cross-bank, cross-border).
 
@@ -90,7 +90,7 @@ Assurance levels: (a) alone is the light level that covers SMEs at their own ban
   "signer": {
     "id": "kberger@nordhafen.at",
     "name": "K. Berger",
-    "role": "Prokurist",
+    "role": "Authorised signatory",
     "public_key": "ed25519:…"
   },
   "scope": {
@@ -125,14 +125,16 @@ Assurance levels: (a) alone is the light level that covers SMEs at their own ban
 - `delegation` is optional: the chain of delegations the signer's authority comes from (section 5). Only with a single `signer`.
 - To change a mandate (new limit, new payee), issue a new one and revoke the old one. Mandates are never edited in place; any edit breaks the signature.
 
-### 4.2 Multi-signature (Gesamtprokura)
+### 4.2 Multi-signature and joint signing
+
+Many companies may only be bound by two (or more) people acting together. Company law across Europe has this rule under local names, for example Gesamtprokura or Gesamtvertretung (Austria, Germany), Kollektivunterschrift zu zweien (Switzerland), signature conjointe (France, Belgium), firma congiunta (Italy), firma mancomunada (Spain), gezamenlijke bevoegdheid (Netherlands), reprezentacja łączna (Poland); US and UK banks know it as dual authorisation. The spec calls it **joint signing** and models it the same way everywhere:
 
 ```json
 "signers": {
   "threshold": 2,
   "of": [
-    {"id": "kberger@nordhafen.at", "role": "Prokurist", "public_key": "ed25519:…"},
-    {"id": "mhofer@nordhafen.at", "role": "Geschäftsführerin", "public_key": "ed25519:…"}
+    {"id": "kberger@nordhafen.at", "role": "Authorised signatory", "public_key": "ed25519:…"},
+    {"id": "mhofer@nordhafen.at", "role": "Managing director", "public_key": "ed25519:…"}
   ]
 },
 "sigs": [
@@ -145,7 +147,7 @@ Assurance levels: (a) alone is the light level that covers SMEs at their own ban
 - Each entry in `sigs` names a signer from `of` (at most one entry per signer) and signs the same message as a single signature (section 4.3).
 - Every signature present must be valid; an invalid one blocks the mandate (`mandate_bad_signature`), because a broken co-signature means the object was altered or forged.
 - Every signer who signed is checked through the authority contract **separately**. A signer the source rejects blocks the mandate (`signer_not_authorized`). Only signers the source accepts count towards the threshold.
-- A source may report that a person can only sign jointly (`joint: n`, for example Gesamtprokura with `joint: 2`). The number of counted signatures must reach the largest `joint` among the counted signers, also when the mandate itself says `threshold: 1` or uses a single `signer`. This stops a Gesamtprokurist from issuing a mandate alone.
+- A source may report that a person can only sign jointly (`joint: n`; "only together with one other" is `joint: 2`). The number of counted signatures must reach the largest `joint` among the counted signers, also when the mandate itself says `threshold: 1` or uses a single `signer`. This stops a person who may only sign jointly from issuing a mandate alone.
 
 ### 4.3 Signature
 
@@ -270,7 +272,7 @@ The source is asked about a **person**, never about a key taken from the mandate
 
 - `keys`: the public keys (or passkey keys) the source itself binds to that person (section 3). A signature made with any other key is `signer_not_authorized`, even if it is valid.
 - `may_sign`: the person has signing power of their own (default true). A person known only as a delegate has `may_sign: false`.
-- `joint`: how many signatures, including this person's, their signing power requires (default 1; Gesamtprokura is 2).
+- `joint`: how many signatures, including this person's, their signing power requires (default 1; "only together with one other" is 2).
 
 The same contract applies to signers of revocations and to every person in a delegation chain. The decision records the source used. When a person leaves the company, the bank updates its records (`may_sign: false` or unknown) and every mandate they signed stops at the next payment, with or without a revocation.
 
@@ -320,7 +322,7 @@ Signed by the checker with the prefix `"gleipnir/decision/v0.2\n"`. `checked_at`
 |---|---|---|
 | 1 Company | Made-up company, or a mandate naming a company the signer does not belong to | Authority is asked per company; the bank only knows companies it onboarded (KYB) |
 | 2 Person | Impersonator by phone or email claims to be the CFO | Gleipnir never accepts a claim: keys come from the bank's enrollment or a vLEI credential (section 3) |
-| 3 Power to sign | "I'm the CFO" without powers; Gesamtprokurist alone | `may_sign` and `joint` from the source (`signer_not_authorized`, `joint_signature_required`) |
+| 3 Power to sign | "I'm the CFO" without powers; a joint signatory acting alone | `may_sign` and `joint` from the source (`signer_not_authorized`, `joint_signature_required`) |
 | 3 Power to sign | One person listed twice to meet a threshold | Keys counted once; duplicate keys in `signers.of` are malformed |
 | 4 Delegation | "I was allowed"; a delegate widens their scope; a forged middle link | Signed chain, per-link authority, narrowing rule, linkage by id and hash (`delegation_*`, `scope_exceeds_delegation`) |
 | 4 Delegation | A delegate signs many mandates to multiply a delegated monthly limit | A link's period limit is shared by everything below it (`over_period_limit`) |
@@ -360,7 +362,7 @@ Objects are I-JSON (RFC 7493) with one tightening: no duplicate keys, no floats 
 
 ## 14. Open questions for 0.3
 
-- Joint signing inside delegation links (a Gesamtprokura delegating together).
+- Joint signing inside delegation links (two joint signatories delegating together).
 - A standard `status_url` response and a revocation list format for offline checkers.
 - Mapping to ISO 20022 `pain.001` fields so the mandate reference travels inside the payment message.
 - vLEI credential presentation format inside `company.ids.vlei` and `signer` (ACDC / W3C VC), and how a checker resolves it to an `authority` answer.
@@ -379,7 +381,7 @@ Objects are I-JSON (RFC 7493) with one tightening: no duplicate keys, no floats 
 | `signer_unknown` | escalate | 8 | No authority source knows a signer (another source might). |
 | `signer_not_authorized` | block | 9 | The source says this person may not sign, or not with this key. |
 | `signature_threshold_not_met` | block | 10 | Fewer accepted signatures than the mandate's threshold. |
-| `joint_signature_required` | block | 10 | A signer's power requires more co-signers (Gesamtprokura). |
+| `joint_signature_required` | block | 10 | A signer's power requires more co-signers (joint signing). |
 | `scope_exceeds_delegation` | block | 11 | The mandate or a link is wider than the authority it comes from. |
 | `agent_bad_signature` | block | 12 | The payment is not signed by the mandate's agent key. |
 | `duplicate_payment` | block | 13 | This company already used this payment id for another payment. |
@@ -400,6 +402,6 @@ Objects are I-JSON (RFC 7493) with one tightening: no duplicate keys, no floats 
 
 A conforming checker produces, for the same inputs and clock, the same `outcome`, `reasons`, `checks`, hashes and `checked_at` as the reference. Decision `id` and signature bytes may differ.
 
-- Test vectors: `typescript/packages/verify/test/fixtures/mandate-vectors.json` (generated by `python/gleipnir-verify/tests/mandate_vectors.py` from fixed test keys and clocks): each case gives the inputs (mandates, payments, authority answers, revocations, status, ledger, passkey settings) and the expected decisions and receipt, plus payment-log keys. It includes multi-signature, Gesamtprokura, delegation, cross-bank vLEI, real ES256 passkey assertions and the inputs found in the 23.10.2026 audits.
+- Test vectors: `typescript/packages/verify/test/fixtures/mandate-vectors.json` (generated by `python/gleipnir-verify/tests/mandate_vectors.py` from fixed test keys and clocks): each case gives the inputs (mandates, payments, authority answers, revocations, status, ledger, passkey settings) and the expected decisions and receipt, plus payment-log keys. It includes multi-signature, joint signing, delegation, cross-bank vLEI, real ES256 passkey assertions and the inputs found in the 23.10.2026 audits.
 - Reference implementations: Python `gleipnir_verify.mandate`, TypeScript `@getgleipnir/verify/mandate`. Both run every vector and verify each other's decisions.
 

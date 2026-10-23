@@ -21,7 +21,7 @@ mandate = m.sign_mandate(m.issue(
     id="m_demo_nordhafen_ap",
     company={"name": "Nordhafen Logistik GmbH", "country": "AT"},
     agent={"id": "ap-agent", "name": "Accounts payable agent", "public_key": agent_pk},
-    signer={"id": "kberger@nordhafen.at", "name": "K. Berger", "role": "Prokurist", "public_key": berger_pk},
+    signer={"id": "kberger@nordhafen.at", "name": "K. Berger", "role": "Authorised signatory", "public_key": berger_pk},
     scope={
         "rails": ["sepa", "sepa_instant"],
         "currency": "EUR",

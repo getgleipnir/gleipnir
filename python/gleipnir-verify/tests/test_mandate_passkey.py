@@ -73,7 +73,7 @@ def test_passkey_needs_checker_webauthn_config(keys):
     assert plain.check(m, pay(m))["reasons"] == ["mandate_bad_signature"]
 
 
-def test_gesamtprokura_with_two_passkeys(keys):
+def test_joint_signing_with_two_passkeys(keys):
     m = M.issue(id="m_joint", company=COMPANY, agent={"id": "agent"},
                 signers={"threshold": 2, "of": [{"id": "kberger", "public_key": keys["berger"].public_key},
                                                 {"id": "hofer", "public_key": keys["hofer"].public_key}]},

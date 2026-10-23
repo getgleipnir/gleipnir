@@ -616,7 +616,7 @@ export interface AuthorityResult {
   source: string; // "bank_kyb", "register", "vlei"
   keys: readonly string[]; // public keys the source binds to this person (enrollment, spec section 3)
   maySign?: boolean; // signing power of their own (default true); false for a person known only as a delegate
-  joint?: number; // signatures their power requires, including their own (default 1; Gesamtprokura: 2)
+  joint?: number; // signatures their power requires, including their own (default 1; joint signing with one other: 2)
 }
 
 /** authority(company, personId) -> AuthorityResult, or null if no source knows the person. */

@@ -20,7 +20,7 @@ flowchart LR
 
 ## How it works
 
-1. **Mandate.** A person who may sign for the company (alone, or two together for Gesamtprokura; or on the strength of a signed CEO → CFO delegation) signs what one agent may pay. They sign in their bank's app or on a static passkey page.
+1. **Mandate.** A person who may sign for the company (alone, or two together where company law requires joint signing; or on the strength of a signed CEO → CFO delegation) signs what one agent may pay. They sign in their bank's app or on a static passkey page.
 2. **Payment.** The agent signs every payment with its own key and attaches the mandate.
 3. **Check.** Before executing, the bank checks the signatures, that the signer may sign for the company and with that key, **from its own KYB records, never from the mandate**, that nothing is revoked or expired, that the payee, rail and amounts are covered, and that it is not a replay. 21 steps, deterministic ([spec §7](spec/mandate.md#7-check)).
 4. **Decision.** Allow, block, or send to a person. The bank signs the decision, which becomes the receipt.
@@ -60,7 +60,7 @@ Change the IBAN in `pay` and `check` blocks it (`payee_not_on_mandate`, exit 1).
 
 ```bash
 g keygen -o hofer.pem
-g issue ... --cosigner mhofer@nordhafen.at=hofer.pem --threshold 2 -o joint.json   # Gesamtprokura
+g issue ... --cosigner mhofer@nordhafen.at=hofer.pem --threshold 2 -o joint.json   # joint signing: both must sign
 g sign joint.json --key signer.pem && g sign joint.json --key hofer.pem           # each with their own key
 
 g delegate --id g1 --company "Nordhafen Logistik GmbH" --from-id ceo@nordhafen.at --key ceo.pem \

@@ -64,7 +64,8 @@ def test_sign_mandate_with_passkey_in_browser(page_url):
         assert enrolled["public_key"].startswith("ecdsa-p256:") and enrolled["rp_id"] == "localhost"
 
         # 2. The real mandate names that passkey; the page shows the scope and signs it.
-        m = draft(signer={"id": "kberger@nordhafen.at", "role": "Prokurist", "public_key": enrolled["public_key"]})
+        m = draft(signer={"id": "kberger@nordhafen.at", "role": "Authorised signatory",
+                          "public_key": enrolled["public_key"]})
         page.fill("#draft", json.dumps(m))
         page.dispatch_event("#draft", "change")
         text = page.inner_text("#scope-rows")

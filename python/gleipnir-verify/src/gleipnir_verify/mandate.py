@@ -523,7 +523,7 @@ class AuthorityResult:
     source: str                  # "bank_kyb", "register", "vlei"
     keys: tuple[str, ...]        # public keys the source binds to this person (enrollment, spec section 3)
     may_sign: bool = True        # signing power of their own; False for a person known only as a delegate
-    joint: int = 1               # signatures their power requires, including their own (Gesamtprokura: 2)
+    joint: int = 1               # signatures their power requires, including their own (joint with one other: 2)
 
 
 # authority(company, person_id) -> AuthorityResult, or None if no source knows the person.
