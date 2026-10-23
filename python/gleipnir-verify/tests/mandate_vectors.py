@@ -34,6 +34,117 @@ KYB = [{"company": COMPANY["name"], "signer": SIGNER_ID, "source": "bank_kyb",
         "keys": [M.public_key_of(SIGNER)], "may_sign": True}]
 
 
+HOFER, CEO, CFO, CTRL = key(5), key(6), key(7), key(8)
+
+
+def person(sk: Ed25519PrivateKey, pid: str, role: str = "") -> dict[str, Any]:
+    p = {"id": pid, "public_key": M.public_key_of(sk)}
+    return {**p, "role": role} if role else p
+
+
+def row(pid: str, sk: Ed25519PrivateKey, *, source: str = "bank_kyb", may_sign: bool = True, joint: int = 1,
+        keys: list[str] | None = None) -> dict[str, Any]:
+    return {"company": COMPANY["name"], "signer": pid, "source": source,
+            "keys": keys if keys is not None else [M.public_key_of(sk)], "may_sign": may_sign, "joint": joint}
+
+
+BERGER_P, HOFER_P = person(SIGNER, SIGNER_ID, "Prokurist"), person(HOFER, "mhofer@nordhafen.at", "Geschäftsführerin")
+CEO_P, CFO_P, CTRL_P = (person(CEO, "ceo@nordhafen.at", "CEO"), person(CFO, "cfo@nordhafen.at", "CFO"),
+                        person(CTRL, "controller@nordhafen.at", "Controller"))
+JOINT_KYB = [row(SIGNER_ID, SIGNER), row(HOFER_P["id"], HOFER)]
+CHAIN_KYB = [row(CEO_P["id"], CEO), row(CFO_P["id"], CFO, may_sign=False), row(CTRL_P["id"], CTRL, may_sign=False),
+             row(SIGNER_ID, SIGNER)]
+WIDE = {"rails": ["sepa", "sepa_instant"], "currency": "EUR", "max_per_payment": "50000.00",
+        "max_per_period": {"amount": "200000.00", "period": "P1M"}}
+
+
+def multi(threshold: int = 2, signed: tuple = ((SIGNER, SIGNER_ID), (HOFER, "mhofer@nordhafen.at")),
+          **kw: Any) -> dict[str, Any]:
+    m = mandate(sign=False, signer=None, signers={"threshold": threshold, "of": [BERGER_P, HOFER_P]}, **kw)
+    for sk, sid in signed:
+        m = M.cosign(m, sk, sid)
+    return m
+
+
+def link(gid: str, frm: tuple, to: dict, *, parent: dict | None = None, sc: dict | None = None,
+         until: str = "2027-03-31T23:59:59.000Z") -> dict[str, Any]:
+    sk, fp = frm
+    return M.delegate(id=gid, company=COMPANY, from_=fp, to=to, scope=sc or WIDE, valid_until=until, sk=sk,
+                      parent=parent, issued_at="2026-10-01T08:00:00.000Z")
+
+
+def delegated(chain: list[dict], sk: Ed25519PrivateKey = CFO, who: dict | None = None, **kw: Any) -> dict[str, Any]:
+    base = mandate(sign=False, signer=who or CFO_P, delegation=chain, **kw)
+    return M.sign_mandate(base, sk)
+
+
+def v02_cases() -> list[dict[str, Any]]:
+    both = multi()
+    one = multi(signed=((SIGNER, SIGNER_ID),))
+    forged = {**both, "sigs": [both["sigs"][0], {"signer": "mhofer@nordhafen.at",
+                                                 "sig": M.cosign(both, OTHER, "x")["sigs"][-1]["sig"]}]}
+    any1 = multi(threshold=1, signed=((SIGNER, SIGNER_ID),))
+    any1_both = multi(threshold=1)
+    g1 = link("g_ceo_cfo", (CEO, CEO_P), CFO_P)
+    d1 = delegated([g1])
+    g2 = link("g_cfo_ctrl", (CFO, CFO_P), CTRL_P, parent=g1,
+              sc={**WIDE, "max_per_payment": "30000.00"}, until="2027-01-31T23:59:59.000Z")
+    d2 = delegated([g1, g2], CTRL, CTRL_P)
+    d2_wide = delegated([g1, link("g_cfo_ctrl_w", (CFO, CFO_P), CTRL_P, parent=g1,
+                                  sc={**WIDE, "max_per_payment": "60000.00"})], CTRL, CTRL_P)
+    over = delegated([g1], scope=scope(max_per_payment="60000.00"))
+    longer = delegated([g1], valid_until="2027-06-30T23:59:59.000Z")
+    payees_link = link("g_payees", (CEO, CEO_P), CFO_P, sc={**WIDE, "payees": [
+        {"name": "Other", "account": {"iban": "DE89370400440532013000"}}]})
+    off_list = delegated([payees_link])
+    wrong_signer = delegated([g1], SIGNER, BERGER_P)
+    bad_parent = {**g2, "parent": {"id": "g_ceo_cfo", "hash": "sha256:" + "0" * 64}}
+    broken_chain = delegated([g1, M._sign(CFO, "delegation", bad_parent)], CTRL, CTRL_P)
+    tampered_link = delegated([{**g1, "scope": {**WIDE, "max_per_payment": "90000.00"}}])
+    rev_link = M.revoke(g1, signer=CEO_P, sk=CEO, id="r_g1", revoked_at="2026-10-22T00:00:00.000Z")
+    rev_own = M.revoke(d1, signer=CFO_P, sk=CFO, id="r_own", revoked_at="2026-10-22T00:00:00.000Z")
+    rev_ctrl = M.revoke(d1, signer=CTRL_P, sk=CTRL, id="r_ctrl", revoked_at="2026-10-22T00:00:00.000Z")
+    vlei = [row(SIGNER_ID, SIGNER, source="vlei")]
+    m = mandate()
+    return [
+        case("multisig_2_of_2_allow", both, [pay(both, "p_1")], authority=JOINT_KYB),
+        case("multisig_one_of_two_signed", one, [pay(one, "p_1")], authority=JOINT_KYB),
+        case("multisig_forged_cosignature", forged, [pay(forged, "p_1")], authority=JOINT_KYB),
+        case("multisig_cosigner_unknown", both, [pay(both, "p_1")], authority=JOINT_KYB[:1]),
+        case("multisig_cosigner_wrong_key", both, [pay(both, "p_1")],
+             authority=[JOINT_KYB[0], row(HOFER_P["id"], OTHER)]),
+        case("gesamtprokura_alone_blocked", any1, [pay(any1, "p_1")],
+             authority=[row(SIGNER_ID, SIGNER, joint=2), JOINT_KYB[1]]),
+        case("gesamtprokura_with_cosigner_allow", any1_both, [pay(any1_both, "p_1")],
+             authority=[row(SIGNER_ID, SIGNER, joint=2), JOINT_KYB[1]]),
+        case("single_signer_joint_required", m, [pay(m, "p_1")], authority=[row(SIGNER_ID, SIGNER, joint=2)]),
+        case("multisig_threshold_too_high", mandate(sign=False, signer=None,
+                                                    signers={"threshold": 3, "of": [BERGER_P, HOFER_P]}),
+             [pay(m, "p_1")]),
+        case("delegation_ceo_cfo_allow", d1, [pay(d1, "p_1")], authority=CHAIN_KYB),
+        case("delegation_two_links_allow", d2, [pay(d2, "p_1")], authority=CHAIN_KYB),
+        case("delegation_child_link_wider", d2_wide, [pay(d2_wide, "p_1")], authority=CHAIN_KYB),
+        case("delegation_mandate_over_limit", over, [pay(over, "p_1")], authority=CHAIN_KYB),
+        case("delegation_mandate_outlives_link", longer, [pay(longer, "p_1")], authority=CHAIN_KYB),
+        case("delegation_payee_not_in_link", off_list, [pay(off_list, "p_1")], authority=CHAIN_KYB),
+        case("delegation_signer_not_last_link", wrong_signer, [pay(wrong_signer, "p_1")], authority=CHAIN_KYB),
+        case("delegation_parent_hash_wrong", broken_chain, [pay(broken_chain, "p_1")], authority=CHAIN_KYB),
+        case("delegation_link_tampered", tampered_link, [pay(tampered_link, "p_1")], authority=CHAIN_KYB),
+        case("delegation_delegate_unknown", d1, [pay(d1, "p_1")], authority=[CHAIN_KYB[0]]),
+        case("delegation_root_without_power", d1, [pay(d1, "p_1")],
+             authority=[row(CEO_P["id"], CEO, may_sign=False), *CHAIN_KYB[1:]]),
+        case("delegation_root_needs_cosigner", d1, [pay(d1, "p_1")],
+             authority=[row(CEO_P["id"], CEO, joint=2), *CHAIN_KYB[1:]]),
+        case("delegation_revoked_by_ceo", d1, [pay(d1, "p_1")], authority=CHAIN_KYB, revocations=[rev_link]),
+        case("delegate_withdraws_own_mandate", d1, [pay(d1, "p_1")], authority=CHAIN_KYB, revocations=[rev_own]),
+        case("revocation_by_outsider_without_power_ignored", d1, [pay(d1, "p_1")], authority=CHAIN_KYB,
+             revocations=[rev_ctrl]),
+        case("cfo_removed_from_signatories", m, [pay(m, "p_1")], authority=[row(SIGNER_ID, SIGNER, may_sign=False)]),
+        case("second_bank_without_vlei", m, [pay(m, "p_1")], authority=[]),
+        case("second_bank_with_vlei", m, [pay(m, "p_1")], authority=vlei),
+    ]
+
+
 def signer(sk: Ed25519PrivateKey = SIGNER, sid: str = SIGNER_ID) -> dict[str, Any]:
     return {"id": sid, "name": "K. Berger", "role": "Prokurist", "public_key": M.public_key_of(sk)}
 
@@ -46,7 +157,7 @@ def scope(**kw: Any) -> dict[str, Any]:
 
 
 def mandate(sk: Ed25519PrivateKey = SIGNER, sign: bool = True, **kw: Any) -> dict[str, Any]:
-    base: dict[str, Any] = {"v": "gleipnir/mandate/0.1", "id": "m_vec", "company": COMPANY,
+    base: dict[str, Any] = {"v": "gleipnir/mandate/0.2", "id": "m_vec", "company": COMPANY,
                             "agent": {"id": "ap-agent", "public_key": M.public_key_of(AGENT)},
                             "signer": signer(sk), "scope": scope(), "valid_until": "2026-12-31T23:59:59.000Z",
                             "issued_at": "2026-10-01T08:00:00.000Z"}
@@ -136,6 +247,7 @@ def cases() -> list[dict[str, Any]]:
         case("mandate_malformed", {**m, "v": "gleipnir/mandate/0.2"}, [pay(m, "p_1")]),
         case("mandate_malformed_amount", mandate(sign=False, scope=scope(max_per_payment="25000")),
              [pay(m, "p_1")]),
+        *v02_cases(),
     ]
 
 
@@ -143,7 +255,7 @@ def authority_fn(table: list[dict]) -> M.Authority:
     def authority(company: dict, signer_id: str) -> M.AuthorityResult | None:
         for row in table:
             if row["company"] == company.get("name") and row["signer"] == signer_id:
-                return M.AuthorityResult(row["source"], tuple(row["keys"]), row["may_sign"])
+                return M.AuthorityResult(row["source"], tuple(row["keys"]), row["may_sign"], row.get("joint", 1))
         return None
     return authority
 
@@ -190,7 +302,9 @@ def build() -> dict[str, Any]:
     signed = []
     for c in cases():
         decisions = run(c)
-        out_cases.append({**c, "expect": expected(decisions)})
+        receipt = M.verify_receipt(c["mandate"], c["payments"][0], decisions[0], [M.public_key_of(BANK)])
+        out_cases.append({**c, "expect": expected(decisions), "receipt": {k: v for k, v in receipt.items()
+                                                                          if k != "checked_at"}})
         signed.append(decisions[0])
     return {
         "note": "Generated by python/gleipnir-verify/tests/mandate_vectors.py. Test keys from fixed seeds.",

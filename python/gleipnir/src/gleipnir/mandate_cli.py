@@ -254,8 +254,9 @@ def cmd_kyb(args: argparse.Namespace) -> int:
     mandate = read_json(args.mandate)
     print("gleipnir: dev KYB file trusts the mandate's own signer key. A bank fills this from its KYB records.",
           file=sys.stderr)
-    doc = {"source": "bank_kyb", "signers": [{"company": mandate["company"]["name"], "signer": mandate["signer"]["id"],
-                                              "keys": [mandate["signer"]["public_key"]], "may_sign": True}]}
+    people = [mandate["signer"]] if "signer" in mandate else mandate["signers"]["of"]
+    doc = {"source": "bank_kyb", "signers": [{"company": mandate["company"]["name"], "signer": p["id"],
+                                              "keys": [p["public_key"]], "may_sign": True} for p in people]}
     write_json(doc, args.output)
     return 0
 
