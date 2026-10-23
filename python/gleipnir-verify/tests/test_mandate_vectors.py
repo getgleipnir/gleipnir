@@ -29,6 +29,13 @@ def test_fixture_is_current():
         assert {k: v for k, v in c_old.items()} == {k: v for k, v in c_new.items()}
 
 
+def test_payment_keys_are_unambiguous():
+    keys = [k for _, _, k in DATA["payment_keys"]]
+    assert len(set(keys)) == len(keys)
+    for co, pid, key in DATA["payment_keys"]:
+        assert M.payment_key(co, pid) == key
+
+
 def test_signed_decisions_verify():
     keys = [DATA["bank"]["public_key"]]
     for d in DATA["signed"]:

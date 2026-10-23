@@ -43,8 +43,10 @@ _AMOUNT_RE = {0: re.compile(r"(0|[1-9][0-9]*)"), 2: re.compile(r"(0|[1-9][0-9]*)
 ESCALATE = {"signer_unknown", "status_unavailable", "over_payment_limit", "over_period_limit", "ledger_missing",
             "checker_unavailable"}
 MANDATE_SIG_FIELDS = ("sig", "sigs")
-# Outcomes the payment log never caches: a retry once the dependency is back gets a fresh check.
-TRANSIENT = {"checker_unavailable", "status_unavailable", "ledger_missing"}
+# Outcomes the payment log never caches: a retry is checked afresh once the dependency is back, the mandate
+# becomes valid, or a new period starts.
+TRANSIENT = {"checker_unavailable", "status_unavailable", "ledger_missing", "mandate_not_yet_valid",
+             "over_period_limit"}
 _COUNTRY_RE = re.compile(r"[A-Z]{2}")
 _IBAN_RE = re.compile(r"[A-Za-z0-9 ]+")
 _MAX_INT = 2 ** 53 - 1
@@ -566,8 +568,11 @@ class Ledger(Protocol):
 
 
 def payment_key(company: dict, payment_id: str) -> str:
-    """The payment log key: payment ids are unique per payer, so the payer is part of the key."""
-    return f"{company.get('country')}|{company.get('name')}|{payment_id}"
+    """The payment log key: payment ids are unique per payer, so the payer is part of the key.
+
+    JCS of [country, name, ids, id]: unambiguous, so no company name or id can be crafted to collide.
+    """
+    return canonicalize([company.get("country"), company.get("name"), company.get("ids"), payment_id]).decode()
 
 
 class InMemoryPaymentLog:

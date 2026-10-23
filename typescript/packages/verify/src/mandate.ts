@@ -19,7 +19,7 @@
  */
 
 import { b64uEncode, hexToBytes, utf8, concatBytes } from "./bytes.js";
-import { canonicalize, hashToBytes, sha256Tagged } from "./canon.js";
+import { canonicalize, canonicalizeString, hashToBytes, sha256Tagged } from "./canon.js";
 import { decodePublicKey, ed25519PublicFromSeed, ed25519Sign, encodePublicKey, verifySignature } from "./crypto.js";
 import { webauthnProblem } from "./approvals.js";
 import { hasKey, isDict, type JsonDict } from "./py.js";
@@ -39,7 +39,9 @@ export const ESCALATE: ReadonlySet<string> = new Set([
 ]);
 export const MANDATE_SIG_FIELDS: readonly string[] = ["sig", "sigs"];
 /** Outcomes the payment log never caches: a retry once the dependency is back gets a fresh check. */
-export const TRANSIENT: ReadonlySet<string> = new Set(["checker_unavailable", "status_unavailable", "ledger_missing"]);
+export const TRANSIENT: ReadonlySet<string> = new Set([
+  "checker_unavailable", "status_unavailable", "ledger_missing", "mandate_not_yet_valid", "over_period_limit",
+]);
 const COUNTRY_RE = /^[A-Z]{2}$/;
 const IBAN_RE = /^[A-Za-z0-9 ]+$/;
 
@@ -197,6 +199,9 @@ export function nonIntegerNumber(text: string): string | null {
 }
 
 /**
+ * ALWAYS parse wire input with this, not JSON.parse: JavaScript cannot tell 2.0 from 2 once parsed, so only
+ * the text shows a float (spec 13). The Checker refuses unsafe integers and non-integers, but not 2.0.
+ *
  * Parse JSON from the wire as spec section 13 requires: no duplicate keys (two parsers could read
  * different objects behind one hash), no NaN or Infinity, no floats, integers within 2^53 - 1 (so 2.0
  * and 2 cannot mean different things to different checkers). Throws on violation.
@@ -650,7 +655,8 @@ export interface Ledger {
 
 /** The payment log key: payment ids are unique per payer, so the payer is part of the key. */
 export function paymentKey(company: JsonDict, paymentId: string): string {
-  return `${String(company.country ?? "None")}|${String(company.name ?? "None")}|${paymentId}`;
+  // JCS of [country, name, ids, id]: unambiguous, and the same bytes as the Python reference.
+  return canonicalizeString([company.country ?? null, company.name ?? null, company.ids ?? null, paymentId]);
 }
 
 /** Payment log for tests and demos. Production needs a persistent, shared store. */

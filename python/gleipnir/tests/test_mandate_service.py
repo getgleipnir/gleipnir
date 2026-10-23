@@ -360,3 +360,12 @@ def test_audit_F9_hostile_json_gets_an_answer(server, world):
     assert lines[0]["error"]["code"] == -32700 and lines[1]["result"] == {}
     Path("huge.json").write_text('{"v": ' + "9" * 5000 + "}")
     assert main(["mandate", "sign", "huge.json", "--key", "signer.pem"]) == 2  # an error message, not a traceback
+
+
+def test_audit_R6_revoke_needs_a_valid_signature(server, world):
+    url, _ = server
+    assert main(["mandate", "revoke", "mandate.json", "--key", "signer.pem", "--id", "r_y", "-o", "rev.json"]) == 0
+    r = json.loads(Path("rev.json").read_text())
+    assert post(url, {**r, "reason": "edited after signing"}, "/revoke")[0] == 400
+    assert post(url, r, "/revoke") == (200, {"ok": True})
+    assert post(url, r, "/revoke") == (200, {"ok": True})  # idempotent, stored once

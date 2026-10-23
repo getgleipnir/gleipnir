@@ -23,3 +23,17 @@ Scope: spec/mandate.md 0.2, the Python reference, the TypeScript port, CLI, refe
 | F17 | low | Page did not show agent key or `status_url`; "from issued_at" wording; Python MCP crashed on a mandate without rails; receipts need passkey settings. | Page shows both and "from the moment it is signed"; rails default `sepa`; documented in `verify_receipt`. | page test, `test_mcp_*` |
 
 After fixes: Python 716 passed, TS 395 passed, 76 shared vectors (12 from this audit), typecheck, ruff and the browser passkey test green. Still open from the first audit: M5 (IBAN normalization beyond spaces), M6 (revocation distribution), L4 (IBAN checksum), L6 (NFC).
+
+## Re-verification (same auditor, commit 64be48c)
+
+19 of 21 original attack tests no longer reproduce; the other two only checked a pass-through value and a wording change. All F1–F17 confirmed closed. New items, fixed in the next commit:
+
+| id | sev | Finding | Fix |
+|---|---|---|---|
+| N1 | low | Payment log key `country|name|id` could be crafted to collide across companies ("Alpha" + "Beta|INV-1" vs "Alpha|Beta" + "INV-1"). | Key is JCS of `[country, name, ids, id]` in both implementations; byte-identical keys pinned in the shared vectors. |
+| N2 | low | TS accepts `2.0` if the integrator uses `JSON.parse` instead of `parseStrict`. | Documented on `parseStrict` and in the README (JavaScript cannot tell 2.0 from 2 after parsing). |
+| R1 | info | A resend returns the earlier decision even after a revocation or outside the skew window. | By design (execute at most once); spec §7 now says so explicitly. |
+| R2 | low | `mandate_not_yet_valid` and `over_period_limit` were cached, so a retry once valid / in a new period stayed blocked. | Both released instead of cached. |
+| R6 | low | `/revoke` stored any well-formed revocation. | Signature must verify; deduplicated; capped at 10 000 in the reference server. |
+
+Auditor's verdict after re-verification: fit to show bank engineers as a reference implementation once N1 and R1/R2 are handled (done).
