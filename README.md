@@ -39,6 +39,7 @@ Gleipnir does not move money and does not verify identities: the bank (KYB) or a
 | **Bank side** | `gleipnir mandate serve`: reference `POST /check` and `POST /resolve` server, with `/.well-known/gleipnir-checker.json` and a signed `GET /revocations` list |
 | **Agent side** | MCP server (Python, or `npx gleipnir-mandate-mcp`) for Claude, Cursor and any MCP client |
 | **Signatory side** | [site/mandate](site/mandate/index.html): review a mandate and sign it with a passkey; no network |
+| **Live demo** | [site/demo](site/demo/index.html) (getgleipnir.com/demo): CFO signs with a passkey, the agent pays, a fake IBAN and a revoked mandate are blocked; the TypeScript checker runs in the browser |
 | **Use cases** | all [21 scenarios](python/gleipnir-verify/tests/test_mandate_usecases.py) as named tests, from issuing to a dispute three months later |
 
 ## Quickstart: from nothing to a signed decision

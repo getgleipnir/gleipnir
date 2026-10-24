@@ -48,3 +48,22 @@ describe("site pages: content", () => {
     expect(html).not.toMatch(/<form[^>]+action=/);
   });
 });
+
+describe("site/demo (getgleipnir.com/demo, CSP script-src 'self'; style-src 'self')", () => {
+  const html = readFileSync(SITE + "demo/index.html", "utf8");
+
+  it("has no inline script, inline style or external origin", () => {
+    expect(html).not.toMatch(/<script(?![^>]*\bsrc="\/demo\/demo\.js")[^>]*>/);
+    expect(html).not.toMatch(/\sstyle=|<style|\son[a-z]+=/i);
+    expect(html.match(/(?:src|href)="https?:\/\/[^"]+"/g) ?? []).toEqual(["href=\"https://getgleipnir.com/demo\"",
+      "href=\"https://github.com/getgleipnir/gleipnir\""]);
+    const js = readFileSync(SITE + "demo/demo.js", "utf8");
+    expect(js).not.toMatch(/\bfetch\(|XMLHttpRequest|WebSocket|sendBeacon|EventSource|\.innerHTML\b|eval\(/);
+  });
+
+  it("demo.js is up to date with site/demo/src and the checker source (run `npm run build:site`)", async () => {
+    // @ts-expect-error: plain .mjs build script
+    const { buildDemo } = await import("../../../scripts/build-site.mjs");
+    expect((await buildDemo()) === readFileSync(SITE + "demo/demo.js", "utf8"), "site/demo/demo.js is stale").toBe(true);
+  });
+});
