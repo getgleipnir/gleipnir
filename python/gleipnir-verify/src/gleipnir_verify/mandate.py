@@ -36,7 +36,7 @@ from .canon import canonicalize, hash_to_bytes, sha256_tagged
 from .crypto import b64u, decode_public_key, encode_public_key, verify_signature
 from .verifier import parse_time
 
-V = "0.3"
+V = "0.4"
 
 # ---------- accounts and rails (spec section 6) ----------
 
@@ -424,6 +424,87 @@ def _jcs_ok(obj: Any) -> bool:
         return False
 
 
+# ---------- shapes: every object has a closed set of fields (spec 13, "Versioning") ----------
+# A field the checker does not know could narrow what a signer meant, so it is never ignored: an unknown field
+# makes the object malformed. Producers put anything a checker must not act on under "x".
+_ANY = "any"
+_X = "x"
+
+
+def _s(n: int) -> tuple[str, int]:
+    return ("s", n)
+
+
+def _o(name: str) -> tuple[str, str]:
+    return ("o", name)
+
+
+def _l(name: str) -> tuple[str, str]:
+    return ("l", name)
+
+
+SHAPES: dict[str, dict[str, Any]] = {
+    "person": {"id": _ANY, "public_key": _ANY, "name": _s(140), "role": _s(140)},
+    "company": {"name": _s(140), "country": _ANY, "ids": "ids"},
+    "agent": {"id": _ANY, "name": _s(140), "public_key": _ANY},
+    "payee": {"name": _s(140), "account": _ANY},
+    "period": {"amount": _ANY, "period": _ANY},
+    "scope": {"from_accounts": _ANY, "rails": _ANY, "currency": _ANY, "max_per_payment": _ANY,
+              "max_per_period": _o("period"), "payees": _l("payee"), "purpose": _s(500)},
+    "signers": {"threshold": _ANY, "of": _l("person")},
+    "sigentry": {"signer": _ANY, "sig": _ANY},
+    "ref": {"id": _ANY, "hash": _ANY},
+    "mandate": {"v": _ANY, "id": _s(128), "company": _o("company"), "agent": _o("agent"), "signer": _o("person"),
+                "signers": _o("signers"), "sigs": _l("sigentry"), "sig": _ANY, "scope": _o("scope"),
+                "valid_from": _ANY, "valid_until": _ANY, "issued_at": _ANY, "status_url": _ANY, "delegation": _ANY,
+                "x": _X},
+    "delegation": {"v": _ANY, "id": _s(128), "company": _o("company"), "from": _o("person"), "to": _o("person"),
+                   "scope": _o("scope"), "valid_from": _ANY, "valid_until": _ANY, "issued_at": _ANY,
+                   "parent": _o("ref"), "sig": _ANY, "x": _X},
+    "payment": {"v": _ANY, "id": _s(35), "mandate": _o("ref"), "rail": _ANY, "amount": _ANY, "currency": _ANY,
+                "from_account": _ANY, "payee": _o("payee"), "reference": _s(140), "requested_at": _ANY,
+                "agent_sig": _ANY, "x": _X},
+    "revocation": {"v": _ANY, "id": _s(128), "mandate": _ANY, "mandate_hash": _ANY, "delegation": _ANY,
+                   "delegation_hash": _ANY, "revoked_at": _ANY, "signer": _o("person"), "reason": _s(500),
+                   "sig": _ANY, "x": _X},
+    "status": {"v": _ANY, "mandate": _o("ref"), "status": _ANY, "at": _ANY, "signer": _o("person"), "sig": _ANY},
+    "osig": {"signer": _o("person"), "sig": _ANY},
+    "override": {"v": _ANY, "id": _s(128), "decision": _o("ref"), "outcome": _ANY, "decided_at": _ANY,
+                 "reason": _s(500), "sigs": _l("osig"), "x": _X},
+}
+
+
+def _shape_problem(obj: Any, shape: str, path: str) -> str | None:
+    """The first field outside the object's shape (keys in sorted order), or a wrongly typed informational
+    field, or None. Values the shape marks as ``any`` are validated elsewhere."""
+    if not isinstance(obj, dict):
+        return None
+    spec = SHAPES[shape]
+    for k in sorted(obj):
+        where = f"{path}.{k}" if path else k
+        if k not in spec:
+            return f"unknown field {where}"
+        kind, v = spec[k], obj[k]
+        if kind == _X or kind == "ids":
+            if not isinstance(v, dict):
+                return f"{where} must be an object"
+        elif isinstance(kind, tuple) and kind[0] == "s":
+            if not isinstance(v, str):
+                return f"{where} must be a string"
+            if len(v) > kind[1]:
+                return f"{where} is longer than {kind[1]} characters"
+        elif isinstance(kind, tuple) and kind[0] == "o":
+            bad = _shape_problem(v, kind[1], where)
+            if bad:
+                return bad
+        elif isinstance(kind, tuple) and kind[0] == "l" and isinstance(v, list):
+            for item in v:
+                bad = _shape_problem(item, kind[1], f"{where}[]")
+                if bad:
+                    return bad
+    return None
+
+
 def _person_problem(p: Any, what: str) -> str | None:
     if not isinstance(p, dict) or _str_fields(p, ("id", "public_key")):
         return f"missing {what}.id or {what}.public_key"
@@ -531,6 +612,9 @@ def mandate_problem(m: Any) -> str | None:
         return bad
     if not _jcs_ok(m):
         return "mandate is not valid I-JSON"
+    bad = _shape_problem(m, "mandate", "")
+    if bad:
+        return bad
     if not _COUNTRY_RE.fullmatch(m["company"]["country"]):
         return "company.country must be an ISO 3166-1 alpha-2 code"
     bad = _signers_problem(m) or _scope_problem(m["scope"], debtor_required=True) or _validity_problem(m)
@@ -561,6 +645,9 @@ def delegation_problem(d: Any) -> str | None:
         return bad
     if not _jcs_ok(d):
         return "delegation is not valid I-JSON"
+    bad = _shape_problem(d, "delegation", "")
+    if bad:
+        return bad
     if "parent" in d and _str_fields(d["parent"], ("id", "hash")):
         return "parent needs id and hash"
     return _scope_problem(d["scope"], debtor_required=False) or _validity_problem(d)
@@ -577,6 +664,9 @@ def payment_problem(p: Any) -> str | None:
         return "missing payee"
     if not _jcs_ok(p):
         return "payment is not valid I-JSON"
+    bad = _shape_problem(p, "payment", "")
+    if bad:
+        return bad
     if p["rail"] not in RAILS:
         return f"unknown rail: {p['rail']!r}"
     bad = account_problem(p["payee"].get("account"))
@@ -602,6 +692,9 @@ def revocation_problem(r: Any) -> str | None:
     bad = _str_fields(r, (*target, "id", "revoked_at", "signer.id", "signer.public_key"))
     if bad or not _jcs_ok(r):
         return bad or "revocation is not valid I-JSON"
+    bad = _shape_problem(r, "revocation", "")
+    if bad:
+        return bad
     try:
         _ts(r["revoked_at"])
     except ValueError as e:
@@ -615,6 +708,9 @@ def status_problem(s: Any) -> str | None:
     bad = _str_fields(s, ("mandate.id", "mandate.hash", "status", "at", "signer.id", "signer.public_key"))
     if bad or not _jcs_ok(s):
         return bad or "status is not valid I-JSON"
+    bad = _shape_problem(s, "status", "")
+    if bad:
+        return bad
     if s["status"] not in ("active", "revoked"):
         return "status must be active or revoked"
     try:
@@ -630,6 +726,9 @@ def override_problem(o: Any) -> str | None:
     bad = _str_fields(o, ("id", "decision.id", "decision.hash", "outcome", "decided_at"))
     if bad or not _jcs_ok(o):
         return bad or "override is not valid I-JSON"
+    bad = _shape_problem(o, "override", "")
+    if bad:
+        return bad
     if o["outcome"] not in ("allow", "block"):
         return "outcome must be allow or block"
     if "reason" in o and not isinstance(o["reason"], str):
@@ -915,6 +1014,9 @@ class Checker:
     ledger: Ledger | None = None
     payments: PaymentLog = field(default_factory=InMemoryPaymentLog)
     revocations: list[dict] = field(default_factory=list)
+    # revocation_feed() -> revocations from a signed, current revocation list (revocations_from_list); raises
+    # when no current list is available. For checkers that learn revocations from someone else (spec 9.2).
+    revocation_feed: Callable[[], list[dict]] | None = None
     # status(url) -> the signed status response (a dict); raises when unreachable.
     status: Callable[[str], Any] | None = None
     clock: Callable[[], datetime] = utcnow
@@ -1168,9 +1270,23 @@ class Checker:
             return "mandate_not_yet_valid"
         if at > _ts(m["valid_until"]):
             return "mandate_expired"
-        revoked = self._revoked(m, mh, chain, sigs, at)
+        revoked = self._revoked(m, mh, chain, sigs, at, self.revocations)
         if revoked:
             return revoked
+        if self.revocation_feed is not None:
+            try:
+                fed = self.revocation_feed()
+            except Exception:  # noqa: BLE001
+                fed = None
+            if isinstance(fed, list):
+                revoked = self._revoked(m, mh, chain, sigs, at, fed)
+                if revoked:
+                    return revoked
+                checks.append("revocation_list_current")
+            elif "status_unavailable" in waive:
+                checks.append("revocation_list_unavailable_approved")
+            else:
+                return "status_unavailable"
         if "status_url" in m:
             st = self._status(m, mh, chain, sigs, at)
             if st == "revoked":
@@ -1324,13 +1440,14 @@ class Checker:
         except Exception:  # noqa: BLE001
             return False
 
-    def _revoked(self, m: dict, mh: str, chain: list[dict], sigs: list[tuple[dict, Any]], at: datetime) -> str | None:
+    def _revoked(self, m: dict, mh: str, chain: list[dict], sigs: list[tuple[dict, Any]], at: datetime,
+                 revocations: list[dict]) -> str | None:
         """Section 9: a valid revocation of the mandate or of any delegation link, by an allowed person.
 
         One signatory of a jointly signed mandate may revoke it alone: switching off needs no co-signer.
         """
         mandate_parties, link_parties = self._parties(chain, sigs)
-        for r in self.revocations:
+        for r in revocations:
             if revocation_problem(r) or _ts(r["revoked_at"]) > at:
                 continue
             if "mandate_hash" in r:
@@ -1485,15 +1602,74 @@ class Checker:
         return f"override:company:{len(approvers)}/{needed}", approvers
 
 
-def verify_decision(decision: Any, checker_keys: Iterable[str]) -> bool:
+def keyset(checker_id: str, keys: Iterable[dict], issued_at: str | None = None) -> dict[str, Any]:
+    """The bank's published checker keys (spec 10.1), served at /.well-known/gleipnir-checker.json. Each key:
+    {"public_key", "from"?, "until"?, "compromised"?}. Keys are never removed, only given an ``until``."""
+    ks = {"v": f"gleipnir/keys/{V}", "checker": checker_id, "issued_at": issued_at or now(), "keys": list(keys)}
+    problem = keyset_problem(ks)
+    if problem:
+        raise ValueError(problem)
+    return ks
+
+
+def keyset_problem(ks: Any) -> str | None:
+    if not isinstance(ks, dict) or ks.get("v") != f"gleipnir/keys/{V}":
+        return "unknown key set version"
+    bad = _str_fields(ks, ("checker", "issued_at"))
+    if bad or not _jcs_ok(ks):
+        return bad or "key set is not valid I-JSON"
+    if set(ks) - {"v", "checker", "issued_at", "keys"}:
+        return f"unknown field {sorted(set(ks) - {'v', 'checker', 'issued_at', 'keys'})[0]}"
+    keys = ks.get("keys")
+    if not isinstance(keys, list) or not keys:
+        return "keys must be a non-empty list"
+    for k in keys:
+        if not isinstance(k, dict) or not isinstance(k.get("public_key"), str) or set(k) - {
+                "public_key", "from", "until", "compromised"}:
+            return "every key needs public_key, and only from, until, compromised besides"
+        if "compromised" in k and type(k["compromised"]) is not bool:
+            return "compromised must be true or false"
+        try:
+            for f in ("from", "until"):
+                if f in k:
+                    _ts(k[f])
+            if "from" in k and "until" in k and _ts(k["from"]) >= _ts(k["until"]):
+                return "a key's from must be before its until"
+        except ValueError as e:
+            return str(e)
+    if len({k["public_key"] for k in keys}) != len(keys):
+        return "a key is listed twice"
+    try:
+        _ts(ks["issued_at"])
+    except ValueError as e:
+        return str(e)
+    return None
+
+
+def _key_valid(ks: dict, pub: str, at: str) -> bool:
+    """The key set lists this key, not compromised, and ``at`` falls in its [from, until) window."""
+    for k in ks["keys"]:
+        if k["public_key"] == pub:
+            if k.get("compromised"):
+                return False
+            t = _ts(at)
+            return ("from" not in k or _ts(k["from"]) <= t) and ("until" not in k or t < _ts(k["until"]))
+    return False
+
+
+def verify_decision(decision: Any, checker_keys: Iterable[str] | dict) -> bool:
     """True if the decision was signed by one of the bank's known checker keys and not changed since.
 
-    checker_keys come from the bank (its published key list), never from the decision itself.
+    ``checker_keys`` come from the bank, never from the decision itself: a list of public keys, or the bank's
+    key set (spec 10.1), in which case the decision must name that checker and fall in the key's window.
     """
-    keys = set(checker_keys)
     try:
         pub_text = decision["checker"]["public_key"]
-        if pub_text not in keys:
+        if isinstance(checker_keys, dict):
+            if keyset_problem(checker_keys) or decision["checker"].get("id") != checker_keys["checker"] \
+                    or not _key_valid(checker_keys, pub_text, decision["checked_at"]):
+                return False
+        elif pub_text not in set(checker_keys):
             return False
         return verify_signature(decode_public_key(pub_text), message("decision", obj_hash(decision)),
                                 decision.get("sig"))
@@ -1501,7 +1677,59 @@ def verify_decision(decision: Any, checker_keys: Iterable[str]) -> bool:
         return False
 
 
-def verify_receipt(mandate: Any, payment: Any, decision: Any, checker_keys: Iterable[str], *,
+def revocation_list(revocations: Iterable[dict], *, issuer: str, sk: Ed25519PrivateKey, next_update: str,
+                    issued_at: str | None = None) -> dict[str, Any]:
+    """A signed list of the revocations a checker knows (spec 9.2), for checkers that are not told directly.
+    Signed with the issuer's checker key; consumers still verify every revocation in it on every payment."""
+    doc = {"v": f"gleipnir/revocations/{V}", "issuer": {"id": issuer, "public_key": public_key_of(sk)},
+           "issued_at": issued_at or now(), "next_update": next_update, "revocations": list(revocations)}
+    return _sign(sk, "revocations", doc)
+
+
+def revocation_list_problem(doc: Any) -> str | None:
+    if not isinstance(doc, dict) or doc.get("v") != f"gleipnir/revocations/{V}":
+        return "unknown revocation list version"
+    bad = _str_fields(doc, ("issuer.id", "issuer.public_key", "issued_at", "next_update"))
+    if bad or not _jcs_ok(doc):
+        return bad or "revocation list is not valid I-JSON"
+    if set(doc) - {"v", "issuer", "issued_at", "next_update", "revocations", "sig"} or set(doc["issuer"]) - {
+            "id", "public_key"}:
+        return "unknown field in revocation list"
+    if not isinstance(doc.get("revocations"), list):
+        return "revocations must be a list"
+    try:
+        if _ts(doc["next_update"]) <= _ts(doc["issued_at"]):
+            return "next_update must be after issued_at"
+    except ValueError as e:
+        return str(e)
+    return None
+
+
+def revocations_from_list(doc: Any, issuer_keys: Iterable[str] | dict, at: datetime) -> list[dict]:
+    """The revocations of a current, validly signed list from a trusted issuer, else ValueError (spec 9.2).
+
+    ``issuer_keys``: the issuer's checker keys or key set, obtained out of band. Current means issued no later
+    than ``at`` (plus a minute) and ``at`` before ``next_update``: a stale list does not count, so an attacker
+    cannot keep a checker on an old list that predates a revocation.
+    """
+    problem = revocation_list_problem(doc)
+    if problem:
+        raise ValueError(problem)
+    pub = doc["issuer"]["public_key"]
+    if isinstance(issuer_keys, dict):
+        if keyset_problem(issuer_keys) or issuer_keys["checker"] != doc["issuer"]["id"] \
+                or not _key_valid(issuer_keys, pub, doc["issued_at"]):
+            raise ValueError("revocation list issuer key not trusted")
+    elif pub not in set(issuer_keys):
+        raise ValueError("revocation list issuer key not trusted")
+    if not _verify("revocations", obj_hash(doc), doc.get("sig"), pub, {}):
+        raise ValueError("revocation list signature is invalid")
+    if _ts(doc["issued_at"]) > at + timedelta(seconds=60) or at >= _ts(doc["next_update"]):
+        raise ValueError("revocation list is not current")
+    return [r for r in doc["revocations"] if isinstance(r, dict)]
+
+
+def verify_receipt(mandate: Any, payment: Any, decision: Any, checker_keys: Iterable[str] | dict, *,
                    override: Any = None, webauthn: dict | None = None) -> dict[str, Any]:
     """Check a receipt offline, months later, without the bank: who authorized this payment, what was decided.
 

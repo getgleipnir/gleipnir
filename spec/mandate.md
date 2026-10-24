@@ -1,4 +1,4 @@
-# Gleipnir mandate format, version 0.3 (draft)
+# Gleipnir mandate format, version 0.4 (draft)
 
 Normative draft. A **mandate** is a power of attorney for an AI agent: a person who may sign for a company states what one agent may pay, from which of the company's accounts, to whom, how much and until when. A bank or payment service provider (PSP) checks the mandate before it executes a transfer the agent started, and records a signed **decision**.
 
@@ -27,7 +27,17 @@ sequenceDiagram
 - **What the bank gets.** One extra, deterministic check before execution, and a receipt it can show anyone later.
 - **Conformance.** A Python reference and a TypeScript port pass the same published test vectors (Appendix B).
 
-Changes from 0.2:
+Changes from 0.3:
+
+- **Closed shapes, `x` for extensions** (section 13.1). Every object has a closed set of fields; an unknown field makes it malformed, because a field the checker ignores could be one that narrows what the signer meant. Anything a checker must not act on goes under `x`. Length limits that fit ISO 20022 (payment `id` ≤ 35, `reference` ≤ 140, names ≤ 140).
+- **ISO 20022** (section 6.2). The pain.001.001.09 message for a checked payment, with the mandate, payment and decision hashes in its `SplmtryData`, and the check that a pain.001 about to be executed is the payment that was allowed.
+- **Revocation lists** (section 9.2). A checker publishes a signed, dated list of the revocations it holds; another checker relies on it only while it is current.
+- **Bank key set** (section 10.1). A bank publishes its checker keys with validity windows at `/.well-known/gleipnir-checker.json`; decisions are verified against the window their `checked_at` falls in.
+- **Versioning** (section 13.1): how 1.0 and later stay compatible.
+
+All `v` strings and signature prefixes move to `0.4`; 0.3 objects are not accepted.
+
+Changes from 0.2 to 0.3:
 
 - **Debtor accounts** (`scope.from_accounts`, `payment.from_account`, step 7). A mandate names the accounts it may pay from, and works only at the bank that holds them. Ledgers, revocations and replays are per bank by construction.
 - **Accounts worldwide** (section 6.1). Typed account schemes with check digits: IBAN, US ABA, UK sort code, Canada, Australia BSB, India IFSC, Mexico CLABE, SWIFT. A rail-to-scheme table (`rail_mismatch`).
@@ -42,8 +52,6 @@ Changes from 0.2:
 - **Decisions record whom they counted** (`signers`, and `approvers` on overrides), so a receipt cannot be relabeled.
 - **Limits.** Nesting depth 32, at most 16 signers per mandate and 16 signatures per override.
 
-All `v` strings and signature prefixes move to `0.3`; 0.2 objects are not accepted.
-
 ## 1. Objects
 
 | Object | Signed by | Purpose |
@@ -55,8 +63,10 @@ All `v` strings and signature prefixes move to `0.3`; 0.2 objects are not accept
 | `payment` | the agent (when the mandate names an agent key) | The transfer the agent asks the bank to execute, plus the mandate it relies on. |
 | `decision` | the checker (bank, PSP or a hosted checker) | The result of checking one payment against one mandate. |
 | `override` | a bank officer, or the company's signatories | Resolves an escalation: allow or block this payment. |
+| `revocations` | the checker that publishes it | A dated list of the revocations a checker holds, for other checkers (section 9.2). |
+| `keys` | (served by the bank over https) | The bank's checker keys with validity windows (section 10.1). |
 
-Every object has `v: "gleipnir/<object>/0.3"` and, except `status`, an `id`.
+Every object has `v: "gleipnir/<object>/0.4"`; mandates, delegations, payments, revocations, overrides and decisions have an `id`.
 
 ## 2. Chain of trust
 
@@ -92,7 +102,7 @@ Assurance levels: (a) alone is the light level that covers SMEs at their own ban
 
 ```json
 {
-  "v": "gleipnir/mandate/0.3",
+  "v": "gleipnir/mandate/0.4",
   "id": "m_01JB7K3Q8Z4W2N6F",
   "company": {
     "name": "Nordhafen Logistik GmbH",
@@ -135,7 +145,7 @@ Assurance levels: (a) alone is the light level that covers SMEs at their own ban
 - `agent.id` is required. `agent.public_key` is optional; when present, the payment must carry an agent signature (section 6) so a stolen mandate alone is not enough.
 - Exactly one of `signer` (one signatory, signature in `sig`) or `signers` (a threshold, signatures in `sigs`, section 4.2). Each signer has `id` and `public_key`; `role` and `name` are informational. **Whether this person may sign for this company is not decided by the mandate.** The checker decides it from its own source (section 8).
 - `scope.from_accounts` is required: a non-empty list of the company's own accounts (section 6.1) the agent may pay from, no account twice. The bank checks that the company holds each one it is asked to debit (step 7), so a mandate cannot be used on someone else's account, nor at a bank that does not hold the account.
-- `scope.currency` is required and applies to every amount in the scope. Amounts are decimal strings with exactly the currency's ISO 4217 minor units, no sign, no exponent, no leading zeros, no whitespace: `^(0|[1-9][0-9]*)\.[0-9]{2}$` for EUR, USD, GBP, CHF, SEK, NOK, DKK, PLN, CZK, HUF, RON, CAD, AUD, NZD, SGD, HKD, INR, MXN; `^(0|[1-9][0-9]*)$` for JPY. Other currencies are not supported in 0.3. Every amount must be greater than zero. Never floats.
+- `scope.currency` is required and applies to every amount in the scope. Amounts are decimal strings with exactly the currency's ISO 4217 minor units, no sign, no exponent, no leading zeros, no whitespace: `^(0|[1-9][0-9]*)\.[0-9]{2}$` for EUR, USD, GBP, CHF, SEK, NOK, DKK, PLN, CZK, HUF, RON, CAD, AUD, NZD, SGD, HKD, INR, MXN; `^(0|[1-9][0-9]*)$` for JPY. Other currencies are not supported in 0.4. Every amount must be greater than zero. Never floats.
 - `scope.max_per_payment` is required. `scope.max_per_period` is optional; `period` is one of `P1D` (UTC calendar day), `P7D` (ISO week, Monday to Sunday, UTC) or `P1M` (UTC calendar month). A period limit is enforced by one bank's ledger, so every account in `from_accounts` of a period-limited mandate must be held by the checking bank (step 7); a company that pays from several banks issues one mandate per bank.
 - `scope.payees` is optional but **recommended**: a non-empty list of `{name, account}`, no account twice. If present, a payment is covered only if its payee account equals one entry exactly (section 6.1: accounts are canonical, so equality is byte equality of their JCS encoding). A changed account is a different payee. If absent, any payee is allowed within the limits; a checker may refuse such mandates by policy (`payees_required`), and should for agents that pay invoices, since "we changed our bank details" is the common fraud.
 - `scope.rails` is optional; values from the rail table in section 6.1. If absent, any rail.
@@ -173,9 +183,9 @@ Many companies may only be bound by two (or more) people acting together. Compan
 
 `mandate_hash = "sha256:" || hex(SHA-256(JCS(mandate minus "sig" and "sigs")))`. Each signature is over
 
-    "gleipnir/mandate/v0.3\n" || mandate_hash
+    "gleipnir/mandate/v0.4\n" || mandate_hash
 
-in the record signature format of format.md. A signer may also sign with a passkey: the signature is then an object `{"type": "webauthn", …}` exactly as in format.md "Signed approvals", with the WebAuthn challenge set to the 32 raw bytes of `passkey_digest = SHA-256("gleipnir/mandate/v0.3\n" || mandate_hash)`. The domain prefix keeps a mandate passkey signature from ever counting as an approval of an agent action (format.md "Signed approvals" signs the bare action digest), and the reverse. This is how path (a) of section 3 works on a phone: the bank's app shows the mandate, the person confirms with a passkey, and the app adds the signature. Because the hash excludes `sig` and `sigs`, co-signers sign the identical hash in any order.
+in the record signature format of format.md. A signer may also sign with a passkey: the signature is then an object `{"type": "webauthn", …}` exactly as in format.md "Signed approvals", with the WebAuthn challenge set to the 32 raw bytes of `passkey_digest = SHA-256("gleipnir/mandate/v0.4\n" || mandate_hash)`. The domain prefix keeps a mandate passkey signature from ever counting as an approval of an agent action (format.md "Signed approvals" signs the bare action digest), and the reverse. This is how path (a) of section 3 works on a phone: the bank's app shows the mandate, the person confirms with a passkey, and the app adds the signature. Because the hash excludes `sig` and `sigs`, co-signers sign the identical hash in any order.
 
 ## 5. Delegation
 
@@ -184,7 +194,7 @@ A person with authority passes a bounded part of it to another person: CEO → C
 ```json
 "delegation": [
   {
-    "v": "gleipnir/delegation/0.3",
+    "v": "gleipnir/delegation/0.4",
     "id": "g_ceo_cfo",
     "company": {"name": "Nordhafen Logistik GmbH", "country": "AT"},
     "from": {"id": "ceo@nordhafen.at", "public_key": "ed25519:…"},
@@ -199,7 +209,7 @@ A person with authority passes a bounded part of it to another person: CEO → C
 ]
 ```
 
-A later link names its parent: `"parent": {"id": "g_ceo_cfo", "hash": "sha256:…"}`. `delegation_hash` is computed like `mandate_hash` (minus `sig`); the signature prefix is `"gleipnir/delegation/v0.3\n"`, signed by `from.public_key`. At most 5 links. `issued_at` is required. In a link, `scope.from_accounts` is optional, but required with a period limit (a link's limit is kept by one bank's ledger, like a mandate's).
+A later link names its parent: `"parent": {"id": "g_ceo_cfo", "hash": "sha256:…"}`. `delegation_hash` is computed like `mandate_hash` (minus `sig`); the signature prefix is `"gleipnir/delegation/v0.4\n"`, signed by `from.public_key`. At most 5 links. `issued_at` is required. In a link, `scope.from_accounts` is optional, but required with a period limit (a link's limit is kept by one bank's ledger, like a mandate's).
 
 The checker verifies, in addition to the mandate steps:
 
@@ -216,7 +226,7 @@ What the agent submits to the bank, or what the bank's API layer builds from the
 
 ```json
 {
-  "v": "gleipnir/payment/0.3",
+  "v": "gleipnir/payment/0.4",
   "id": "p_7Q-20418",
   "mandate": {"id": "m_01JB7K3Q8Z4W2N6F", "hash": "sha256:…"},
   "rail": "sepa",
@@ -232,7 +242,7 @@ What the agent submits to the bank, or what the bank's API layer builds from the
 
 `id` must be unique per payer (the company): the checker treats a second payment from the same company with the same `id` as a duplicate while the first holds it (section 7, step 14). `rail` is one of the rails in section 6.1. `from_account` is the company's account to debit; it must be one of the mandate's `from_accounts`. `payee.account` is the creditor account. `requested_at` is the agent's own clock and is informational; the checker uses its own clock.
 
-`agent_sig` is required when the mandate names `agent.public_key`: a signature over `"gleipnir/payment/v0.3\n" || payment_hash`, where `payment_hash` is computed over the payment minus `agent_sig`.
+`agent_sig` is required when the mandate names `agent.public_key`: a signature over `"gleipnir/payment/v0.4\n" || payment_hash`, where `payment_hash` is computed over the payment minus `agent_sig`.
 
 The full mandate travels with the payment (as a separate field of the API call or a header) or is fetched by id from the issuer; the payment itself only references it by id and hash.
 
@@ -267,6 +277,40 @@ Each rail carries one currency between accounts of certain schemes. A payment wh
 | `wire` | any | any |
 
 The bank's own rules still apply on top (for example whether an IBAN's country is in the SEPA scheme); the table is the minimum every checker enforces.
+
+### 6.2 ISO 20022
+
+Banks execute credit transfers from ISO 20022 `pain.001` messages. A checked payment maps onto one transaction of a pain.001.001.09 `Document` (one `PmtInf` with one `CdtTrfTxInf`), so the mandate reference travels inside the bank's own message:
+
+| Payment | pain.001.001.09 |
+|---|---|
+| `id` | `GrpHdr/MsgId`, `PmtInf/PmtInfId`, `CdtTrfTxInf/PmtId/EndToEndId` (hence at most 35 characters) |
+| `requested_at` | `GrpHdr/CreDtTm`; its date is `PmtInf/ReqdExctnDt/Dt` |
+| `amount`, `currency` | `CdtTrfTxInf/Amt/InstdAmt` with `@Ccy`, and both `CtrlSum` |
+| `rail` | `PmtTpInf`: `SvcLvl/Cd = SEPA` for `sepa`; plus `LclInstrm/Cd = INST` for `sepa_instant`; otherwise `LclInstrm/Prtry = <rail>` |
+| mandate `company.name` | `GrpHdr/InitgPty/Nm`, `PmtInf/Dbtr/Nm` |
+| `from_account` | `PmtInf/DbtrAcct` and `PmtInf/DbtrAgt` (below) |
+| `payee.name` | `CdtTrfTxInf/Cdtr/Nm` (`NOTPROVIDED` if absent) |
+| `payee.account` | `CdtTrfTxInf/CdtrAcct` and `CdtTrfTxInf/CdtrAgt` |
+| `reference` | `CdtTrfTxInf/RmtInf/Ustrd` (at most 140 characters) |
+| mandate, payment, decision | `CdtTrfTxInf/SplmtryData` with `PlcAndNm = Gleipnir` and `Envlp/Gleipnir` in namespace `urn:gleipnir:payment:0.4`: `Mandate` (mandate hash), `Payment` (payment hash), `Decision` (decision hash, when known) |
+
+Accounts map to `Acct/Id` and the agent's `FinInstnId` by scheme:
+
+| Scheme | Account | Agent (`FinInstnId`) |
+|---|---|---|
+| `iban` | `Id/IBAN` | `Othr/Id = NOTPROVIDED` |
+| `us_aba` | `Id/Othr/Id = account` | `ClrSysMmbId`: `ClrSysId/Cd = USABA`, `MmbId = routing` |
+| `uk_sort_code` | `Id/Othr/Id = account` | `GBDSC`, `MmbId = sort_code` |
+| `ca_eft` | `Id/Othr/Id = account` | `CACPA`, `MmbId = 0 + institution + transit` |
+| `au_bsb` | `Id/Othr/Id = account` | `AUBSB`, `MmbId = bsb` |
+| `in_ifsc` | `Id/Othr/Id = account` | `INFSC`, `MmbId = ifsc` |
+| `mx_clabe` | `Id/Othr/Id = clabe`, `SchmeNm/Prtry = CLABE` | `Othr/Id = NOTPROVIDED` |
+| `swift` | `Id/Othr/Id = account` | `BICFI = bic` |
+
+**Checking a pain.001.** Before it executes a pain.001, a bank checks the transaction against the payment it allowed: the one `CdtTrfTxInf` whose `EndToEndId` is the payment `id` (none: `end_to_end_id_not_found`; several: `end_to_end_id_not_unique`), with the same `InstdAmt` text and `Ccy` (`amount_mismatch`, `currency_mismatch`), the same debtor and creditor accounts read back by the payment's own schemes (`debtor_account_mismatch`, `creditor_account_mismatch`), and the same envelope hashes (`mandate_reference_mismatch`, `payment_reference_mismatch`, `decision_reference_mismatch`). Names, remittance text and dates are not compared. This binds what moves money to what was checked: an agent, a middleware or a compromised ERP cannot have one payment checked and another executed.
+
+XML is read strictly, the same way by every implementation: at most 1 MiB and 64 levels deep; no DTD, entity declarations, CDATA sections or processing instructions other than a leading XML declaration; the five predefined entities and valid character references only; every element in the pain.001.001.09 namespace, except the envelope's content in the Gleipnir namespace. Anything else is `xml_malformed`; a document that is not a pain.001.001.09 `Document` is `xml_not_pain001`. Other pain.001 versions need their own mapping.
 
 ## 7. Check
 
@@ -332,7 +376,7 @@ An escalation is resolved by a signed **override** that names exactly one escala
 
 ```json
 {
-  "v": "gleipnir/override/0.3",
+  "v": "gleipnir/override/0.4",
   "id": "o_01JB9…",
   "decision": {"id": "d_01JB7…", "hash": "sha256:…"},
   "outcome": "allow",
@@ -342,7 +386,7 @@ An escalation is resolved by a signed **override** that names exactly one escala
 }
 ```
 
-`override_hash` is computed like `mandate_hash`, minus `sigs`; each signature is over `"gleipnir/override/v0.3\n" || override_hash`, as an Ed25519 or P-256 record signature or a passkey assertion (the WebAuthn challenge is `SHA-256("gleipnir/override/v0.3\n" || override_hash)`). `decision.hash` is the hash of the whole escalate decision minus its `sig`. One signature per person and per key, at most 16. Signer identities are outside the hash; the resulting decision records exactly whom the bank counted (`approvers`), so they cannot be relabeled later.
+`override_hash` is computed like `mandate_hash`, minus `sigs`; each signature is over `"gleipnir/override/v0.4\n" || override_hash`, as an Ed25519 or P-256 record signature or a passkey assertion (the WebAuthn challenge is `SHA-256("gleipnir/override/v0.4\n" || override_hash)`). `decision.hash` is the hash of the whole escalate decision minus its `sig`. One signature per person and per key, at most 16. Signer identities are outside the hash; the resulting decision records exactly whom the bank counted (`approvers`), so they cannot be relabeled later.
 
 The checker resolves `(mandate, payment, decision, override)`:
 
@@ -376,7 +420,7 @@ The same contract applies to signers of revocations, status answers and override
 
 ```json
 {
-  "v": "gleipnir/revocation/0.3",
+  "v": "gleipnir/revocation/0.4",
   "id": "r_01JB8…",
   "mandate": "m_01JB7K3Q8Z4W2N6F",
   "mandate_hash": "sha256:…",
@@ -387,7 +431,7 @@ The same contract applies to signers of revocations, status answers and override
 }
 ```
 
-A revocation of a delegation link names `"delegation"` and `"delegation_hash"` instead of `"mandate"` and `"mandate_hash"`. Signed with the prefix `"gleipnir/revocation/v0.3\n"`. It takes effect at `revoked_at`; a payment checked at or after that time is blocked.
+A revocation of a delegation link names `"delegation"` and `"delegation_hash"` instead of `"mandate"` and `"mandate_hash"`. Signed with the prefix `"gleipnir/revocation/v0.4\n"`. It takes effect at `revoked_at`; a payment checked at or after that time is blocked.
 
 Who may revoke: a person the authority source knows with that key, who either may sign for the company, or is in the line of authority of the target. For a mandate, that is its signers and everyone in its delegation chain; for a jointly signed mandate, **any one** of its signers may revoke it alone. For a delegation link, it is the `from` and `to` of that link and of the links above it, never a delegate further down. So a CEO can cut a delegation, a CFO can withdraw their own mandate or hand back their own delegation even without signing power of their own, and a controller below the CFO cannot cut the CEO's delegation to the CFO. Anyone else's revocation is ignored.
 
@@ -399,7 +443,7 @@ When a mandate has a `status_url`, the checker fetches it for every payment and 
 
 ```json
 {
-  "v": "gleipnir/status/0.3",
+  "v": "gleipnir/status/0.4",
   "mandate": {"id": "m_01JB7K3Q8Z4W2N6F", "hash": "sha256:…"},
   "status": "active",
   "at": "2026-10-23T09:14:01.000Z",
@@ -408,15 +452,32 @@ When a mandate has a `status_url`, the checker fetches it for every payment and 
 }
 ```
 
-Signed with the prefix `"gleipnir/status/v0.3\n"` over the object minus `sig`. The checker accepts it only if `mandate` is exactly this mandate's id and hash, `at` is no older than `status_max_age` (default 5 minutes) and not ahead of the checker's clock by more than `max_skew`, the signature is valid, and the signer may revoke this mandate (section 9: known with a current key, and may sign or is in its line of authority). `revoked` blocks (`mandate_revoked`); `active` passes (`status_active`); anything else, including no answer, a plain-text answer, a stale or replayed answer, or one signed by someone else, is `status_unavailable` (escalate). So a status service signs with a key the bank has enrolled for a person who may revoke the mandate: an "active" is worth exactly as much as the power to say "revoked".
+Signed with the prefix `"gleipnir/status/v0.4\n"` over the object minus `sig`. The checker accepts it only if `mandate` is exactly this mandate's id and hash, `at` is no older than `status_max_age` (default 5 minutes) and not ahead of the checker's clock by more than `max_skew`, the signature is valid, and the signer may revoke this mandate (section 9: known with a current key, and may sign or is in its line of authority). `revoked` blocks (`mandate_revoked`); `active` passes (`status_active`); anything else, including no answer, a plain-text answer, a stale or replayed answer, or one signed by someone else, is `status_unavailable` (escalate). So a status service signs with a key the bank has enrolled for a person who may revoke the mandate: an "active" is worth exactly as much as the power to say "revoked".
 
 The checker fetches `status_url` on the company's behalf, so it is a request to an address a customer chose. Checkers fetch over https on port 443 only, follow no redirects, limit size, put one deadline on the whole fetch (a server that drips bytes is cut off), fetch outside any lock that other payments wait on, and either restrict status hosts to an allow-list or resolve the host once, refuse it unless every address is public, and connect to that vetted address (so a second DNS answer cannot redirect the request). A status answer is not bound to the request: it can be replayed for up to `status_max_age` plus `max_skew`.
+
+### 9.2 Revocation lists
+
+A checker that is not told about revocations directly (a second bank, a hosted checker, one that is offline for a while) can rely on another checker's signed list:
+
+```json
+{
+  "v": "gleipnir/revocations/0.4",
+  "issuer": {"id": "bank:RZBAATWW", "public_key": "ed25519:…"},
+  "issued_at": "2026-10-23T09:00:00.000Z",
+  "next_update": "2026-10-23T10:00:00.000Z",
+  "revocations": [{"v": "gleipnir/revocation/0.4", "…": "…"}],
+  "sig": "ed25519:…"
+}
+```
+
+Signed with the prefix `"gleipnir/revocations/v0.4\n"` by the issuer's checker key. A consumer trusts the issuer's key out of band (its key set, section 10.1) and uses the list only while it is current: issued no later than now (plus a minute) and now before `next_update`. A list that is stale, unsigned, signed by another key or altered does not count, and the payment escalates (`status_unavailable`) rather than pass on old information; a bank officer's override can proceed without it (`revocation_list_unavailable_approved`). The issuer vouches only for completeness and freshness: every revocation in the list is still verified on every payment exactly as in section 9, so an issuer cannot revoke a mandate on anyone's behalf. `checks` records `revocation_list_current`.
 
 ## 10. Decision and receipt
 
 ```json
 {
-  "v": "gleipnir/decision/0.3",
+  "v": "gleipnir/decision/0.4",
   "id": "d_01JB7…",
   "payment": {"id": "p_7Q-20418", "hash": "sha256:…"},
   "mandate": {"id": "m_01JB7K3Q8Z4W2N6F", "hash": "sha256:…"},
@@ -430,9 +491,27 @@ The checker fetches `status_url` on the company's behalf, so it is a request to 
 }
 ```
 
-Signed by the checker with the prefix `"gleipnir/decision/v0.3\n"`. `checked_at` is the checker's clock. A decision is verified against the bank's **known** checker keys, obtained out of band (for example from the bank's published key list); the `checker.public_key` inside the decision only says which of those keys signed it and is never trusted on its own. `id` is random. With multi-signature, `checks` lists `signer_authorized:<source>` per counted signer and `signatures:<n>/<needed>`; with delegation, `delegation:<links>`. Once the signers' authority is checked, `signers` lists exactly whom the bank counted. A decision made on an override also carries `escalation`, `override`, `approvers`, `waived` and `escalated_at` (section 7.1).
+Signed by the checker with the prefix `"gleipnir/decision/v0.4\n"`. `checked_at` is the checker's clock. A decision is verified against the bank's **known** checker keys, obtained out of band (for example from the bank's published key list); the `checker.public_key` inside the decision only says which of those keys signed it and is never trusted on its own. `id` is random. With multi-signature, `checks` lists `signer_authorized:<source>` per counted signer and `signatures:<n>/<needed>`; with delegation, `delegation:<links>`. Once the signers' authority is checked, `signers` lists exactly whom the bank counted. A decision made on an override also carries `escalation`, `override`, `approvers`, `waived` and `escalated_at` (section 7.1).
 
 **Receipt.** Mandate + payment + decision (+ the override, if the decision names one) form a receipt anyone can check offline, months later, without the bank or Gleipnir: the decision is signed by a known bank key; it names exactly this mandate and payment by hash, and exactly this override; every mandate signature, every delegation link, the agent signature and every override signature are valid; and every person the decision lists in `signers` and `approvers` has a valid signature in what is presented. The receipt reports those lists, not whatever signatures happen to be attached. The receipt shows who authorized the payment (signers and chain), which account paid whom, who approved an exception, which source the bank relied on, and what the bank decided and when. Decisions may be appended to a hash-chained log in the record format of format.md (`kind: "note"` with `note.decision`), so the company, the bank and an auditor can show what was checked and when.
+
+### 10.1 The bank's key set
+
+A bank publishes its checker keys at `https://<bank domain>/.well-known/gleipnir-checker.json`:
+
+```json
+{
+  "v": "gleipnir/keys/0.4",
+  "checker": "bank:RZBAATWW",
+  "issued_at": "2026-10-24T00:00:00.000Z",
+  "keys": [
+    {"public_key": "ed25519:…", "until": "2026-10-24T00:00:00.000Z"},
+    {"public_key": "ed25519:…", "from": "2026-10-24T00:00:00.000Z"}
+  ]
+}
+```
+
+Keys are never removed, only given an `until`, so a receipt can be checked years later against the key that was valid when the decision was made. A decision verifies against a key set only if it names that `checker`, its key is listed, not marked `"compromised": true`, and its `checked_at` falls in the key's `[from, until)` window. A compromised key is marked, not removed: every decision it signed stops verifying, because a thief can choose `checked_at`. The key set is trusted through the bank's own domain and TLS; an auditor keeps a copy with the receipts. Only `v`, `checker`, `issued_at` and `keys` are allowed, and per key only `public_key`, `from`, `until` and `compromised`.
 
 ## 11. Threat model
 
@@ -474,6 +553,10 @@ Signed by the checker with the prefix `"gleipnir/decision/v0.3\n"`. `checked_at`
 | 9 Receipt | Bank or company edits the decision later; a fake decision; a hidden override | Decision signed by a known bank key; hashes bind mandate, payment and override (section 10) |
 | all | Dependency down, malformed or hostile input | Signed block or escalate, never allow; never raise |
 | all | Deep nesting, thousands of signatures | Depth 32, at most 16 signers and override signatures |
+| all | A field the checker ignores that narrows the signer's intent (a future `max_per_week`) | Closed shapes: unknown fields are malformed; extensions only under `x` (section 13.1) |
+| 7 Scope | One payment checked, another executed (a changed pain.001 from middleware or a compromised ERP) | The pain.001 is checked against the payment: end-to-end id, amount, accounts, envelope hashes (section 6.2) |
+| 8 Validity | A second checker kept on an old revocation list | Signed lists with `next_update`; stale lists do not count (section 9.2) |
+| 9 Receipt | A bank rotates keys, or a key leaks | Key set with validity windows and `compromised` (section 10.1) |
 
 Residual risks:
 
@@ -498,12 +581,33 @@ Does not prove: that the agent understood the invoice, that the invoice is genui
 
 Objects are I-JSON (RFC 7493), nested at most 32 objects or arrays deep, with one tightening: no duplicate keys, no floats at all (`2.0` is refused, not read as `2`), integers within ±(2^53 − 1). A checker parsing JSON from the wire must reject duplicate keys, floats and large integers before hashing, because parsers differ on them and two checkers must never see different objects behind one hash (the TypeScript library's `parseStrict` does this; the Python checker also refuses floats and large integers in the objects it is given). Accounts are canonical (section 6.1). Strings should be NFC.
 
-## 14. Open questions for 0.4
+### 13.1 Shapes and versioning
+
+**Closed shapes.** Each object has exactly these fields (`?` optional); a field not listed makes it malformed (`unknown field <path>`), with one exception, `x`:
+
+- mandate: `v id company agent signer? signers? sig? sigs? scope valid_from? valid_until issued_at status_url? delegation? x?`
+- delegation: `v id company from to scope valid_from? valid_until issued_at parent? sig x?`
+- payment: `v id mandate rail amount currency from_account payee reference? requested_at agent_sig? x?`
+- revocation: `v id (mandate mandate_hash | delegation delegation_hash) revoked_at signer reason? sig x?`
+- status: `v mandate status at signer sig`; override: `v id decision outcome decided_at reason? sigs x?`
+- company: `name country ids?` (`ids` an object, open); agent: `id name? public_key?`; person: `id public_key name? role?`; payee: `name? account`; scope: `from_accounts rails? currency max_per_payment max_per_period? payees? purpose?`; `max_per_period`: `amount period`; references: `id hash`.
+
+Lengths: `id` at most 128 characters (payments 35), `reference` 140, `company.name`, `agent.name`, person `name` and `role`, payee `name` 140, `purpose` and `reason` 500. Informational strings must be strings.
+
+**`x`.** An object under `x` may hold anything (I-JSON, depth limits apply). It is covered by the signature, travels with the object and is shown to people, but no checker acts on it: an ERP's purchase order number, a display hint, a vendor's own data. A future field that a checker must act on never goes under `x`.
+
+**Versioning.** Drafts (0.x) change incompatibly: each moves every `v` string and signature prefix, and objects of another draft are refused. From 1.0:
+
+- `v` names the major version only (`gleipnir/mandate/1`), and so do the signature prefixes.
+- A 1.x release may add optional fields only if every 1.0 checker may safely refuse objects carrying them, which closed shapes guarantee. New account schemes, rails and currencies are additions of this kind.
+- Anything that changes the meaning of an existing field, or that a checker must not miss, needs a new major version. Checkers may accept several majors side by side.
+- Reason codes and `checks` strings are stable within a major version; new ones may be added.
+
+## 14. Open questions for 1.0
 
 - Joint signing inside delegation links (two joint signatories delegating together).
-- A revocation list format for offline checkers.
-- Mapping to ISO 20022 `pain.001` fields (debtor account, creditor account, end-to-end id) so the mandate reference travels inside the payment message.
 - vLEI credential presentation format inside `company.ids.vlei` and `signer` (ACDC / W3C VC), and how a checker resolves it to an `authority` answer.
+- Mappings for other pain.001 versions (.003, .012) and for pacs.008 between banks.
 - Card push payments (Visa Direct, Mastercard Move) and wallets: different networks, out of scope for bank transfers.
 - More domestic schemes (Brazil Pix, Singapore PayNow, Japan Zengin) as rails are added.
 
@@ -511,7 +615,7 @@ Objects are I-JSON (RFC 7493), nested at most 32 objects or arrays deep, with on
 
 | Code | Outcome | Step | Meaning |
 |---|---|---|---|
-| `mandate_malformed` | block | 1 | The mandate is not a well-formed 0.3 mandate. |
+| `mandate_malformed` | block | 1 | The mandate is not a well-formed 0.4 mandate (including an unknown field). |
 | `payment_malformed` | block | 2 | The payment is not well formed (or could not be processed at all). |
 | `mandate_mismatch` | block | 3 | The payment names a different mandate (hash). |
 | `mandate_bad_signature` | block | 4 | A mandate signature is missing or invalid. |
@@ -551,5 +655,6 @@ A conforming checker produces, for the same inputs and clock, the same `outcome`
 
 - Test vectors: `typescript/packages/verify/test/fixtures/mandate-vectors.json` (generated by `python/gleipnir-verify/tests/mandate_vectors.py` from fixed test keys and clocks). Each case gives the inputs (mandates, payments, authority answers with retired keys, accounts the bank holds, revocations, status answers, ledger, policy, officer keys, passkey settings) and the expected decisions and receipt, plus payment-log keys. A case may resolve an earlier escalation with an override built from Ed25519 seeds, so both implementations sign the same override for their own escalation. Escalation references are pinned by the step they name, since decision ids are random.
 - It includes multi-signature, joint signing, delegation, cross-bank vLEI, real ES256 passkey assertions, accounts and rails in eight schemes, signed status, overrides, key rotation, corrected payments, and the inputs found in the 23.10.2026 audits.
-- Reference implementations: Python `gleipnir_verify.mandate`, TypeScript `@getgleipnir/verify/mandate`. Both run every vector and verify each other's decisions.
+- It also pins, as data both implementations must reproduce exactly: problem messages for malformed objects, decisions checked against key sets, revocation lists (current, stale, untrusted, altered), and ISO 20022: the identical pain.001 XML for each account scheme, and the identical problems for altered and hostile messages.
+- Reference implementations: Python `gleipnir_verify.mandate` and `gleipnir_verify.iso20022`, TypeScript `@getgleipnir/verify/mandate`. Both run every vector and verify each other's decisions.
 - `PaymentLog` implementations provide `lookup`, `register`, `remember`, `forget` and the atomic `take` (section 7.1); `Ledger` implementations accept a `null` limit.

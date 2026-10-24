@@ -18,6 +18,9 @@ import {
   makeOverride,
   mandateProblem,
   paymentProblem,
+  pain001,
+  pain001Problems,
+  revocationsFromList,
   signOverride,
   parseStrict,
   paymentKey,
@@ -45,6 +48,7 @@ interface Vector {
   holds: { company: string; account: J; customer?: string }[];
   policy: { require_payees?: boolean };
   officers: string[];
+  feed?: unknown;
   ops?: ("check" | { resolve: { of: number; id: string; outcome: "allow" | "block"; decided_at: string; reason?: string;
     decision_hash?: string; signers: { seed: string; id: string }[] } })[];
   expect: J[];
@@ -74,6 +78,11 @@ async function run(c: Vector): Promise<J[]> {
       return r ? r.customer ?? `cust:${r.company}` : null;
     },
     requirePayees: c.policy.require_payees ?? false,
+    revocationFeed: c.feed === undefined ? null : () => {
+      if (c.feed === "error") throw new Error("revocation list unreachable");
+      const f = c.feed as { doc: unknown; keys: string[] };
+      return revocationsFromList(f.doc, f.keys, new Date(now));
+    },
     officers: c.officers,
     ledger: c.ledger ? new InMemoryLedger() : null,
     revocations: c.revocations,
@@ -144,6 +153,23 @@ describe("mandate conformance vectors (shared with the Python reference)", () =>
     }) };
     delete receipt.checked_at;
     expect(receipt).toEqual(c.receipt);
+  });
+
+  it("decisions verify against the bank's key set exactly as in the Python reference", () => {
+    const rows = (DATA as unknown as { keysets: [J, J, boolean][] }).keysets;
+    expect(rows.length).toBeGreaterThan(5);
+    for (const [ks, d, valid] of rows) expect(verifyDecision(d, ks)).toBe(valid);
+  });
+
+  it("ISO 20022 pain.001: the same XML, and the same problems, as the Python reference", () => {
+    const rows = (DATA as unknown as { pain001: { name: string; mandate: J; payment: J; decision: J | null; xml: unknown;
+      problems: string[] }[] }).pain001;
+    const built = ["sepa_with_decision", "uk", "ca", "au", "in", "mx", "us_swift", "sepa_instant"];
+    expect(rows.length).toBeGreaterThan(20);
+    for (const c of rows) {
+      if (built.includes(c.name)) expect(pain001(c.mandate, c.payment, c.decision), c.name).toBe(c.xml);
+      expect(pain001Problems(c.xml, c.mandate, c.payment, c.decision), c.name).toEqual(c.problems);
+    }
   });
 
   it("problem messages are the same as the Python reference", () => {
@@ -293,11 +319,11 @@ describe("second audit regressions (TS-specific)", () => {
     const p = attach(m, { id: "p1", rail: "sepa", amount: "1.00", currency: "EUR", payee: brenner });
     const added = JSON.parse(JSON.stringify(m).replace(/^\{/, '{"__proto__":"x",')) as Record<string, unknown>;
     expect(Object.keys(added)).toContain("__proto__");
-    expect((await bank.check(added, p)).reasons).toEqual(["mandate_mismatch"]);
+    expect((await bank.check(added, p)).reasons).toEqual(["mandate_malformed"]);
     const objInPayment = JSON.parse(JSON.stringify(p).replace(/^\{/, '{"__proto__":{"a":1},'));
     const d = await bank.check(m, objInPayment);
-    expect(d.outcome).toBe("allow"); // no agent key on this mandate: the extra field is just part of the payment
-    expect(verifyReceipt(m, objInPayment, d, [publicKeyOf(bankSeed)]).valid).toBe(true);
+    expect(d.reasons).toEqual(["payment_malformed"]); // 0.4: an unknown field, even "__proto__", is malformed
+    expect(verifyReceipt(m, objInPayment, d, [publicKeyOf(bankSeed)]).valid).toBe(false);
     const objInMandate = JSON.parse(JSON.stringify(m).replace(/^\{/, '{"__proto__":{"a":1},'));
     expect(() => verifyReceipt(objInMandate, p, d, [publicKeyOf(bankSeed)])).not.toThrow();
     expect((await bank.check(objInMandate, p)).outcome).toBe("block");

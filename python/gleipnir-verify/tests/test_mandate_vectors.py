@@ -47,3 +47,17 @@ def test_signed_decisions_verify():
 def test_problem_messages():
     for kind, obj, problem in DATA["problems"]:
         assert (M.mandate_problem if kind == "mandate" else M.payment_problem)(obj) == problem
+
+
+def test_keysets():
+    for ks, d, valid in DATA["keysets"]:
+        assert M.verify_decision(d, ks) is valid
+
+
+def test_pain001():
+    from gleipnir_verify import iso20022 as ISO
+
+    for c in DATA["pain001"]:
+        if c["name"] in ("sepa_with_decision", "uk", "ca", "au", "in", "mx", "us_swift", "sepa_instant"):
+            assert ISO.pain001(c["mandate"], c["payment"], c["decision"]) == c["xml"], c["name"]
+        assert ISO.pain001_problems(c["xml"], c["mandate"], c["payment"], c["decision"]) == c["problems"], c["name"]

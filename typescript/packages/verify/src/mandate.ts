@@ -27,8 +27,9 @@ import { decodePublicKey, ed25519PublicFromSeed, ed25519Sign, encodePublicKey, v
 import { webauthnProblem } from "./approvals.js";
 import { hasKey, isDict, type JsonDict } from "./py.js";
 import { isoMillis, microsFromDate, parseTime, type Micros } from "./time.js";
+import { parseXml, type XmlElement } from "./xml.js";
 
-export const MANDATE_VERSION = "0.3";
+export const MANDATE_VERSION = "0.4";
 const V = MANDATE_VERSION;
 
 // ---------- accounts and rails (spec section 6) ----------
@@ -562,6 +563,74 @@ function msg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
+// ---------- shapes: every object has a closed set of fields (spec 13, "Versioning") ----------
+// An unknown field makes an object malformed; producers put anything a checker must not act on under "x".
+
+type Kind = "any" | "x" | "ids" | ["s", number] | ["o", string] | ["l", string];
+const A: Kind = "any";
+const S = (n: number): Kind => ["s", n];
+const O = (n: string): Kind => ["o", n];
+const L = (n: string): Kind => ["l", n];
+
+export const SHAPES: Readonly<Record<string, Readonly<Record<string, Kind>>>> = {
+  person: { id: A, public_key: A, name: S(140), role: S(140) },
+  company: { name: S(140), country: A, ids: "ids" },
+  agent: { id: A, name: S(140), public_key: A },
+  payee: { name: S(140), account: A },
+  period: { amount: A, period: A },
+  scope: { from_accounts: A, rails: A, currency: A, max_per_payment: A, max_per_period: O("period"), payees: L("payee"),
+    purpose: S(500) },
+  signers: { threshold: A, of: L("person") },
+  sigentry: { signer: A, sig: A },
+  ref: { id: A, hash: A },
+  mandate: { v: A, id: S(128), company: O("company"), agent: O("agent"), signer: O("person"), signers: O("signers"),
+    sigs: L("sigentry"), sig: A, scope: O("scope"), valid_from: A, valid_until: A, issued_at: A, status_url: A,
+    delegation: A, x: "x" },
+  delegation: { v: A, id: S(128), company: O("company"), from: O("person"), to: O("person"), scope: O("scope"),
+    valid_from: A, valid_until: A, issued_at: A, parent: O("ref"), sig: A, x: "x" },
+  payment: { v: A, id: S(35), mandate: O("ref"), rail: A, amount: A, currency: A, from_account: A, payee: O("payee"),
+    reference: S(140), requested_at: A, agent_sig: A, x: "x" },
+  revocation: { v: A, id: S(128), mandate: A, mandate_hash: A, delegation: A, delegation_hash: A, revoked_at: A,
+    signer: O("person"), reason: S(500), sig: A, x: "x" },
+  status: { v: A, mandate: O("ref"), status: A, at: A, signer: O("person"), sig: A },
+  osig: { signer: O("person"), sig: A },
+  override: { v: A, id: S(128), decision: O("ref"), outcome: A, decided_at: A, reason: S(500), sigs: L("osig"), x: "x" },
+};
+
+/** Code-point order of keys, like Python's sorted(). */
+function pySorted(keys: string[]): string[] {
+  return [...keys].sort((a, b) => {
+    const p = [...a].map((c) => c.codePointAt(0)!), q = [...b].map((c) => c.codePointAt(0)!);
+    for (let i = 0; i < Math.min(p.length, q.length); i++) if (p[i] !== q[i]) return p[i]! - q[i]!;
+    return p.length - q.length;
+  });
+}
+
+function shapeProblem(obj: unknown, shape: string, path: string): string | null {
+  if (!isDict(obj)) return null;
+  const spec = SHAPES[shape]!;
+  for (const k of pySorted(Object.keys(obj))) {
+    const where = path ? `${path}.${k}` : k;
+    if (!Object.prototype.hasOwnProperty.call(spec, k)) return `unknown field ${where}`;
+    const kind = spec[k]!, v = obj[k];
+    if (kind === "x" || kind === "ids") {
+      if (!isDict(v)) return `${where} must be an object`;
+    } else if (Array.isArray(kind) && kind[0] === "s") {
+      if (typeof v !== "string") return `${where} must be a string`;
+      if ([...v].length > kind[1]) return `${where} is longer than ${kind[1]} characters`;
+    } else if (Array.isArray(kind) && kind[0] === "o") {
+      const bad = shapeProblem(v, kind[1], where);
+      if (bad) return bad;
+    } else if (Array.isArray(kind) && kind[0] === "l" && Array.isArray(v)) {
+      for (const item of v) {
+        const bad = shapeProblem(item, kind[1], `${where}[]`);
+        if (bad) return bad;
+      }
+    }
+  }
+  return null;
+}
+
 function personProblem(p: unknown, what: string): string | null {
   if (!isDict(p) || strFields(p, ["id", "public_key"])) return `missing ${what}.id or ${what}.public_key`;
   return null;
@@ -661,6 +730,8 @@ export function mandateProblem(m: unknown): string | null {
     "scope.max_per_payment", "valid_until", "issued_at"]);
   if (bad) return bad;
   if (!jcsOk(m)) return "mandate is not valid I-JSON";
+  const shapeBad = shapeProblem(m, "mandate", "");
+  if (shapeBad) return shapeBad;
   if (!COUNTRY_RE.test((m.company as JsonDict).country as string)) return "company.country must be an ISO 3166-1 alpha-2 code";
   const bad2 = signersProblem(m) ?? scopeProblem(m.scope as JsonDict, true) ?? validityProblem(m);
   if (bad2) return bad2;
@@ -690,6 +761,8 @@ export function delegationProblem(d: unknown): string | null {
     "scope.currency", "scope.max_per_payment", "valid_until", "issued_at"]);
   if (bad) return bad;
   if (!jcsOk(d)) return "delegation is not valid I-JSON";
+  const shapeBad = shapeProblem(d, "delegation", "");
+  if (shapeBad) return shapeBad;
   if (hasKey(d, "parent") && strFields(d.parent, ["id", "hash"])) return "parent needs id and hash";
   return scopeProblem(d.scope as JsonDict, false) ?? validityProblem(d);
 }
@@ -701,6 +774,8 @@ export function paymentProblem(p: unknown): string | null {
   if (bad) return bad;
   if (!isDict(hasKey(p, "payee") ? p.payee : null)) return "missing payee";
   if (!jcsOk(p)) return "payment is not valid I-JSON";
+  const shapeBad = shapeProblem(p, "payment", "");
+  if (shapeBad) return shapeBad;
   if (!RAILS.has(p.rail as string)) return `unknown rail: ${pyRepr(p.rail)}`;
   const payee = p.payee as JsonDict;
   const accBad = accountProblem(hasKey(payee, "account") ? payee.account : null);
@@ -722,6 +797,8 @@ export function revocationProblem(r: unknown): string | null {
   const target = hasKey(r, "mandate_hash") ? ["mandate", "mandate_hash"] : ["delegation", "delegation_hash"];
   const bad = strFields(r, [...target, "id", "revoked_at", "signer.id", "signer.public_key"]);
   if (bad || !jcsOk(r)) return bad ?? "revocation is not valid I-JSON";
+  const shapeBad = shapeProblem(r, "revocation", "");
+  if (shapeBad) return shapeBad;
   try {
     ts(r.revoked_at);
   } catch (e) {
@@ -734,6 +811,8 @@ export function statusProblem(s: unknown): string | null {
   if (!isDict(s) || s.v !== `gleipnir/status/${V}`) return "unknown status version";
   const bad = strFields(s, ["mandate.id", "mandate.hash", "status", "at", "signer.id", "signer.public_key"]);
   if (bad || !jcsOk(s)) return bad ?? "status is not valid I-JSON";
+  const shapeBad = shapeProblem(s, "status", "");
+  if (shapeBad) return shapeBad;
   if (s.status !== "active" && s.status !== "revoked") return "status must be active or revoked";
   try {
     ts(s.at);
@@ -747,6 +826,8 @@ export function overrideProblem(o: unknown): string | null {
   if (!isDict(o) || o.v !== `gleipnir/override/${V}`) return "unknown override version";
   const bad = strFields(o, ["id", "decision.id", "decision.hash", "outcome", "decided_at"]);
   if (bad || !jcsOk(o)) return bad ?? "override is not valid I-JSON";
+  const shapeBad = shapeProblem(o, "override", "");
+  if (shapeBad) return shapeBad;
   if (o.outcome !== "allow" && o.outcome !== "block") return "outcome must be allow or block";
   if (hasKey(o, "reason") && typeof o.reason !== "string") return "reason must be a string";
   const sigs = hasKey(o, "sigs") ? o.sigs : null;
@@ -1070,6 +1151,8 @@ export interface CheckerOptions {
   ledger?: Ledger | null;
   payments?: PaymentLog;
   revocations?: readonly unknown[];
+  /** revocationFeed() -> revocations from a signed, current list (revocationsFromList); throws if none is current. */
+  revocationFeed?: (() => Awaitable<unknown[]>) | null;
   /** status(url) -> the signed status response; throws (or rejects) when unreachable. */
   status?: ((url: string) => Awaitable<unknown>) | null;
   clock?: () => Date;
@@ -1092,6 +1175,7 @@ export class Checker {
   private readonly ledger: Ledger | null;
   private readonly payments: PaymentLog;
   revocations: unknown[];
+  private readonly revocationFeed: (() => Awaitable<unknown[]>) | null;
   private readonly status: ((url: string) => Awaitable<unknown>) | null;
   private readonly clock: () => Date;
   private readonly maxSkew: Micros;
@@ -1111,6 +1195,7 @@ export class Checker {
     this.ledger = o.ledger ?? null;
     this.payments = o.payments ?? new InMemoryPaymentLog();
     this.revocations = [...(o.revocations ?? [])];
+    this.revocationFeed = o.revocationFeed ?? null;
     this.status = o.status ?? null;
     this.clock = o.clock ?? (() => new Date());
     this.maxSkew = ms(o.maxSkewMs ?? 60_000);
@@ -1409,8 +1494,22 @@ export class Checker {
     }
     if (hasKey(md, "valid_from") && at < ts(md.valid_from)) return "mandate_not_yet_valid";
     if (at > ts(md.valid_until)) return "mandate_expired";
-    const revoked = await this.revoked(md, mh, chain, sigs, at);
+    const revoked = await this.revoked(md, mh, chain, sigs, at, this.revocations);
     if (revoked) return revoked;
+    if (this.revocationFeed !== null) {
+      let fed: unknown;
+      try {
+        fed = await this.revocationFeed();
+      } catch {
+        fed = null;
+      }
+      if (Array.isArray(fed)) {
+        const r = await this.revoked(md, mh, chain, sigs, at, fed);
+        if (r) return r;
+        checks.push("revocation_list_current");
+      } else if (waive.has("status_unavailable")) checks.push("revocation_list_unavailable_approved");
+      else return "status_unavailable";
+    }
     if (hasKey(md, "status_url")) {
       const st = await this.statusOf(md, mh, chain, sigs, at);
       if (st === "revoked") return "mandate_revoked";
@@ -1543,9 +1642,10 @@ export class Checker {
    * Section 9: a valid revocation of the mandate or of any delegation link, by an allowed person.
    * One signatory of a jointly signed mandate may revoke it alone: switching off needs no co-signer.
    */
-  private async revoked(m: JsonDict, mh: string, chain: JsonDict[], sigs: Signed[], at: Micros): Promise<string | null> {
+  private async revoked(m: JsonDict, mh: string, chain: JsonDict[], sigs: Signed[], at: Micros,
+    revocations: readonly unknown[]): Promise<string | null> {
     const [mandateParties, linkParties] = Checker.parties(chain, sigs);
-    for (const r of this.revocations) {
+    for (const r of revocations) {
       if (revocationProblem(r)) continue;
       const rd = r as JsonDict;
       if (ts(rd.revoked_at) > at) continue;
@@ -1746,17 +1846,123 @@ function personKey(p: JsonDict): string {
  * True if the decision was signed by one of the bank's known checker keys and not changed since.
  * checkerKeys come from the bank (its published key list), never from the decision itself.
  */
-export function verifyDecision(decision: unknown, checkerKeys: Iterable<string>): boolean {
-  const keys = new Set(checkerKeys);
+/** The bank's published checker keys (spec 10.1), served at /.well-known/gleipnir-checker.json. */
+export function keyset(checkerId: string, keys: JsonDict[], issuedAt?: string): JsonDict {
+  const ks: JsonDict = { v: `gleipnir/keys/${V}`, checker: checkerId, issued_at: issuedAt ?? fmtTs(nowMicros()), keys };
+  const problem = keysetProblem(ks);
+  if (problem) throw new Error(problem);
+  return ks;
+}
+
+export function keysetProblem(ks: unknown): string | null {
+  if (!isDict(ks) || ks.v !== `gleipnir/keys/${V}`) return "unknown key set version";
+  const bad = strFields(ks, ["checker", "issued_at"]);
+  if (bad || !jcsOk(ks)) return bad ?? "key set is not valid I-JSON";
+  const extra = pySorted(Object.keys(ks).filter((k) => !["v", "checker", "issued_at", "keys"].includes(k)));
+  if (extra.length) return `unknown field ${extra[0]}`;
+  const keys = hasKey(ks, "keys") ? ks.keys : null;
+  if (!Array.isArray(keys) || keys.length === 0) return "keys must be a non-empty list";
+  for (const k of keys) {
+    if (!isDict(k) || typeof k.public_key !== "string"
+      || Object.keys(k).some((f) => !["public_key", "from", "until", "compromised"].includes(f))) {
+      return "every key needs public_key, and only from, until, compromised besides";
+    }
+    if (hasKey(k, "compromised") && typeof k.compromised !== "boolean") return "compromised must be true or false";
+    try {
+      for (const f of ["from", "until"]) if (hasKey(k, f)) ts(k[f]);
+      if (hasKey(k, "from") && hasKey(k, "until") && ts(k.from) >= ts(k.until)) return "a key's from must be before its until";
+    } catch (e) {
+      return msg(e);
+    }
+  }
+  if (new Set((keys as JsonDict[]).map((k) => k.public_key)).size !== keys.length) return "a key is listed twice";
+  try {
+    ts(ks.issued_at);
+  } catch (e) {
+    return msg(e);
+  }
+  return null;
+}
+
+function keyValid(ks: JsonDict, pub: unknown, at: unknown): boolean {
+  for (const k of ks.keys as JsonDict[]) {
+    if (k.public_key === pub) {
+      if (k.compromised === true) return false;
+      const t = ts(at);
+      return (!hasKey(k, "from") || ts(k.from) <= t) && (!hasKey(k, "until") || t < ts(k.until));
+    }
+  }
+  return false;
+}
+
+/**
+ * True if the decision was signed by one of the bank's known checker keys and not changed since.
+ * checkerKeys come from the bank, never from the decision itself: a list of public keys, or the bank's key set
+ * (spec 10.1), in which case the decision must name that checker and fall in the key's window.
+ */
+export function verifyDecision(decision: unknown, checkerKeys: Iterable<string> | JsonDict): boolean {
   try {
     if (!isDict(decision) || !isDict(decision.checker)) return false;
     const pubText = decision.checker.public_key;
-    if (typeof pubText !== "string" || !keys.has(pubText)) return false;
+    if (typeof pubText !== "string") return false;
+    if (isDict(checkerKeys) && !(Symbol.iterator in checkerKeys)) {
+      if (keysetProblem(checkerKeys) || decision.checker.id !== checkerKeys.checker
+        || !keyValid(checkerKeys, pubText, decision.checked_at)) return false;
+    } else if (!new Set(checkerKeys as Iterable<string>).has(pubText)) return false;
     return verifySignature(decodePublicKey(pubText), mandateMessage("decision", objHash(decision)),
       hasKey(decision, "sig") ? decision.sig : null);
   } catch {
     return false;
   }
+}
+
+/** A signed list of the revocations a checker knows (spec 9.2), for checkers that are not told directly. */
+export function revocationList(revocations: unknown[], o: { issuer: string; seed: Seed; nextUpdate: string; issuedAt?: string }): JsonDict {
+  const doc: JsonDict = {
+    v: `gleipnir/revocations/${V}`, issuer: { id: o.issuer, public_key: publicKeyOf(o.seed) },
+    issued_at: o.issuedAt ?? fmtTs(nowMicros()), next_update: o.nextUpdate, revocations: [...revocations],
+  };
+  return sign(o.seed, "revocations", doc);
+}
+
+export function revocationListProblem(doc: unknown): string | null {
+  if (!isDict(doc) || doc.v !== `gleipnir/revocations/${V}`) return "unknown revocation list version";
+  const bad = strFields(doc, ["issuer.id", "issuer.public_key", "issued_at", "next_update"]);
+  if (bad || !jcsOk(doc)) return bad ?? "revocation list is not valid I-JSON";
+  if (Object.keys(doc).some((k) => !["v", "issuer", "issued_at", "next_update", "revocations", "sig"].includes(k))
+    || Object.keys(doc.issuer as JsonDict).some((k) => k !== "id" && k !== "public_key")) {
+    return "unknown field in revocation list";
+  }
+  if (!Array.isArray(hasKey(doc, "revocations") ? doc.revocations : null)) return "revocations must be a list";
+  try {
+    if (ts(doc.next_update) <= ts(doc.issued_at)) return "next_update must be after issued_at";
+  } catch (e) {
+    return msg(e);
+  }
+  return null;
+}
+
+/**
+ * The revocations of a current, validly signed list from a trusted issuer, else throws (spec 9.2). Current: issued
+ * no later than `at` (plus a minute) and `at` before `next_update`.
+ */
+export function revocationsFromList(doc: unknown, issuerKeys: Iterable<string> | JsonDict, at: Date): JsonDict[] {
+  const problem = revocationListProblem(doc);
+  if (problem) throw new Error(problem);
+  const d = doc as JsonDict;
+  const issuer = d.issuer as JsonDict;
+  const pub = issuer.public_key as string;
+  if (isDict(issuerKeys) && !(Symbol.iterator in issuerKeys)) {
+    if (keysetProblem(issuerKeys) || issuerKeys.checker !== issuer.id || !keyValid(issuerKeys, pub, d.issued_at)) {
+      throw new Error("revocation list issuer key not trusted");
+    }
+  } else if (!new Set(issuerKeys as Iterable<string>).has(pub)) throw new Error("revocation list issuer key not trusted");
+  if (!verify("revocations", objHash(d), hasKey(d, "sig") ? d.sig : null, pub, {})) {
+    throw new Error("revocation list signature is invalid");
+  }
+  const now = microsFromDate(at);
+  if (ts(d.issued_at) > now + 60_000_000n || now >= ts(d.next_update)) throw new Error("revocation list is not current");
+  return (d.revocations as unknown[]).filter((r): r is JsonDict => isDict(r));
 }
 
 export interface Receipt {
@@ -1783,7 +1989,7 @@ export interface Receipt {
  * authority check; `signer_authorized:<source>` and `override:<who>` checks record what the bank relied on.
  */
 export function verifyReceipt(
-  mandate: unknown, payment: unknown, decision: unknown, checkerKeys: Iterable<string>,
+  mandate: unknown, payment: unknown, decision: unknown, checkerKeys: Iterable<string> | JsonDict,
   opts: { webauthn?: WebauthnOptions; override?: unknown } = {},
 ): Receipt {
   const wa = opts.webauthn ?? {};
@@ -1871,4 +2077,202 @@ export function verifyReceipt(
       from: get(payment, "from_account"), payee: get(payment, "payee.account"),
     },
   };
+}
+
+// ---------- ISO 20022 (spec 6.2) ----------
+
+export const PAIN001_NS = "urn:iso:std:iso:20022:tech:xsd:pain.001.001.09";
+const GNS = `urn:gleipnir:payment:${V}`;
+const MAX_XML = 1 << 20;
+const CLEARING: Record<string, [string, string | null]> = {
+  us_aba: ["USABA", "routing"], uk_sort_code: ["GBDSC", "sort_code"], ca_eft: ["CACPA", null], au_bsb: ["AUBSB", "bsb"],
+  in_ifsc: ["INFSC", "ifsc"],
+};
+
+function xesc(t: string): string {
+  return t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+}
+
+function xel(name: string, children: string[] | { text: string }, attrs = ""): string {
+  const inner = Array.isArray(children) ? children.join("") : xesc(children.text);
+  return `<${name}${attrs}>${inner}</${name}>`;
+}
+
+const T = (text: string) => ({ text });
+
+function xmember(acc: JsonDict): string | null {
+  const c = CLEARING[acc.scheme as string];
+  if (!c) return null;
+  return c[1] === null ? "0" + (acc.institution as string) + (acc.transit as string) : (acc[c[1]] as string);
+}
+
+function xaccount(acc: JsonDict): string {
+  if (acc.scheme === "iban") return xel("Id", [xel("IBAN", T(acc.iban as string))]);
+  if (acc.scheme === "mx_clabe") {
+    return xel("Id", [xel("Othr", [xel("Id", T(acc.clabe as string)), xel("SchmeNm", [xel("Prtry", T("CLABE"))])])]);
+  }
+  return xel("Id", [xel("Othr", [xel("Id", T(acc.account as string))])]);
+}
+
+function xagent(acc: JsonDict): string {
+  if (acc.scheme === "swift") return xel("FinInstnId", [xel("BICFI", T(acc.bic as string))]);
+  const member = xmember(acc);
+  if (member !== null) {
+    const code = CLEARING[acc.scheme as string]![0];
+    return xel("FinInstnId", [xel("ClrSysMmbId", [xel("ClrSysId", [xel("Cd", T(code))]), xel("MmbId", T(member))])]);
+  }
+  return xel("FinInstnId", [xel("Othr", [xel("Id", T("NOTPROVIDED"))])]);
+}
+
+function xpaymentType(rail: string): string {
+  if (rail === "sepa") return xel("PmtTpInf", [xel("SvcLvl", [xel("Cd", T("SEPA"))])]);
+  if (rail === "sepa_instant") {
+    return xel("PmtTpInf", [xel("SvcLvl", [xel("Cd", T("SEPA"))]), xel("LclInstrm", [xel("Cd", T("INST"))])]);
+  }
+  return xel("PmtTpInf", [xel("LclInstrm", [xel("Prtry", T(rail))])]);
+}
+
+/** The pain.001.001.09 Document for one checked payment (spec 6.2). Throws for a malformed payment. */
+export function pain001(mandate: JsonDict, payment: JsonDict, decision?: JsonDict | null): string {
+  const problem = mandateProblem(mandate) ?? paymentProblem(payment);
+  if (problem) throw new Error(problem);
+  const p = payment, co = (mandate.company as JsonDict).name as string;
+  const payee = p.payee as JsonDict;
+  const payeeAcc = payee.account as JsonDict, from = p.from_account as JsonDict;
+  const env = [xel("Mandate", T(mandateHash(mandate))), xel("Payment", T(objHash(p, "agent_sig")))];
+  if (decision) env.push(xel("Decision", T(objHash(decision))));
+  const tx = [xel("PmtId", [xel("EndToEndId", T(p.id as string))]),
+    xel("Amt", [xel("InstdAmt", T(p.amount as string), ` Ccy="${p.currency as string}"`)]),
+    xel("CdtrAgt", [xagent(payeeAcc)]),
+    xel("Cdtr", [xel("Nm", T(typeof payee.name === "string" && payee.name ? payee.name : "NOTPROVIDED"))]),
+    xel("CdtrAcct", [xaccount(payeeAcc)])];
+  if (typeof p.reference === "string" && p.reference) tx.push(xel("RmtInf", [xel("Ustrd", T(p.reference))]));
+  tx.push(xel("SplmtryData", [xel("PlcAndNm", T("Gleipnir")), xel("Envlp", [xel("Gleipnir", env, ` xmlns="${GNS}"`)])]));
+  const amount = p.amount as string;
+  const pmt = xel("PmtInf", [xel("PmtInfId", T(p.id as string)), xel("PmtMtd", T("TRF")), xel("NbOfTxs", T("1")),
+    xel("CtrlSum", T(amount)), xpaymentType(p.rail as string),
+    xel("ReqdExctnDt", [xel("Dt", T((p.requested_at as string).slice(0, 10)))]), xel("Dbtr", [xel("Nm", T(co))]),
+    xel("DbtrAcct", [xaccount(from)]), xel("DbtrAgt", [xagent(from)]), xel("CdtTrfTxInf", tx)]);
+  const hdr = xel("GrpHdr", [xel("MsgId", T(p.id as string)), xel("CreDtTm", T(p.requested_at as string)),
+    xel("NbOfTxs", T("1")), xel("CtrlSum", T(amount)), xel("InitgPty", [xel("Nm", T(co))])]);
+  return '<?xml version="1.0" encoding="UTF-8"?>' + xel("Document", [xel("CstmrCdtTrfInitn", [hdr, pmt])], ` xmlns="${PAIN001_NS}"`);
+}
+
+class XBad extends Error {}
+
+function xscreen(xml: unknown): string {
+  if (typeof xml !== "string" || new TextEncoder().encode(xml).length > MAX_XML) throw new XBad("xml_malformed");
+  const upper = xml.toUpperCase();
+  if (upper.includes("<!DOCTYPE") || upper.includes("<!ENTITY") || upper.includes("<![CDATA[")) throw new XBad("xml_malformed");
+  for (let k = xml.indexOf("<?"); k >= 0; k = xml.indexOf("<?", k + 1)) {
+    if (k !== 0 || !xml.startsWith("<?xml ")) throw new XBad("xml_malformed");
+  }
+  return xml;
+}
+
+function xcheckNs(el: XmlElement, ns: string): void {
+  for (const c of el.children) {
+    if (c.ns !== ns) throw new XBad("xml_malformed");
+    if (c.local === "Envlp") {
+      const walk = (x: XmlElement) => {
+        if (x.ns !== GNS) throw new XBad("xml_malformed");
+        x.children.forEach(walk);
+      };
+      c.children.forEach(walk);
+    } else xcheckNs(c, ns);
+  }
+}
+
+function xfind(el: XmlElement | null, path: string, ns = PAIN001_NS): XmlElement | null {
+  for (const part of path.split("/")) {
+    if (el === null) return null;
+    const hits = el.children.filter((c) => c.ns === ns && c.local === part);
+    if (hits.length !== 1) return null;
+    el = hits[0]!;
+  }
+  return el;
+}
+
+function xtext(el: XmlElement | null, path: string, ns = PAIN001_NS): string | null {
+  const f = xfind(el, path, ns);
+  if (f === null || f.children.length) return null;
+  return f.text.trim();
+}
+
+function xreadAccount(acct: XmlElement | null, agent: XmlElement | null, like: JsonDict): JsonDict | null {
+  const scheme = like.scheme as string;
+  if (scheme === "iban") {
+    const v = xtext(acct, "Id/IBAN");
+    return v === null ? null : { scheme: "iban", iban: v };
+  }
+  if (scheme === "mx_clabe") {
+    if (xtext(acct, "Id/Othr/SchmeNm/Prtry") !== "CLABE") return null;
+    const v = xtext(acct, "Id/Othr/Id");
+    return v === null ? null : { scheme: "mx_clabe", clabe: v };
+  }
+  const number = xtext(acct, "Id/Othr/Id");
+  if (number === null) return null;
+  if (scheme === "swift") {
+    const bic = xtext(agent, "FinInstnId/BICFI");
+    return bic === null ? null : { scheme: "swift", bic, account: number };
+  }
+  const [code, field] = CLEARING[scheme]!;
+  if (xtext(agent, "FinInstnId/ClrSysMmbId/ClrSysId/Cd") !== code) return null;
+  const member = xtext(agent, "FinInstnId/ClrSysMmbId/MmbId");
+  if (member === null) return null;
+  if (field === null) {
+    if ([...member].length !== 9 || !member.startsWith("0")) return null;
+    return { scheme: "ca_eft", institution: member.slice(1, 4), transit: member.slice(4), account: number };
+  }
+  return { scheme, [field]: member, account: number };
+}
+
+/**
+ * Why this pain.001 is not exactly the payment the checker decided on, or [] if it is (spec 6.2): the one
+ * transaction whose EndToEndId is the payment id, compared on amount, currency, debtor and creditor accounts and
+ * the Gleipnir envelope.
+ */
+export function pain001Problems(xml: unknown, mandate: JsonDict, payment: JsonDict, decision?: JsonDict | null): string[] {
+  if (mandateProblem(mandate) || paymentProblem(payment)) return ["payment_malformed"];
+  let hits: [XmlElement, XmlElement][];
+  try {
+    let root: XmlElement;
+    try {
+      root = parseXml(xscreen(xml));
+    } catch (e) {
+      if (e instanceof XBad) throw e;
+      throw new XBad("xml_malformed");
+    }
+    if (root.ns !== PAIN001_NS || root.local !== "Document") throw new XBad("xml_not_pain001");
+    xcheckNs(root, PAIN001_NS);
+    const initn = xfind(root, "CstmrCdtTrfInitn");
+    if (initn === null) throw new XBad("xml_not_pain001");
+    hits = [];
+    for (const pmt of initn.children) {
+      if (pmt.ns !== PAIN001_NS || pmt.local !== "PmtInf") continue;
+      for (const tx of pmt.children) {
+        if (tx.ns === PAIN001_NS && tx.local === "CdtTrfTxInf" && xtext(tx, "PmtId/EndToEndId") === payment.id) hits.push([pmt, tx]);
+      }
+    }
+  } catch (e) {
+    return [e instanceof XBad ? e.message : "xml_malformed"];
+  }
+  if (hits.length === 0) return ["end_to_end_id_not_found"];
+  if (hits.length > 1) return ["end_to_end_id_not_unique"];
+  const [pmt, tx] = hits[0]!;
+  const problems: string[] = [];
+  const amt = xfind(tx, "Amt/InstdAmt");
+  if (amt === null || amt.children.length || amt.text.trim() !== payment.amount) problems.push("amount_mismatch");
+  if (amt === null || amt.attrs.Ccy !== payment.currency) problems.push("currency_mismatch");
+  const from = payment.from_account as JsonDict;
+  if (!same(xreadAccount(xfind(pmt, "DbtrAcct"), xfind(pmt, "DbtrAgt"), from), from)) problems.push("debtor_account_mismatch");
+  const payeeAcc = (payment.payee as JsonDict).account as JsonDict;
+  if (!same(xreadAccount(xfind(tx, "CdtrAcct"), xfind(tx, "CdtrAgt"), payeeAcc), payeeAcc)) problems.push("creditor_account_mismatch");
+  const env = xfind(tx, "SplmtryData/Envlp");
+  const g = env ? env.children.filter((c) => c.ns === GNS && c.local === "Gleipnir") : [];
+  const gl = g.length === 1 ? g[0]! : null;
+  if (xtext(gl, "Mandate", GNS) !== mandateHash(mandate)) problems.push("mandate_reference_mismatch");
+  if (xtext(gl, "Payment", GNS) !== objHash(payment, "agent_sig")) problems.push("payment_reference_mismatch");
+  if (decision && xtext(gl, "Decision", GNS) !== objHash(decision)) problems.push("decision_reference_mismatch");
+  return problems;
 }

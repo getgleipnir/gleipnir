@@ -31,12 +31,12 @@ Gleipnir does not move money and does not verify identities: the bank (KYB) or a
 
 | | |
 |---|---|
-| **Spec** | [spec/mandate.md](spec/mandate.md), v0.3 draft: enrollment, multi-signature, delegation, debtor accounts, accounts and rails worldwide, overrides, signed status, revocation, receipts, threat model, reason codes, conformance |
+| **Spec** | [spec/mandate.md](spec/mandate.md), v0.4 draft: enrollment, multi-signature, delegation, debtor accounts, accounts and rails worldwide, ISO 20022 pain.001, overrides, signed status, revocation and revocation lists, bank key sets, receipts, closed shapes and versioning, threat model, reason codes, conformance |
 | **Reference checker** | Python `gleipnir_verify.mandate` |
 | **TypeScript port** | `@getgleipnir/verify/mandate` (Node and browsers), same results on every test vector |
-| **Test vectors** | [128 shared cases](typescript/packages/verify/test/fixtures/mandate-vectors.json): both implementations run them and verify each other's decisions |
-| **CLI** | `gleipnir mandate keygen · issue · sign · delegate · pay · check · override · resolve · status · revoke · verify · serve · mcp` |
-| **Bank side** | `gleipnir mandate serve`: reference `POST /check` and `POST /resolve` server |
+| **Test vectors** | [134 shared cases](typescript/packages/verify/test/fixtures/mandate-vectors.json): both implementations run them and verify each other's decisions; plus pinned problems, key sets and byte-identical pain.001 XML |
+| **CLI** | `gleipnir mandate keygen · issue · sign · delegate · pay · check · override · resolve · status · revoke · revocations · keyset · pain001 · verify · serve · mcp` |
+| **Bank side** | `gleipnir mandate serve`: reference `POST /check` and `POST /resolve` server, with `/.well-known/gleipnir-checker.json` and a signed `GET /revocations` list |
 | **Agent side** | MCP server (Python, or `npx gleipnir-mandate-mcp`) for Claude, Cursor and any MCP client |
 | **Signatory side** | [site/mandate](site/mandate/index.html): review a mandate and sign it with a passkey; no network |
 | **Use cases** | all [21 scenarios](python/gleipnir-verify/tests/test_mandate_usecases.py) as named tests, from issuing to a dispute three months later |
@@ -111,17 +111,20 @@ A bank plugs in its own authority source (`authority(company, person_id)`), acco
 
 Four tools and one resource: `mandate_scope` (what may I pay), `request_mandate` (an unsigned draft for a person to sign; the agent never signs one itself), `attach_mandate` (a payment signed with the agent key), `check_payment` (asks the bank's checker before paying: allow, block or escalate, with advice); `gleipnir://mandate/current` is the mandate itself.
 
-**Signatories.** [site/mandate](site/mandate/index.html) is a single static page: paste or open a draft, read what the agent may pay (payees, limits, validity, delegation), sign with a passkey, alone or as one of several co-signers. It makes no network requests. The passkey signs `SHA-256("gleipnir/mandate/v0.3\n" || mandate_hash)`, so the signature is valid for this mandate and nothing else.
+**Signatories.** [site/mandate](site/mandate/index.html) is a single static page: paste or open a draft, read what the agent may pay (payees, limits, validity, delegation), sign with a passkey, alone or as one of several co-signers. It makes no network requests. The passkey signs `SHA-256("gleipnir/mandate/v0.4\n" || mandate_hash)`, so the signature is valid for this mandate and nothing else.
 
 **Banks.** A reference HTTP checker (JSON only, Origin allow-list, no auth: put it behind your own gateway):
 
 ```bash
-g serve --authority kyb.json --bank-key bank.pem --port 8787   # POST /check, POST /resolve, GET /keys, POST /revoke
+g serve --authority kyb.json --bank-key bank.pem --port 8787   # POST /check, POST /resolve, GET /keys, POST /revoke,
+                                                               # GET /.well-known/gleipnir-checker.json, GET /revocations
+g pain001 m.json p.json --decision d.json -o pain.xml   # ISO 20022 message carrying the hashes
+g pain001 m.json p.json --check pain.xml                     # before executing: MATCHES or MISMATCH
 ```
 
 ## Status and security
 
-- **Draft 0.3.** The format may still change; feedback from payment, fraud and compliance people is very welcome.
+- **Draft 0.4.** The format may still change; feedback from payment, fraud and compliance people is very welcome.
 - **Audited three times** by independent reviewers who wrote every attack as a test: [first audit](docs/audit-2026-10-23.md), [second audit and re-verification](docs/audit-2026-10-23-evening.md) (23.10.2026), [third audit, spec 0.3](docs/audit-2026-10-24.md) (24.10.2026). Every finding is fixed or documented, with regression tests.
 - **Not solved by design:** a fake invoice from a real payee within the limits, collusion between real signatories, a compromised signer phone within the signed scope. They are bounded and visible in the receipt; see [residual risks](spec/mandate.md#11-threat-model).
 - **Open:** a standard revocation-list format, joint signing inside delegation links, ISO 20022 mapping, real vLEI (ACDC/KERI) credential verification (today vLEI is an authority source).
