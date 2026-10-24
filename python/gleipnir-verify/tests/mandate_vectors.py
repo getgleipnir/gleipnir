@@ -450,8 +450,16 @@ def v04_cases() -> list[dict[str, Any]]:
                               next_update="2026-10-23T10:00:00.000Z")
     stale = M.revocation_list([], issuer="bank:HOME", sk=home, issued_at="2026-10-23T08:00:00.000Z",
                               next_update="2026-10-23T09:00:00.000Z")
+    long = M.revocation_list([], issuer="bank:HOME", sk=home, issued_at="2026-10-23T09:00:00.000Z",
+                             next_update="2026-10-25T09:00:00.000Z")
+    ks = lambda k: {"v": f"gleipnir/keys/{M.V}", "checker": "bank:HOME",  # noqa: E731
+                    "issued_at": "2026-10-23T00:00:00.000Z", "keys": [{"public_key": home_pk, **k}]}
     officer_sk = key(9)
     return [
+        case("feed_keyset_revokes", m, [pay(m, "p_1")], feed={"doc": ok, "keys": ks({})}),
+        case("feed_issuer_key_retired_since", m, [pay(m, "p_1")],
+             feed={"doc": empty, "keys": ks({"until": "2026-10-23T09:10:00.000Z"})}),
+        case("feed_current_for_too_long", m, [pay(m, "p_1")], feed={"doc": long, "keys": [home_pk]}),
         case("feed_revokes", m, [pay(m, "p_1")], feed={"doc": ok, "keys": [home_pk]}),
         case("feed_current_empty", m, [pay(m, "p_1")], feed={"doc": empty, "keys": [home_pk]}),
         case("feed_stale", m, [pay(m, "p_1")], feed={"doc": stale, "keys": [home_pk]}),
@@ -533,6 +541,29 @@ def pain001_cases() -> list[dict[str, Any]]:
         "truncated": good[:-20],
         "not_a_string": 42,
         "deep": good.replace("<Ustrd>", "<Ustrd>" + "<a>" * 70 + "</a>" * 70).replace("&lt;AG&gt;", ""),
+        # Everything else must be what pain001 writes (third-party review of 0.4).
+        "extra_transaction_to_attacker": good.replace(tx, tx + tx.replace(">INV-2026-0912<", ">INV-EVIL<")
+                                                      .replace(">18400.00<", ">99999.00<")
+                                                      .replace("AT611904300234573201", "LT121000011101001000")),
+        "second_payment_block": good.replace("</PmtInf>", "</PmtInf>" + good[good.index("<PmtInf>"):
+                                             good.index("</PmtInf>") + 9].replace(">INV-2026-0912<", ">X-2<")),
+        "cheque_instead_of_transfer": good.replace("<PmtMtd>TRF<", "<PmtMtd>CHK<"),
+        "intermediary_agent_added": good.replace("<CdtrAgt>", "<IntrmyAgt1><FinInstnId><BICFI>EVILXXXX</BICFI>"
+                                                 "</FinInstnId></IntrmyAgt1><CdtrAgt>"),
+        "control_sum_changed": good.replace("<CtrlSum>18400.00<", "<CtrlSum>99999.00<"),
+        "service_level_changed": good.replace("<Cd>SEPA</Cd>", "<Cd>URGP</Cd>"),
+        "attribute_added": good.replace("<Cdtr>", '<Cdtr a="1">'),
+        "structured_remittance": good.replace("<RmtInf><Ustrd>", "<RmtInf><Strd/><Ustrd>"),
+        "names_and_ids_changed": good.replace(">Acme Robotics GmbH<", ">ACME<").replace(
+            "<MsgId>INV-2026-0912<", "<MsgId>ERP-77<").replace("<PmtInfId>INV-2026-0912<", "<PmtInfId>B-1<"),
+        "remittance_removed": good[:good.index("<RmtInf>")] + good[good.index("</RmtInf>") + 9:],
+        "pretty_printed": good.replace("><", ">\n  <"),
+        "byte_order_mark_reference": good.replace(">18400.00</InstdAmt>", ">18400.00&#xFEFF;</InstdAmt>"),
+        "next_line_reference": good.replace(">18400.00</InstdAmt>", ">18400.00&#x85;</InstdAmt>"),
+        "bad_declaration": good.replace('<?xml version="1.0" encoding="UTF-8"?>', "<?xml garbage?>"),
+        "double_dash_comment": good.replace("<Cdtr>", "<Cdtr><!-- a -- b -->"),
+        "cdata_end_in_text": good.replace("<Ustrd>", "<Ustrd>]]>"),
+        "empty_prefix_namespace": good.replace("<Cdtr>", '<Cdtr xmlns:p="">'),
     }
     other_d = {**d, "id": "d_other"}
     for name, x in altered.items():

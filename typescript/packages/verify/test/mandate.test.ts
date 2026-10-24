@@ -172,6 +172,12 @@ describe("mandate conformance vectors (shared with the Python reference)", () =>
     }
   });
 
+  it("a lone surrogate in a pain.001 is malformed, as in Python", () => {
+    const c = (DATA as unknown as { pain001: { mandate: J; payment: J; decision: J | null; xml: string }[] }).pain001[0]!;
+    const bad = c.xml.replace("</Nm></Cdtr>", "\uD800</Nm></Cdtr>");
+    expect(pain001Problems(bad, c.mandate, c.payment, c.decision)).toEqual(["xml_malformed"]);
+  });
+
   it("problem messages are the same as the Python reference", () => {
     const rows = (DATA as unknown as { problems: [string, unknown, string][] }).problems;
     expect(rows.length).toBeGreaterThan(10);

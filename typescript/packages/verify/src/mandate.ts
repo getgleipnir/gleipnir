@@ -1888,7 +1888,7 @@ function keyValid(ks: JsonDict, pub: unknown, at: unknown): boolean {
   for (const k of ks.keys as JsonDict[]) {
     if (k.public_key === pub) {
       if (k.compromised === true) return false;
-      const t = ts(at);
+      const t = typeof at === "bigint" ? at : ts(at);
       return (!hasKey(k, "from") || ts(k.from) <= t) && (!hasKey(k, "until") || t < ts(k.until));
     }
   }
@@ -1946,6 +1946,9 @@ export function revocationListProblem(doc: unknown): string | null {
  * The revocations of a current, validly signed list from a trusted issuer, else throws (spec 9.2). Current: issued
  * no later than `at` (plus a minute) and `at` before `next_update`.
  */
+/** A revocation list is current for at most 24 hours (spec 9.2). */
+export const MAX_REVOCATION_LIST_AGE_MICROS = 24n * 3600n * 1_000_000n;
+
 export function revocationsFromList(doc: unknown, issuerKeys: Iterable<string> | JsonDict, at: Date): JsonDict[] {
   const problem = revocationListProblem(doc);
   if (problem) throw new Error(problem);
@@ -1953,7 +1956,8 @@ export function revocationsFromList(doc: unknown, issuerKeys: Iterable<string> |
   const issuer = d.issuer as JsonDict;
   const pub = issuer.public_key as string;
   if (isDict(issuerKeys) && !(Symbol.iterator in issuerKeys)) {
-    if (keysetProblem(issuerKeys) || issuerKeys.checker !== issuer.id || !keyValid(issuerKeys, pub, d.issued_at)) {
+    if (keysetProblem(issuerKeys) || issuerKeys.checker !== issuer.id || !keyValid(issuerKeys, pub, d.issued_at)
+        || !keyValid(issuerKeys, pub, microsFromDate(at))) {
       throw new Error("revocation list issuer key not trusted");
     }
   } else if (!new Set(issuerKeys as Iterable<string>).has(pub)) throw new Error("revocation list issuer key not trusted");
@@ -1962,6 +1966,9 @@ export function revocationsFromList(doc: unknown, issuerKeys: Iterable<string> |
   }
   const now = microsFromDate(at);
   if (ts(d.issued_at) > now + 60_000_000n || now >= ts(d.next_update)) throw new Error("revocation list is not current");
+  if (ts(d.next_update) - ts(d.issued_at) > MAX_REVOCATION_LIST_AGE_MICROS) {
+    throw new Error("revocation list is current for longer than 24 hours");
+  }
   return (d.revocations as unknown[]).filter((r): r is JsonDict => isDict(r));
 }
 
@@ -2160,12 +2167,20 @@ export function pain001(mandate: JsonDict, payment: JsonDict, decision?: JsonDic
 
 class XBad extends Error {}
 
+// Characters XML 1.0 allows, minus U+FEFF; with the u flag a lone surrogate is a code point outside the class.
+const XBAD_CHAR = /[^\t\n\r\u0020-\uD7FF\uE000-\uFEFE\uFF00-\uFFFD\u{10000}-\u{10FFFF}]/u;
+const XDECL = /^<\?xml[ \t\r\n]+version[ \t\r\n]*=[ \t\r\n]*(["'])1\.0\1(?:[ \t\r\n]+encoding[ \t\r\n]*=[ \t\r\n]*(["'])(?:UTF|utf)-8\2)?(?:[ \t\r\n]+standalone[ \t\r\n]*=[ \t\r\n]*(["'])(?:yes|no)\3)?[ \t\r\n]*\?>/;
+/** Trims XML whitespace only, as every implementation does. */
+const xtrim = (t: string) => t.replace(/^[ \t\r\n]+|[ \t\r\n]+$/g, "");
+
 function xscreen(xml: unknown): string {
-  if (typeof xml !== "string" || new TextEncoder().encode(xml).length > MAX_XML) throw new XBad("xml_malformed");
+  if (typeof xml !== "string" || XBAD_CHAR.test(xml) || new TextEncoder().encode(xml).length > MAX_XML) {
+    throw new XBad("xml_malformed");
+  }
   const upper = xml.toUpperCase();
   if (upper.includes("<!DOCTYPE") || upper.includes("<!ENTITY") || upper.includes("<![CDATA[")) throw new XBad("xml_malformed");
   for (let k = xml.indexOf("<?"); k >= 0; k = xml.indexOf("<?", k + 1)) {
-    if (k !== 0 || !xml.startsWith("<?xml ")) throw new XBad("xml_malformed");
+    if (k !== 0 || !XDECL.test(xml)) throw new XBad("xml_malformed");
   }
   return xml;
 }
@@ -2196,7 +2211,7 @@ function xfind(el: XmlElement | null, path: string, ns = PAIN001_NS): XmlElement
 function xtext(el: XmlElement | null, path: string, ns = PAIN001_NS): string | null {
   const f = xfind(el, path, ns);
   if (f === null || f.children.length) return null;
-  return f.text.trim();
+  return xtrim(f.text);
 }
 
 function xreadAccount(acct: XmlElement | null, agent: XmlElement | null, like: JsonDict): JsonDict | null {
@@ -2235,8 +2250,8 @@ function xreadAccount(acct: XmlElement | null, agent: XmlElement | null, like: J
 export function pain001Problems(xml: unknown, mandate: JsonDict, payment: JsonDict, decision?: JsonDict | null): string[] {
   if (mandateProblem(mandate) || paymentProblem(payment)) return ["payment_malformed"];
   let hits: [XmlElement, XmlElement][];
+  let root: XmlElement;
   try {
-    let root: XmlElement;
     try {
       root = parseXml(xscreen(xml));
     } catch (e) {
@@ -2262,7 +2277,7 @@ export function pain001Problems(xml: unknown, mandate: JsonDict, payment: JsonDi
   const [pmt, tx] = hits[0]!;
   const problems: string[] = [];
   const amt = xfind(tx, "Amt/InstdAmt");
-  if (amt === null || amt.children.length || amt.text.trim() !== payment.amount) problems.push("amount_mismatch");
+  if (amt === null || amt.children.length || xtrim(amt.text) !== payment.amount) problems.push("amount_mismatch");
   if (amt === null || amt.attrs.Ccy !== payment.currency) problems.push("currency_mismatch");
   const from = payment.from_account as JsonDict;
   if (!same(xreadAccount(xfind(pmt, "DbtrAcct"), xfind(pmt, "DbtrAgt"), from), from)) problems.push("debtor_account_mismatch");
@@ -2274,5 +2289,34 @@ export function pain001Problems(xml: unknown, mandate: JsonDict, payment: JsonDi
   if (xtext(gl, "Mandate", GNS) !== mandateHash(mandate)) problems.push("mandate_reference_mismatch");
   if (xtext(gl, "Payment", GNS) !== objHash(payment, "agent_sig")) problems.push("payment_reference_mismatch");
   if (decision && xtext(gl, "Decision", GNS) !== objHash(decision)) problems.push("decision_reference_mismatch");
+  if (!xsameShape(root, parseXml(pain001(mandate, payment, decision)), [], !decision)) problems.push("unexpected_content");
   return problems;
+}
+
+// Leaves whose text may differ from what pain001 writes, and leaves the checks above already compare.
+const XFREE = new Set(["MsgId", "CreDtTm", "PmtInfId", "Dt", "Nm", "Ustrd"]);
+const XCOMPARED = new Set(["InstdAmt", "IBAN", "BICFI", "MmbId", "Mandate", "Payment", "Decision"]);
+
+function xsameShape(a: XmlElement, e: XmlElement, path: string[], noDecision: boolean): boolean {
+  if (a.ns !== e.ns || a.local !== e.local) return false;
+  const name = a.local;
+  const ak = Object.keys(a.attrs).sort(), ek = Object.keys(e.attrs).sort();
+  if (ak.length !== ek.length || ak.some((k, n) => k !== ek[n])) return false;
+  if (name !== "InstdAmt" && ak.some((k) => a.attrs[k] !== e.attrs[k])) return false;
+  if (e.children.length === 0) {
+    if (a.children.length) return false;
+    const inAccount = path.includes("DbtrAcct") || path.includes("CdtrAcct");
+    return XFREE.has(name) || XCOMPARED.has(name) || (name === "Id" && inAccount) || xtrim(a.text) === xtrim(e.text);
+  }
+  if (xtrim(a.text)) return false;
+  let ac = a.children, ec = e.children;
+  if (name === "CdtTrfTxInf") {
+    const rmt = ac.filter((c) => c.local === "RmtInf");
+    if (rmt.length > 1 || rmt.some((r) => r.children.length !== 1 || r.children[0]!.local !== "Ustrd"
+        || Object.keys(r.attrs).length || xtrim(r.text))) return false;
+    ac = ac.filter((c) => c.local !== "RmtInf");
+    ec = ec.filter((c) => c.local !== "RmtInf");
+  }
+  if (name === "Gleipnir" && noDecision) ac = ac.filter((c) => c.local !== "Decision");
+  return ac.length === ec.length && ac.every((c, n) => xsameShape(c, ec[n]!, [...path, name], noDecision));
 }

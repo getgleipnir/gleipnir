@@ -9,6 +9,11 @@ reference travels inside the bank's own payment message. A bank that executes pa
 transaction against the payment it was allowed as: same end-to-end id (the payment id), amount, currency,
 debtor account, creditor account, and the Gleipnir envelope.
 
+Everything else in the message must be exactly what ``pain001`` writes for this payment (one payment
+information block with one transaction, the same payment method, type and control sums, no other elements);
+only names, remittance text, message and block ids and dates may differ. A file with a second transaction, or
+an intermediary agent or a cheque payment method added, is ``unexpected_content``.
+
 XML is parsed strictly: no DTD, entities, CDATA or processing instructions (other than the XML declaration),
 every element in the pain.001 namespace (the envelope in the Gleipnir namespace), at most 1 MiB.
 """
@@ -113,15 +118,32 @@ class _Bad(Exception):
     pass
 
 
+# Characters XML 1.0 allows, minus U+FEFF (a byte order mark has no place in a decoded string).
+_BAD_CHAR = re.compile("[^\t\n\r\x20-\ud7ff\ue000-\ufefe\uff00-\ufffd\U00010000-\U0010ffff]")
+_DECL = re.compile(r"""<\?xml[ \t\r\n]+version[ \t\r\n]*=[ \t\r\n]*(["'])1\.0\1"""
+                   r"""(?:[ \t\r\n]+encoding[ \t\r\n]*=[ \t\r\n]*(["'])(?:UTF|utf)-8\2)?"""
+                   r"""(?:[ \t\r\n]+standalone[ \t\r\n]*=[ \t\r\n]*(["'])(?:yes|no)\3)?[ \t\r\n]*\?>""")
+_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9._-]*")
+_WS = " \t\r\n"  # XML whitespace, the only characters trimmed from values
+
+
 def _screen(xml: str) -> None:
     """The same strict subset in every implementation, before any parser sees the text."""
-    if not isinstance(xml, str) or len(xml.encode("utf-8")) > MAX_XML:
+    if not isinstance(xml, str) or _BAD_CHAR.search(xml) or len(xml.encode("utf-8")) > MAX_XML:
         raise _Bad("xml_malformed")
     upper = xml.upper()
     if "<!DOCTYPE" in upper or "<!ENTITY" in upper or "<![CDATA[" in upper:
         raise _Bad("xml_malformed")
     for match in re.finditer(r"<\?", xml):
-        if match.start() != 0 or not xml.startswith("<?xml "):
+        if match.start() != 0 or not _DECL.match(xml):
+            raise _Bad("xml_malformed")
+
+
+def _names_ok(root: ET.Element) -> None:
+    """Element and attribute names are ASCII XML names, as every implementation reads them."""
+    for el in root.iter():
+        names = [el.tag, *el.attrib]
+        if any(not _NAME.fullmatch(n.rsplit("}", 1)[-1]) for n in names):
             raise _Bad("xml_malformed")
 
 
@@ -159,7 +181,7 @@ def _text(el: ET.Element | None, path: str, ns: str = NS) -> str | None:
     found = _find(el, path, ns)
     if found is None or len(found):
         return None
-    return (found.text or "").strip()
+    return (found.text or "").strip(_WS)
 
 
 def _read_account(acct: ET.Element | None, agent: ET.Element | None, like: dict) -> dict | None:
@@ -207,6 +229,7 @@ def pain001_problems(xml: Any, mandate: dict, payment: dict, decision: dict | No
             root = ET.fromstring(xml)  # noqa: S314 - screened above
         except ET.ParseError as e:
             raise _Bad("xml_malformed") from e
+        _names_ok(root)
         stack = [(root, 1)]
         while stack:  # the same depth limit as every other implementation
             el, depth = stack.pop()
@@ -219,6 +242,7 @@ def pain001_problems(xml: Any, mandate: dict, payment: dict, decision: dict | No
         initn = _find(root, "CstmrCdtTrfInitn", NS)
         if initn is None:
             raise _Bad("xml_not_pain001")
+        doc = root
         hits = [(pmt, tx) for pmt in initn if pmt.tag == f"{{{NS}}}PmtInf"
                 for tx in pmt if tx.tag == f"{{{NS}}}CdtTrfTxInf" and _text(tx, "PmtId/EndToEndId") == payment["id"]]
     except _Bad as b:
@@ -232,7 +256,7 @@ def pain001_problems(xml: Any, mandate: dict, payment: dict, decision: dict | No
     pmt, tx = hits[0]
     problems = []
     amt = _find(tx, "Amt/InstdAmt", NS)
-    if amt is None or len(amt) or (amt.text or "").strip() != payment["amount"]:
+    if amt is None or len(amt) or (amt.text or "").strip(_WS) != payment["amount"]:
         problems.append("amount_mismatch")
     if amt is None or amt.get("Ccy") != payment["currency"]:
         problems.append("currency_mismatch")
@@ -251,4 +275,53 @@ def pain001_problems(xml: Any, mandate: dict, payment: dict, decision: dict | No
         problems.append("payment_reference_mismatch")
     if decision is not None and _text(gl, "Decision", GNS) != M.obj_hash(decision):
         problems.append("decision_reference_mismatch")
+    expected = ET.fromstring(pain001(mandate, payment, decision))  # noqa: S314 - our own output
+    if not _same_shape(_node(doc), _node(expected), (), decision is None):
+        problems.append("unexpected_content")
     return problems
+
+
+# Leaves whose text may differ from what pain001 writes (names, remittance text, ids, dates), and leaves whose
+# text the checks above already compare, so a changed amount or account is reported as itself.
+_FREE = {"MsgId", "CreDtTm", "PmtInfId", "Dt", "Nm", "Ustrd"}
+_COMPARED = {"InstdAmt", "IBAN", "BICFI", "MmbId", "Mandate", "Payment", "Decision"}
+
+
+def _node(el: ET.Element) -> dict:
+    """An element as (namespace, name, attributes, text, children), the same in every implementation."""
+    ns, _, local = el.tag[1:].partition("}")
+    text = (el.text or "") + "".join(c.tail or "" for c in el)
+    return {"ns": ns, "local": local, "attrs": dict(el.attrib), "text": text, "children": [_node(c) for c in el]}
+
+
+def _same_shape(a: dict, e: dict, path: tuple[str, ...], no_decision: bool) -> bool:
+    """``a`` is ``e`` except for free leaves, leaves compared elsewhere, remittance text and a decision hash."""
+    if a["ns"] != e["ns"] or a["local"] != e["local"]:
+        return False
+    name = a["local"]
+    if name == "InstdAmt":
+        if set(a["attrs"]) != set(e["attrs"]):
+            return False
+    elif a["attrs"] != e["attrs"]:
+        return False
+    if not e["children"]:
+        if a["children"]:
+            return False
+        in_account = "DbtrAcct" in path or "CdtrAcct" in path
+        return name in _FREE or name in _COMPARED or (name == "Id" and in_account) \
+            or a["text"].strip(_WS) == e["text"].strip(_WS)
+    if a["text"].strip(_WS):
+        return False
+    ac, ec = a["children"], e["children"]
+    if name == "CdtTrfTxInf":  # remittance information is optional and free, but only as unstructured text
+        rmt = [c for c in ac if c["local"] == "RmtInf"]
+        if len(rmt) > 1 or any(len(r["children"]) != 1 or r["children"][0]["local"] != "Ustrd" or r["attrs"]
+                               or r["text"].strip(_WS) for r in rmt):
+            return False
+        ac = [c for c in ac if c["local"] != "RmtInf"]
+        ec = [c for c in ec if c["local"] != "RmtInf"]
+    if name == "Gleipnir" and no_decision:  # a decision hash the caller did not ask about
+        ac = [c for c in ac if c["local"] != "Decision"]
+    if len(ac) != len(ec):
+        return False
+    return all(_same_shape(x, y, (*path, name), no_decision) for x, y in zip(ac, ec, strict=True))
