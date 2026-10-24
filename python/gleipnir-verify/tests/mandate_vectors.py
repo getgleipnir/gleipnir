@@ -16,6 +16,7 @@ from typing import Any
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
+from gleipnir_verify import iso20022 as ISO
 from gleipnir_verify import mandate as M
 from gleipnir_verify.approvals import approval_challenge
 
@@ -160,6 +161,7 @@ def v02_cases() -> list[dict[str, Any]]:  # noqa: PLR0915
         *audit2_cases(),
         *v03_cases(),
         *audit3_cases(),
+        *v04_cases(),
     ]
 
 
@@ -404,8 +406,10 @@ def audit3_cases() -> list[dict[str, Any]]:
     aliased = M.cosign(M.cosign(aliased, SIGNER, SIGNER_ID), HOFER, alias["id"])
     alias_kyb = [row(SIGNER_ID, SIGNER, keys=[M.public_key_of(SIGNER), M.public_key_of(HOFER)]) | {"person": "p1"},
                  row(alias["id"], HOFER, keys=[M.public_key_of(SIGNER), M.public_key_of(HOFER)]) | {"person": "p1"}]
-    null_ids = M.delegate(id="g_null", company={**COMPANY, "ids": None}, from_=CEO_P, to=CFO_P, scope=WIDE,
-                          valid_until="2027-03-31T23:59:59.000Z", sk=CEO, issued_at="2026-10-01T08:00:00.000Z")
+    null_ids = M._sign(CEO, "delegation", {"v": f"gleipnir/delegation/{M.V}", "id": "g_null",
+                                           "company": {**COMPANY, "ids": None}, "from": CEO_P, "to": CFO_P,
+                                           "scope": WIDE, "valid_until": "2027-03-31T23:59:59.000Z",
+                                           "issued_at": "2026-10-01T08:00:00.000Z"})
     d_null = delegated([null_ids])
     big = pay(m, "p_big", "30000.00")
     shared = link("g_cap", (CEO, CEO_P), CFO_P, sc={**WIDE, "max_per_period": {"amount": "30000.00", "period": "P1M"}})
@@ -432,6 +436,110 @@ def audit3_cases() -> list[dict[str, Any]]:
              ops=["check", "check", resolve(1, signers=((OTHER, "boss@x"),)), resolve(2, signers=ops, oid="o_2")]),
         case("A3_override_approvers_recorded", m, [big, big], ops=["check", resolve(0)]),
     ]
+
+
+def v04_cases() -> list[dict[str, Any]]:
+    """0.4: revocation lists from another checker (spec 9.2)."""
+    m = mandate()
+    home = key(11)
+    home_pk = M.public_key_of(home)
+    rev = M.revoke(m, signer=signer(), sk=SIGNER, id="r_feed", revoked_at="2026-10-22T00:00:00.000Z")
+    ok = M.revocation_list([rev], issuer="bank:HOME", sk=home, issued_at="2026-10-23T09:00:00.000Z",
+                           next_update="2026-10-23T10:00:00.000Z")
+    empty = M.revocation_list([], issuer="bank:HOME", sk=home, issued_at="2026-10-23T09:00:00.000Z",
+                              next_update="2026-10-23T10:00:00.000Z")
+    stale = M.revocation_list([], issuer="bank:HOME", sk=home, issued_at="2026-10-23T08:00:00.000Z",
+                              next_update="2026-10-23T09:00:00.000Z")
+    officer_sk = key(9)
+    return [
+        case("feed_revokes", m, [pay(m, "p_1")], feed={"doc": ok, "keys": [home_pk]}),
+        case("feed_current_empty", m, [pay(m, "p_1")], feed={"doc": empty, "keys": [home_pk]}),
+        case("feed_stale", m, [pay(m, "p_1")], feed={"doc": stale, "keys": [home_pk]}),
+        case("feed_untrusted_issuer", m, [pay(m, "p_1")], feed={"doc": ok, "keys": [M.public_key_of(OTHER)]}),
+        case("feed_tampered", m, [pay(m, "p_1")], feed={"doc": {**ok, "revocations": []}, "keys": [home_pk]}),
+        case("feed_unreachable_officer_override", m, [pay(m, "p_1"), pay(m, "p_1")], feed="error",
+             officers=[M.public_key_of(officer_sk)], ops=["check", resolve(0, signers=((officer_sk, "ops@bank"),))]),
+    ]
+
+
+def keyset_cases(signed: list[dict]) -> list[list[Any]]:
+    """[key set, decision, valid]: decisions checked against the bank's published key set (spec 10.1)."""
+    d = signed[0]
+    bank = M.public_key_of(BANK)
+    at = d["checked_at"]
+    mk = lambda keys, checker="bank:VECTORS": {"v": f"gleipnir/keys/{M.V}", "checker": checker,  # noqa: E731
+                                               "issued_at": "2026-10-24T00:00:00.000Z", "keys": keys}
+    return [
+        [mk([{"public_key": bank}]), d, True],
+        [mk([{"public_key": bank, "from": "2026-01-01T00:00:00.000Z", "until": "2027-01-01T00:00:00.000Z"}]), d, True],
+        [mk([{"public_key": bank, "until": at}]), d, False],
+        [mk([{"public_key": bank, "from": "2026-10-24T00:00:00.000Z"}]), d, False],
+        [mk([{"public_key": bank, "compromised": True}]), d, False],
+        [mk([{"public_key": bank}], "bank:OTHER"), d, False],
+        [mk([{"public_key": M.public_key_of(OTHER)}]), d, False],
+        [mk([{"public_key": bank, "extra": 1}]), d, False],
+    ]
+
+
+def pain001_cases() -> list[dict[str, Any]]:
+    """ISO 20022 pain.001 for each account scheme, and altered messages (spec 6.2). Both implementations must
+    produce the identical XML and the identical problems."""
+    out: list[dict[str, Any]] = []
+    m = mandate()
+    p = pay(m, "INV-2026-0912", "18400.00", payee={"name": "Brenner & Söhne <AG>", "account": BRENNER["account"]})
+    d = run(case("x", m, [p]))[0]
+    good = ISO.pain001(m, p, d)
+    out.append({"name": "sepa_with_decision", "mandate": m, "payment": p, "decision": d, "xml": good,
+                "problems": ISO.pain001_problems(good, m, p, d)})
+    worlds = {
+        "uk": ("GBP", "faster_payments", {"scheme": "uk_sort_code", "sort_code": "200000", "account": "55779911"},
+               {"scheme": "uk_sort_code", "sort_code": "601613", "account": "31926819"}),
+        "ca": ("CAD", "ca_eft", {"scheme": "ca_eft", "institution": "003", "transit": "12345", "account": "1234567"},
+               {"scheme": "ca_eft", "institution": "004", "transit": "54321", "account": "7654321"}),
+        "au": ("AUD", "npp", {"scheme": "au_bsb", "bsb": "062000", "account": "12345678"},
+               {"scheme": "au_bsb", "bsb": "033000", "account": "87654321"}),
+        "in": ("INR", "neft", {"scheme": "in_ifsc", "ifsc": "HDFC0000001", "account": "50100012345678"},
+               {"scheme": "in_ifsc", "ifsc": "SBIN0000300", "account": "00000012345678"}),
+        "mx": ("MXN", "spei", {"scheme": "mx_clabe", "clabe": "012180000118359713"},
+               {"scheme": "mx_clabe", "clabe": "002010077777777771"}),
+        "us_swift": ("JPY", "wire", {"scheme": "us_aba", "routing": "011000015", "account": "000123456789"},
+                     {"scheme": "swift", "bic": "MHCBJPJT", "account": "1234567"}),
+        "sepa_instant": ("EUR", "sepa_instant", DEBTOR, BRENNER["account"]),
+    }
+    for name, (cur, rail, debtor, payee) in worlds.items():
+        wm, wp, _ = local(cur, rail, debtor, payee)
+        x = ISO.pain001(wm, wp)
+        out.append({"name": name, "mandate": wm, "payment": wp, "decision": None, "xml": x,
+                    "problems": ISO.pain001_problems(x, wm, wp)})
+    tx = good[good.index("<CdtTrfTxInf>"):good.index("</CdtTrfTxInf>") + len("</CdtTrfTxInf>")]
+    altered = {
+        "amount_changed": good.replace(">18400.00</InstdAmt>", ">18400.01</InstdAmt>"),
+        "currency_changed": good.replace('Ccy="EUR"', 'Ccy="USD"'),
+        "creditor_changed": good.replace("AT611904300234573201", "LT121000011101001000"),
+        "debtor_changed": good.replace("AT483200000012345864", "DE44500105175407324931"),
+        "envelope_removed": good[:good.index("<SplmtryData>")] + good[good.index("</SplmtryData>") + 14:],
+        "other_decision": good,
+        "end_to_end_id_changed": good.replace("<EndToEndId>INV-2026-0912<", "<EndToEndId>INV-2026-0913<"),
+        "duplicate_transaction": good.replace(tx, tx + tx),
+        "doctype": good.replace("<Document", '<!DOCTYPE Document [<!ENTITY x "y">]><Document', 1),
+        "cdata": good.replace("<Ustrd>", "<Ustrd><![CDATA[x]]>"),
+        "processing_instruction": good.replace("<Document", "<?evil x?><Document", 1),
+        "foreign_namespace_element": good.replace("<Cdtr>", '<Cdtr><e:IBAN xmlns:e="urn:evil">x</e:IBAN>'),
+        "other_pain001_version": good.replace("pain.001.001.09", "pain.001.001.03"),
+        "comment_inside_amount": good.replace(">18400.00</InstdAmt>", "><!-- c -->18400.00</InstdAmt>"),
+        "numeric_entity": good.replace("<IBAN>AT61", "<IBAN>&#65;&#x54;61"),
+        "unknown_entity": good.replace("Brenner", "&nbsp;Brenner"),
+        "bare_ampersand": good.replace("&amp;", "&"),
+        "truncated": good[:-20],
+        "not_a_string": 42,
+        "deep": good.replace("<Ustrd>", "<Ustrd>" + "<a>" * 70 + "</a>" * 70).replace("&lt;AG&gt;", ""),
+    }
+    other_d = {**d, "id": "d_other"}
+    for name, x in altered.items():
+        dd = other_d if name == "other_decision" else d
+        out.append({"name": name, "mandate": m, "payment": p, "decision": dd, "xml": x,
+                    "problems": ISO.pain001_problems(x, m, p, dd)})
+    return out
 
 
 def problem_cases() -> list[list[Any]]:
@@ -490,7 +598,7 @@ def scope(**kw: Any) -> dict[str, Any]:
 
 
 def mandate(sk: Ed25519PrivateKey = SIGNER, sign: bool = True, **kw: Any) -> dict[str, Any]:
-    base: dict[str, Any] = {"v": "gleipnir/mandate/0.3", "id": "m_vec", "company": COMPANY,
+    base: dict[str, Any] = {"v": "gleipnir/mandate/0.4", "id": "m_vec", "company": COMPANY,
                             "agent": {"id": "ap-agent", "public_key": M.public_key_of(AGENT)},
                             "signer": signer(sk), "scope": scope(), "valid_until": "2026-12-31T23:59:59.000Z",
                             "issued_at": "2026-10-01T08:00:00.000Z"}
@@ -511,7 +619,7 @@ def case(name: str, m: Any, payments: list[Any], *, now: str | list[str] = NOW, 
          revocations: list | None = None, status: Any = None, ledger: bool = True,
          webauthn: dict | None = None, mandates: list | None = None, which: list[int] | None = None,
          holds: list | None = None, ops: list | None = None, policy: dict | None = None,
-         officers: list[str] | None = None) -> dict[str, Any]:
+         officers: list[str] | None = None, feed: Any = None) -> dict[str, Any]:
     """One checker, several steps. Step i checks payments[i] against mandates[which[i]] (default: the mandate),
     or, when ops[i] is a resolve op, applies an override to the decision of step ops[i]["of"].
 
@@ -521,6 +629,8 @@ def case(name: str, m: Any, payments: list[Any], *, now: str | list[str] = NOW, 
     extra: dict[str, Any] = {"mandates": mandates, "which": which} if mandates else {}
     if ops:
         extra["ops"] = ops
+    if feed is not None:
+        extra["feed"] = feed
     return {"name": name, "mandate": m, "payments": payments, "webauthn": webauthn or {}, **extra,
             "now": now if isinstance(now, list) else [now] * len(payments),
             "authority": KYB if authority is None else authority, "revocations": revocations or [],
@@ -627,6 +737,18 @@ def status_fn(value: Any):
     return status
 
 
+def feed_fn(feed: Any, clock: dict):
+    if feed is None:
+        return None
+
+    def revocations() -> list[dict]:
+        if feed == "error":
+            raise ConnectionError("revocation list unreachable")
+        at = datetime.fromisoformat(clock["now"].replace("Z", "+00:00"))
+        return M.revocations_from_list(feed["doc"], feed["keys"], at)
+    return revocations
+
+
 def holds_fn(rows: list[dict]):
     def holds(company: dict, account: dict) -> str | None:
         for r in rows:
@@ -660,6 +782,7 @@ def run(c: dict[str, Any]) -> list[dict[str, Any]]:
                         ledger=M.InMemoryLedger() if c["ledger"] else None, revocations=c["revocations"],
                         status=status_fn(c["status"]), webauthn=c.get("webauthn") or {},
                         require_payees=c["policy"].get("require_payees", False), officers=c["officers"],
+                        revocation_feed=feed_fn(c.get("feed"), clock),
                         clock=lambda: datetime.fromisoformat(
                             clock["now"].replace("Z", "+00:00")))
     out: list[dict] = []
@@ -713,6 +836,8 @@ def build() -> dict[str, Any]:
         "cases": out_cases,
         "signed": signed,
         "problems": problem_cases(),
+        "keysets": keyset_cases(signed),
+        "pain001": pain001_cases(),
         "payment_keys": [[cu, pid, M.payment_key(cu, pid)] for cu, pid in [
             ("cust:Alpha", "Beta|INV-1"), ("cust:Alpha|Beta", "INV-1"),
             ("Müller \"&\" Söhne", "INV-\u00e9"), ("X", "1")]],

@@ -79,7 +79,7 @@ def test_sign_mandate_with_passkey_in_browser(page_url):
         assert signed["sig"]["type"] == "webauthn"
 
         # 3. A draft with a duplicate key is refused before anything is shown or signed.
-        page.fill("#draft", '{"v": "gleipnir/mandate/0.3", "v": "x"}')
+        page.fill("#draft", '{"v": "gleipnir/mandate/0.4", "v": "x"}')
         page.dispatch_event("#draft", "change")
         assert 'Duplicate key "v"' in page.inner_text("#draft-error")
         assert page.is_hidden("#summary")

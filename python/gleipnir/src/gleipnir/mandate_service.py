@@ -5,6 +5,8 @@
     POST /check    {"mandate": {...}, "payment": {...}}  -> the signed decision (200), or {"error": ...} (400)
     POST /resolve  {"mandate", "payment", "decision", "override"} -> the decision after a signed override
     GET  /keys     -> {"checker": id, "keys": [public key]}: what companies and auditors verify decisions with
+    GET  /.well-known/gleipnir-checker.json -> the bank's key set with validity windows (spec 10.1)
+    GET  /revocations -> a signed list of the revocations this checker holds, current for an hour (spec 9.2)
     POST /revoke   {"revocation": {...}, "mandate": {...}}: stored only if it counts for that mandate now (signed,
                    aimed at it or a link of its chain, by someone who may revoke it); verified again per payment
 
@@ -33,6 +35,7 @@ import sys
 import threading
 import urllib.error
 import urllib.request
+from datetime import timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -79,6 +82,7 @@ class Bank:
         self.status = make_status_fetcher(status_hosts)
         self.state = state
         self.revocations: list[dict] = [read_json(r) for r in revocations or []]
+        self.keyset_doc: dict | None = None
         self._lock = threading.Lock()
 
     def _checker(self, st: FileState | None, status: Any = None) -> m.Checker:
@@ -114,6 +118,18 @@ class Bank:
         status = self._prefetch(mandate)
         with self._lock, FileState(self.state) as st:
             return self._checker(st, status).resolve(mandate, payment, decision, override)
+
+    def keyset(self) -> dict[str, Any]:
+        """The published key set: the configured one (with key history), or just the current key."""
+        if self.keyset_doc is not None:
+            return self.keyset_doc
+        return m.keyset(self.id, [{"public_key": self.public_key}])
+
+    def revocation_list(self) -> dict[str, Any]:
+        with self._lock, FileState(self.state) as st:
+            revs = [*self.revocations, *st.revocations]
+        return m.revocation_list(revs, issuer=self.id, sk=self.sk,
+                                 next_update=m.fmt_ts(m.utcnow() + timedelta(hours=1)))
 
     def add_revocation(self, r: Any, mandate: Any) -> None:
         """Store a revocation that counts for this mandate now; the checker verifies it again on every payment.
@@ -165,6 +181,10 @@ def make_handler(bank: Bank, allow_origins: frozenset[str] = frozenset()) -> typ
         def do_GET(self) -> None:  # noqa: N802
             if self.path == "/keys":
                 self._send(200, {"checker": bank.id, "keys": [bank.public_key]})
+            elif self.path == "/.well-known/gleipnir-checker.json":
+                self._send(200, bank.keyset())
+            elif self.path == "/revocations":
+                self._send(200, bank.revocation_list())
             else:
                 self._send(404, {"error": "not found"})
 
@@ -217,6 +237,11 @@ def cmd_serve(args: argparse.Namespace) -> int:
                 revocations=args.revocation, webauthn=webauthn_of(args),
                 officers=[public_key(k) for k in args.officer or []], require_payees=args.require_payees,
                 status_hosts=args.status_host)
+    if args.keyset:
+        ks = read_json(args.keyset)
+        if m.keyset_problem(ks) or not any(k["public_key"] == bank.public_key for k in ks["keys"]):
+            raise CliError(f"{args.keyset}: not a key set that lists this bank key")
+        bank.keyset_doc = ks
     srv = make_server(bank, args.host, args.port, args.allow_origin)
     print(f"gleipnir: checker {bank.id} on http://{args.host}:{srv.server_address[1]} "
           "(POST /check, POST /resolve, GET /keys, POST /revoke). Reference server, no auth: keep it behind your "
@@ -594,6 +619,7 @@ def add_arguments(sub: argparse._SubParsersAction) -> None:
     s.add_argument("--host", default="127.0.0.1")
     s.add_argument("--port", type=int, default=8787)
     s.add_argument("--allow-origin", action="append", help="browser origin allowed to call the checker")
+    s.add_argument("--keyset", help="key set to publish (with earlier keys); default: just this key")
     s.set_defaults(mandate_fn=cmd_serve)
 
     c = sub.add_parser("mcp", help="MCP server (stdio) for an agent: request_mandate, attach_mandate, check_payment")

@@ -420,3 +420,23 @@ def test_http_resolve_override(server, world):
     assert code == 200 and final["outcome"] == "allow" and final["override"]["id"] == "o_1"
     assert post(url, {"mandate": mandate, "payment": p}, "/resolve")[0] == 400
     assert post(url, {"mandate": mandate, "payment": p})[1] == final
+
+
+def test_http_keyset_and_revocation_list(server, world):
+    url, bank = server
+    mandate = json.loads(Path("mandate.json").read_text())
+    with urllib.request.urlopen(url + "/.well-known/gleipnir-checker.json") as r:
+        ks = json.loads(r.read())
+    assert M.keyset_problem(ks) is None and ks["checker"] == "bank:test"
+    t = tools(world)
+    p = call(t, "attach_mandate", {"payment_id": "INV-K", "amount": "1.00", "payee": PAYEE})["structuredContent"]
+    _, d = post(url, {"mandate": mandate, "payment": p["payment"]})
+    assert M.verify_decision(d, ks)
+    assert main(["mandate", "revoke", "mandate.json", "--key", "signer.pem", "--id", "r_k", "-o", "rev.json"]) == 0
+    assert revoke_via(url, mandate) == (200, {"ok": True})
+    with urllib.request.urlopen(url + "/revocations") as r:
+        doc = json.loads(r.read())
+    from datetime import datetime, timezone
+
+    revs = M.revocations_from_list(doc, ks, datetime.now(timezone.utc))
+    assert [r["id"] for r in revs] == ["r_k"]

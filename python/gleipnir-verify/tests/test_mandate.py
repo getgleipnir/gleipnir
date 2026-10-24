@@ -368,7 +368,7 @@ def test_passkey_challenge(world):
     ({"v": "gleipnir/mandate/9"}, "unknown mandate version"),
 ])
 def test_mandate_problems(bad, problem):
-    m = {"v": "gleipnir/mandate/0.3", "id": "m", "company": {"name": "X", "country": "AT"}, "agent": {"id": "a"},
+    m = {"v": "gleipnir/mandate/0.4", "id": "m", "company": {"name": "X", "country": "AT"}, "agent": {"id": "a"},
          "signer": {"id": "s", "public_key": "ed25519:x"},
          "valid_until": "2099-01-01T00:00:00.000Z", "issued_at": "2026-01-01T00:00:00.000Z", **bad}
     m["scope"] = {"from_accounts": [DEBTOR], **m.get("scope", {"currency": "EUR", "max_per_payment": "10.00"})}
@@ -383,7 +383,7 @@ def test_payment_problems(world):
     assert "bad timestamp" in M.payment_problem({**good, "requested_at": "now"})
     assert "unknown payment version" in M.payment_problem({**good, "v": "x"})
     assert M.revocation_problem({"v": "x"}) == "unknown revocation version"
-    r = {"v": "gleipnir/revocation/0.3", "id": "r", "mandate": "m", "mandate_hash": "h", "revoked_at": "x",
+    r = {"v": "gleipnir/revocation/0.4", "id": "r", "mandate": "m", "mandate_hash": "h", "revoked_at": "x",
          "signer": {"id": "s", "public_key": "k"}}
     assert "bad timestamp" in M.revocation_problem(r)
     assert "I-JSON" in M.revocation_problem({**r, "revoked_at": "2026-01-01T00:00:00.000Z", "x": float("inf")})

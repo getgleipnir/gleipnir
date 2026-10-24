@@ -118,11 +118,11 @@ def test_F9_nesting_is_limited_explicitly():
     deep: object = "x"
     for _ in range(M.MAX_DEPTH):
         deep = [deep]
-    assert M.mandate_problem({**m, "x": deep}) == "mandate is not valid I-JSON"
+    assert M.mandate_problem({**m, "x": {"d": deep}}) == "mandate is not valid I-JSON"
     ok: object = "x"
     for _ in range(M.MAX_DEPTH - 2):
         ok = [ok]
-    assert M.mandate_problem({**m, "x": ok}) is None
+    assert M.mandate_problem({**m, "x": {"d": ok}}) is None
 
 
 def test_F11_signer_unknown_does_not_hold_the_id():

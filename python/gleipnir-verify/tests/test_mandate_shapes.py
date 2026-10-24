@@ -12,9 +12,9 @@ P = {"id": "a@x", "public_key": PK}
 Q = {"id": "b@x", "public_key": M.new_key()[1]}
 SCOPE = {"currency": "EUR", "max_per_payment": "10.00", "from_accounts": [DEBTOR]}
 T = "2026-01-01T00:00:00.000Z"
-BASE = {"v": "gleipnir/mandate/0.3", "id": "m", "company": {"name": "X", "country": "AT"}, "agent": {"id": "a"},
+BASE = {"v": "gleipnir/mandate/0.4", "id": "m", "company": {"name": "X", "country": "AT"}, "agent": {"id": "a"},
         "scope": SCOPE, "valid_until": "2099-01-01T00:00:00.000Z", "issued_at": T}
-LINK = {"v": "gleipnir/delegation/0.3", "id": "g", "company": {"name": "X"}, "from": P, "to": P, "scope": SCOPE,
+LINK = {"v": "gleipnir/delegation/0.4", "id": "g", "company": {"name": "X"}, "from": P, "to": P, "scope": SCOPE,
         "valid_until": "2099-01-01T00:00:00.000Z", "issued_at": T}
 
 
@@ -49,11 +49,11 @@ def test_mandate_shape_problems(extra, problem):
 
 
 @pytest.mark.parametrize("r, problem", [
-    ({"v": "gleipnir/revocation/0.3", "id": "r"}, "exactly one mandate or delegation"),
-    ({"v": "gleipnir/revocation/0.3", "id": "r", "mandate_hash": "h", "delegation_hash": "h"}, "exactly one"),
-    ({"v": "gleipnir/revocation/0.3", "id": "r", "delegation_hash": "h", "revoked_at": "x", "signer": P},
+    ({"v": "gleipnir/revocation/0.4", "id": "r"}, "exactly one mandate or delegation"),
+    ({"v": "gleipnir/revocation/0.4", "id": "r", "mandate_hash": "h", "delegation_hash": "h"}, "exactly one"),
+    ({"v": "gleipnir/revocation/0.4", "id": "r", "delegation_hash": "h", "revoked_at": "x", "signer": P},
      "missing delegation"),
-    ({"v": "gleipnir/revocation/0.3", "id": "r", "delegation": "g", "delegation_hash": "h", "revoked_at": "x",
+    ({"v": "gleipnir/revocation/0.4", "id": "r", "delegation": "g", "delegation_hash": "h", "revoked_at": "x",
       "signer": P}, "bad timestamp"),
 ])
 def test_revocation_shape_problems(r, problem):
@@ -150,17 +150,17 @@ def test_link_period_limit_needs_from_accounts():
 
 @pytest.mark.parametrize("s, problem", [
     ({}, "unknown status version"),
-    ({"v": "gleipnir/status/0.3"}, "missing mandate.id"),
-    ({"v": "gleipnir/status/0.3", "mandate": {"id": "m", "hash": "h"}, "status": "paused", "at": T, "signer": P},
+    ({"v": "gleipnir/status/0.4"}, "missing mandate.id"),
+    ({"v": "gleipnir/status/0.4", "mandate": {"id": "m", "hash": "h"}, "status": "paused", "at": T, "signer": P},
      "active or revoked"),
-    ({"v": "gleipnir/status/0.3", "mandate": {"id": "m", "hash": "h"}, "status": "active", "at": "now", "signer": P},
+    ({"v": "gleipnir/status/0.4", "mandate": {"id": "m", "hash": "h"}, "status": "active", "at": "now", "signer": P},
      "bad timestamp"),
 ])
 def test_status_shape_problems(s, problem):
     assert problem in (M.status_problem(s) or "")
 
 
-GOOD_OVERRIDE = {"v": "gleipnir/override/0.3", "id": "o", "decision": {"id": "d", "hash": "h"}, "outcome": "allow",
+GOOD_OVERRIDE = {"v": "gleipnir/override/0.4", "id": "o", "decision": {"id": "d", "hash": "h"}, "outcome": "allow",
                  "decided_at": T, "sigs": [{"signer": P, "sig": "x"}]}
 
 
@@ -178,3 +178,37 @@ GOOD_OVERRIDE = {"v": "gleipnir/override/0.3", "id": "o", "decision": {"id": "d"
 def test_override_shape_problems(extra, problem):
     assert M.override_problem(GOOD_OVERRIDE) is None
     assert problem in (M.override_problem({**GOOD_OVERRIDE, **extra}) or "")
+
+
+@pytest.mark.parametrize("extra, problem", [
+    ({"max_per_week": "1.00"}, "unknown field max_per_week"),
+    ({"scope": {**SCOPE, "max_per_day": "1.00"}}, "unknown field scope.max_per_day"),
+    ({"scope": {**SCOPE, "payees": [{"account": DEBTOR, "iban_hint": "x"}]}}, "unknown field scope.payees[].iban_hint"),
+    ({"company": {"name": "X", "country": "AT", "lei": "5299"}}, "unknown field company.lei"),
+    ({"company": {"name": "X", "country": "AT", "ids": "5299"}}, "company.ids must be an object"),
+    ({"agent": {"id": "a", "name": 5}}, "agent.name must be a string"),
+    ({"signer": {**P, "role": "x" * 141}}, "signer.role is longer than 140 characters"),
+    ({"x": "note"}, "x must be an object"),
+    ({"id": "m" * 129}, "id is longer than 128 characters"),
+])
+def test_unknown_fields_are_malformed(extra, problem):
+    """0.4: a checker never ignores a field it does not know; anything informational goes under "x"."""
+    assert problem == M.mandate_problem({**BASE, "signer": P, **extra})
+
+
+def test_x_extensions_are_carried_and_signed():
+    m = {**BASE, "signer": P, "x": {"erp": {"po": "4500012345"}, "any": [1, 2]}}
+    assert M.mandate_problem(m) is None
+    assert M.mandate_hash(m) != M.mandate_hash({**m, "x": {}})
+
+
+def test_payment_id_fits_iso20022_end_to_end_id():
+    m = M.sign_mandate(M.issue(id="m", company={"name": "X", "country": "AT"}, agent={"id": "a"}, signer=P,
+                               scope=SCOPE, valid_until="2099-01-01T00:00:00.000Z"), SK)
+    payee = {"account": M.iban("AT611904300234573201")}
+    ok = M.attach(m, id="p" * 35, rail="sepa", amount="1.00", currency="EUR", payee=payee)
+    assert M.payment_problem(ok) is None
+    long = M.attach(m, id="p" * 36, rail="sepa", amount="1.00", currency="EUR", payee=payee)
+    assert M.payment_problem(long) == "id is longer than 35 characters"
+    ref = M.attach(m, id="p", rail="sepa", amount="1.00", currency="EUR", payee=payee, reference="r" * 141)
+    assert M.payment_problem(ref) == "reference is longer than 140 characters"

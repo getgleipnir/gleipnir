@@ -410,7 +410,7 @@ def cmd_issue(args: argparse.Namespace) -> int:
     if args.country:
         company["country"] = args.country
     if args.lei:
-        company["lei"] = args.lei
+        company["ids"] = {"lei": args.lei}
     valid_until = args.valid_until or m.fmt_ts(m.utcnow() + timedelta(days=args.days))
     try:
         mandate = m.issue(id=args.id, company=company, agent=agent, scope=scope, valid_until=valid_until,
@@ -513,13 +513,37 @@ def cmd_kyb(args: argparse.Namespace) -> int:
     return 0
 
 
+def trusted_keys(texts: list[str]) -> Any:
+    """Keys given on the command line: one key set file (spec 10.1), or public keys / PEM paths."""
+    if len(texts) == 1 and Path(texts[0]).is_file() and texts[0].endswith(".json"):
+        ks = read_json(texts[0])
+        problem = m.keyset_problem(ks)
+        if problem:
+            raise CliError(f"{texts[0]}: {problem}")
+        return ks
+    return [public_key(k) for k in texts]
+
+
+def feed_of(args: argparse.Namespace) -> Any:
+    """--revocation-list FILE with --revocation-list-key: the revocations of a current signed list (spec 9.2)."""
+    if not getattr(args, "revocation_list", None):
+        return None
+    if not args.revocation_list_key:
+        raise CliError("--revocation-list needs --revocation-list-key (the issuer's key or key set)")
+    keys = trusted_keys(args.revocation_list_key)
+
+    def feed() -> list[dict]:
+        return m.revocations_from_list(read_json(args.revocation_list), keys, m.utcnow())
+    return feed
+
+
 def checker_of(args: argparse.Namespace, state: FileState) -> m.Checker:
     revocations = [read_json(r) for r in args.revocation or []]
     return m.Checker(id=args.bank_id, sk=load_key(args.bank_key), authority=load_authority(args.authority),
                      holds=load_holds(args.authority), ledger=state, payments=state,
                      revocations=[*revocations, *state.revocations], webauthn=webauthn_of(args),
                      status=make_status_fetcher(args.status_host), officers=[public_key(k) for k in args.officer or []],
-                     require_payees=args.require_payees)
+                     require_payees=args.require_payees, revocation_feed=feed_of(args))
 
 
 def _decided(decision: dict, output: str | None) -> int:
@@ -582,9 +606,69 @@ def webauthn_of(args: argparse.Namespace) -> dict[str, Any]:
     return {"rp_id": args.rp_id, "origins": args.origin or [f"https://{args.rp_id}"]}
 
 
+def cmd_keyset(args: argparse.Namespace) -> int:
+    """The bank's key set for /.well-known/gleipnir-checker.json: this key, plus any earlier set's keys."""
+    keys = []
+    if args.previous:
+        prev = read_json(args.previous)
+        problem = m.keyset_problem(prev)
+        if problem:
+            raise CliError(f"{args.previous}: {problem}")
+        keys = list(prev["keys"])
+    pub = m.public_key_of(load_key(args.bank_key))
+    if any(k["public_key"] == pub for k in keys):
+        raise CliError("this key is already in the key set")
+    now = m.now()
+    keys = [{**k, "until": k.get("until", now)} for k in keys]  # rotation: earlier keys stop now
+    keys.append({"public_key": pub, "from": now} if keys else {"public_key": pub})
+    try:
+        write_json(m.keyset(args.bank_id, keys), args.output)
+    except ValueError as exc:
+        raise CliError(str(exc)) from exc
+    return 0
+
+
+def cmd_revocations(args: argparse.Namespace) -> int:
+    """A signed revocation list (spec 9.2) from revocation files and the checker's state."""
+    revs = [read_json(r) for r in args.revocation or []]
+    if args.state:
+        path = Path(args.state)
+        if path.exists():
+            revs += loads_strict(path.read_text(encoding="utf-8")).get("revocations", [])
+    next_update = m.fmt_ts(m.utcnow() + timedelta(minutes=args.valid_minutes))
+    write_json(m.revocation_list(revs, issuer=args.bank_id, sk=load_key(args.bank_key), next_update=next_update),
+               args.output)
+    return 0
+
+
+def cmd_pain001(args: argparse.Namespace) -> int:
+    """ISO 20022: write the pain.001 for a payment, or (--check FILE) check a pain.001 against it (spec 6.2)."""
+    from gleipnir_verify import iso20022
+
+    mandate, payment = read_json(args.mandate), read_json(args.payment)
+    decision = read_json(args.decision) if args.decision else None
+    if args.check:
+        try:
+            xml = Path(args.check).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            raise CliError(f"cannot read {args.check}: {exc}") from exc
+        problems = iso20022.pain001_problems(xml, mandate, payment, decision)
+        print("MATCHES" if not problems else "MISMATCH " + ",".join(problems))
+        return 0 if not problems else 1
+    try:
+        xml = iso20022.pain001(mandate, payment, decision)
+    except ValueError as exc:
+        raise CliError(str(exc)) from exc
+    if args.output and args.output != "-":
+        Path(args.output).write_text(xml + "\n", encoding="utf-8")
+    else:
+        sys.stdout.write(xml + "\n")
+    return 0
+
+
 def cmd_verify(args: argparse.Namespace) -> int:
     decision = read_json(args.decision)
-    keys = [public_key(k) for k in args.bank_pub]
+    keys = trusted_keys(args.bank_pub)
     ok = m.verify_decision(decision, keys)
     print(f"{'VALID' if ok else 'INVALID'} {decision.get('outcome', '?') if ok else ''}".strip())
     return 0 if ok else 1
@@ -603,6 +687,9 @@ def add_checker_arguments(c: argparse.ArgumentParser) -> None:
     c.add_argument("--require-payees", action="store_true", help="policy: block mandates without a payee list")
     c.add_argument("--status-host", action="append", metavar="HOST",
                    help="only fetch status_url on these hosts (default: any public host)")
+    c.add_argument("--revocation-list", metavar="FILE", help="a signed revocation list from another checker")
+    c.add_argument("--revocation-list-key", action="append", metavar="KEY",
+                   help="the list issuer's public key or PEM (repeatable), or key set (.json)")
 
 
 def add_subcommands(p: argparse.ArgumentParser) -> None:
@@ -738,8 +825,33 @@ def add_subcommands(p: argparse.ArgumentParser) -> None:
 
     v = sub.add_parser("verify", help="verify a decision against the bank's published keys")
     v.add_argument("decision")
-    v.add_argument("--bank-pub", action="append", required=True, help="bank public key or PEM (repeatable)")
+    v.add_argument("--bank-pub", action="append", required=True,
+                   help="bank public key or PEM (repeatable), or the bank's key set (.json)")
     v.set_defaults(mandate_fn=cmd_verify)
+
+    px = sub.add_parser("pain001", help="ISO 20022: write a payment's pain.001, or --check one against it")
+    px.add_argument("mandate")
+    px.add_argument("payment")
+    px.add_argument("--decision", help="the bank's decision, to reference in the message")
+    px.add_argument("--check", metavar="XML", help="check this pain.001 against the payment instead")
+    px.add_argument("-o", "--output")
+    px.set_defaults(mandate_fn=cmd_pain001)
+
+    ks = sub.add_parser("keyset", help="write the bank's key set (/.well-known/gleipnir-checker.json)")
+    ks.add_argument("--bank-key", required=True)
+    ks.add_argument("--bank-id", default="bank:local")
+    ks.add_argument("--previous", help="the current key set: its keys are kept, ending now (rotation)")
+    ks.add_argument("-o", "--output")
+    ks.set_defaults(mandate_fn=cmd_keyset)
+
+    rl = sub.add_parser("revocations", help="write a signed revocation list for other checkers")
+    rl.add_argument("--bank-key", required=True)
+    rl.add_argument("--bank-id", default="bank:local")
+    rl.add_argument("--revocation", action="append", help="revocation file (repeatable)")
+    rl.add_argument("--state", help="also include the revocations in this checker state file")
+    rl.add_argument("--valid-minutes", type=int, default=60, help="next_update, in minutes from now")
+    rl.add_argument("-o", "--output")
+    rl.set_defaults(mandate_fn=cmd_revocations)
 
 
 def run(args: argparse.Namespace) -> int:

@@ -214,7 +214,7 @@ def test_status_answer_via_cli(setup: Path) -> None:
     assert main(["mandate", "status", "mandate.json", "--key", "berger.pem", "--signer-id", "kberger@nordhafen.at",
                  "--status", "revoked", "-o", "status.json"]) == 0
     s = json.loads(Path("status.json").read_text())
-    assert s["status"] == "revoked" and s["mandate"]["id"] == "m_ap" and s["v"] == "gleipnir/status/0.3"
+    assert s["status"] == "revoked" and s["mandate"]["id"] == "m_ap" and s["v"] == "gleipnir/status/0.4"
 
 
 def test_accounts_worldwide_via_cli(setup: Path) -> None:
@@ -340,3 +340,39 @@ def test_status_fetcher_end_to_end(tls_server, monkeypatch: pytest.MonkeyPatch) 
     # Without an allow-list, every address the name resolves to must be public.
     with pytest.raises(CliError, match="non-public"):
         mandate_cli.make_status_fetcher(context=ctx, _port=port)("https://status.example/m")
+
+
+def test_keyset_rotation_and_revocation_list_via_cli(setup: Path) -> None:
+    """0.4: the bank publishes its keys with validity windows; another checker uses its signed revocation list."""
+    _, d = check(pay("p_1", "100.00"))
+    assert main(["mandate", "keyset", "--bank-key", "bank.pem", "-o", "keys.json"]) == 0
+    assert main(["mandate", "verify", "p_1.decision.json", "--bank-pub", "keys.json"]) == 0
+    assert main(["mandate", "keygen", "-o", "bank2.pem"]) == 0
+    assert main(["mandate", "keyset", "--bank-key", "bank2.pem", "--previous", "keys.json", "-o", "keys2.json"]) == 0
+    ks = json.loads(Path("keys2.json").read_text())
+    assert len(ks["keys"]) == 2 and "until" in ks["keys"][0]
+    assert main(["mandate", "verify", "p_1.decision.json", "--bank-pub", "keys2.json"]) == 0  # decided before
+    assert main(["mandate", "keyset", "--bank-key", "bank2.pem", "--previous", "keys2.json"]) == 2
+    # The home bank publishes its revocations; a second checker relies on that list.
+    assert main(["mandate", "revoke", "mandate.json", "--key", "berger.pem", "--id", "r_1", "-o", "rev.json"]) == 0
+    assert main(["mandate", "revocations", "--bank-key", "bank.pem", "--revocation", "rev.json",
+                 "-o", "list.json"]) == 0
+    code, d2 = check(pay("p_2", "100.00"), "--state", "other.json", "--revocation-list", "list.json",
+                     "--revocation-list-key", "bank.pem")
+    assert (code, d2["reasons"]) == (1, ["mandate_revoked"])
+    code, d3 = check(pay("p_3", "100.00"), "--state", "other.json", "--revocation-list", "list.json",
+                     "--revocation-list-key", "agent.pem")  # not the issuer: the list does not count
+    assert (code, d3["reasons"]) == (3, ["status_unavailable"])
+    assert main(["mandate", "check", "mandate.json", "p_3.json", "--authority", "kyb.json", "--bank-key", "bank.pem",
+                 "--revocation-list", "list.json"]) == 2
+
+
+def test_pain001_via_cli(setup: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    check(pay("p_1", "100.00"))
+    assert main(["mandate", "pain001", "mandate.json", "p_1.json", "--decision", "p_1.decision.json",
+                 "-o", "p_1.xml"]) == 0
+    assert main(["mandate", "pain001", "mandate.json", "p_1.json", "--decision", "p_1.decision.json",
+                 "--check", "p_1.xml"]) == 0
+    Path("bad.xml").write_text(Path("p_1.xml").read_text().replace(">100.00</InstdAmt>", ">999.00</InstdAmt>"))
+    assert main(["mandate", "pain001", "mandate.json", "p_1.json", "--check", "bad.xml"]) == 1
+    assert "MISMATCH amount_mismatch" in capsys.readouterr().out
