@@ -1,7 +1,9 @@
 /**
  * A strict, small XML reader for ISO 20022 messages (spec 6.2): elements, attributes, text, comments, the five
  * predefined entities and character references, namespaces. No DTD, no other entities, no CDATA, no processing
- * instructions except the XML declaration; callers screen for those first. Throws on anything malformed.
+ * instructions except the XML declaration; callers screen for those first (and for characters XML does not allow).
+ * Throws on anything malformed, including what expat rejects: `--` in comments, `]]>` in text, unbound or empty
+ * prefixes, duplicate attributes after namespace expansion. Prefixed attributes are keyed `{namespace}local`.
  */
 
 export interface XmlElement {
@@ -32,6 +34,19 @@ function decode(raw: string): string {
   });
 }
 
+function comment(text: string, i: number): number {
+  const end = text.indexOf("-->", i + 4);
+  if (end < 0) throw new Error("unterminated comment");
+  const body = text.slice(i + 4, end);
+  if (body.includes("--") || body.endsWith("-")) throw new Error("-- in a comment");
+  return end + 3;
+}
+
+function chars(raw: string): string {
+  if (raw.includes("]]>")) throw new Error("]]> in text");
+  return decode(raw);
+}
+
 export function parseXml(text: string): XmlElement {
   let i = 0;
   if (text.startsWith("<?xml")) {
@@ -42,11 +57,8 @@ export function parseXml(text: string): XmlElement {
   const skipMisc = () => {
     for (;;) {
       while (i < text.length && " \t\r\n".includes(text[i]!)) i++;
-      if (text.startsWith("<!--", i)) {
-        const end = text.indexOf("-->", i + 4);
-        if (end < 0) throw new Error("unterminated comment");
-        i = end + 3;
-      } else return;
+      if (text.startsWith("<!--", i)) i = comment(text, i);
+      else return;
     }
   };
   const element = (scope: Record<string, string>, depth: number): XmlElement => {
@@ -83,8 +95,21 @@ export function parseXml(text: string): XmlElement {
     const attrs: Record<string, string> = {};
     for (const [k, v] of Object.entries(raw)) {
       if (k === "xmlns") ns[""] = v;
-      else if (k.startsWith("xmlns:")) ns[k.slice(6)] = v;
-      else attrs[k] = v;
+      else if (k.startsWith("xmlns:")) {
+        if (v === "") throw new Error(`empty namespace for prefix ${k.slice(6)}`);
+        ns[k.slice(6)] = v;
+      }
+    }
+    for (const [k, v] of Object.entries(raw)) {
+      if (k === "xmlns" || k.startsWith("xmlns:")) continue;
+      let key = k;
+      if (k.includes(":")) {
+        const [p, l] = k.split(":") as [string, string];
+        if (!Object.prototype.hasOwnProperty.call(ns, p)) throw new Error(`unbound prefix ${p}`);
+        key = `{${ns[p]!}}${l}`;
+      }
+      if (Object.prototype.hasOwnProperty.call(attrs, key)) throw new Error(`duplicate attribute ${key}`);
+      attrs[key] = v;
     }
     const [prefix, local] = qname.includes(":") ? qname.split(":") as [string, string] : ["", qname];
     if (!Object.prototype.hasOwnProperty.call(ns, prefix) && prefix !== "") throw new Error(`unbound prefix ${prefix}`);
@@ -98,12 +123,10 @@ export function parseXml(text: string): XmlElement {
     for (;;) {
       const lt = text.indexOf("<", i);
       if (lt < 0) throw new Error(`unclosed element ${qname}`);
-      el.text += decode(text.slice(i, lt));
+      el.text += chars(text.slice(i, lt));
       i = lt;
       if (text.startsWith("<!--", i)) {
-        const end = text.indexOf("-->", i + 4);
-        if (end < 0) throw new Error("unterminated comment");
-        i = end + 3;
+        i = comment(text, i);
       } else if (text.startsWith("</", i)) {
         const close = `</${qname}`;
         if (!text.startsWith(close, i)) throw new Error(`mismatched end tag for ${qname}`);
@@ -118,7 +141,7 @@ export function parseXml(text: string): XmlElement {
     }
   };
   skipMisc();
-  const root = element({}, 1);
+  const root = element({ xml: "http://www.w3.org/XML/1998/namespace" }, 1);
   skipMisc();
   if (i !== text.length) throw new Error("content after the root element");
   return root;

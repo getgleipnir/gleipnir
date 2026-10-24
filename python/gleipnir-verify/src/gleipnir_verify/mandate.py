@@ -1646,13 +1646,13 @@ def keyset_problem(ks: Any) -> str | None:
     return None
 
 
-def _key_valid(ks: dict, pub: str, at: str) -> bool:
+def _key_valid(ks: dict, pub: str, at: str | datetime) -> bool:
     """The key set lists this key, not compromised, and ``at`` falls in its [from, until) window."""
     for k in ks["keys"]:
         if k["public_key"] == pub:
             if k.get("compromised"):
                 return False
-            t = _ts(at)
+            t = at if isinstance(at, datetime) else _ts(at)
             return ("from" not in k or _ts(k["from"]) <= t) and ("until" not in k or t < _ts(k["until"]))
     return False
 
@@ -1705,12 +1705,17 @@ def revocation_list_problem(doc: Any) -> str | None:
     return None
 
 
+MAX_REVOCATION_LIST_AGE = timedelta(hours=24)
+
+
 def revocations_from_list(doc: Any, issuer_keys: Iterable[str] | dict, at: datetime) -> list[dict]:
     """The revocations of a current, validly signed list from a trusted issuer, else ValueError (spec 9.2).
 
     ``issuer_keys``: the issuer's checker keys or key set, obtained out of band. Current means issued no later
     than ``at`` (plus a minute) and ``at`` before ``next_update``: a stale list does not count, so an attacker
-    cannot keep a checker on an old list that predates a revocation.
+    cannot keep a checker on an old list that predates a revocation. A list is current for at most
+    ``MAX_REVOCATION_LIST_AGE``, and with a key set the issuer's key must be valid both when the list was issued
+    and now, so a retired or leaked key cannot sign a list that stays current for years.
     """
     problem = revocation_list_problem(doc)
     if problem:
@@ -1718,7 +1723,8 @@ def revocations_from_list(doc: Any, issuer_keys: Iterable[str] | dict, at: datet
     pub = doc["issuer"]["public_key"]
     if isinstance(issuer_keys, dict):
         if keyset_problem(issuer_keys) or issuer_keys["checker"] != doc["issuer"]["id"] \
-                or not _key_valid(issuer_keys, pub, doc["issued_at"]):
+                or not _key_valid(issuer_keys, pub, doc["issued_at"]) \
+                or not _key_valid(issuer_keys, pub, at):
             raise ValueError("revocation list issuer key not trusted")
     elif pub not in set(issuer_keys):
         raise ValueError("revocation list issuer key not trusted")
@@ -1726,6 +1732,8 @@ def revocations_from_list(doc: Any, issuer_keys: Iterable[str] | dict, at: datet
         raise ValueError("revocation list signature is invalid")
     if _ts(doc["issued_at"]) > at + timedelta(seconds=60) or at >= _ts(doc["next_update"]):
         raise ValueError("revocation list is not current")
+    if _ts(doc["next_update"]) - _ts(doc["issued_at"]) > MAX_REVOCATION_LIST_AGE:
+        raise ValueError("revocation list is current for longer than 24 hours")
     return [r for r in doc["revocations"] if isinstance(r, dict)]
 
 
