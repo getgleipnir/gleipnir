@@ -1,6 +1,6 @@
 """Gleipnir: verifiable action records for AI agents."""
 
-__version__ = "0.1.0.dev0"
+__version__ = "0.4.0"
 
 from .anchor import Anchor, LocalFileAnchor, RekorAnchor, TimestampAnchor  # noqa: E402
 from .approvals import ApproverKey, approval_digest, approval_message  # noqa: E402

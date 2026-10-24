@@ -109,4 +109,4 @@ export { b64decodeStrict, b64encode, b64uDecode, b64uEncode, bytesToHex, concatB
 export { BigIntLiteral, PyError, PyFloat } from "./py.js";
 export { isoMillis, parseTime, type Micros } from "./time.js";
 
-export const VERSION = "0.1.0";
+export const VERSION = "0.4.0";

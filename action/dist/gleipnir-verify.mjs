@@ -7295,7 +7295,7 @@ function reconcile(bundle, systemCsv, opts) {
 }
 
 // packages/verify/src/cli.ts
-var VERSION_STRING = "gleipnir-verify 0.1.0 (typescript)";
+var VERSION_STRING = "gleipnir-verify 0.4.0 (typescript)";
 var MARK = { [ERROR]: "FAIL", [WARN]: "WARN", [INFO]: "info" };
 var PROG = "gleipnir-verify";
 var USAGE = `usage: ${PROG} [-h] [--json] [--expect-key KEY_ID] [--expect-until TIME] [--known-head SEQ:HASH]

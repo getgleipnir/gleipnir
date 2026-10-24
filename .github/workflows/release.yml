@@ -1,0 +1,98 @@
+name: release
+
+# Publishes gleipnir-verify and gleipnir-sdk to PyPI and @getgleipnir/verify and @getgleipnir/sdk to npm when a
+# tag vX.Y.Z is pushed. Every suite runs first; nothing is published unless all pass and the tag matches the
+# package versions.
+#
+# One-time setup by the account owners:
+# - PyPI: a trusted publisher for each project (owner getgleipnir, repo gleipnir, workflow release.yml,
+#   environment release). No token is stored anywhere.
+# - npm: the getgleipnir organization and an automation token as the repository secret NPM_TOKEN
+#   (environment release).
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: typescript/package-lock.json
+      - name: Tag matches every package version
+        run: |
+          want="${GITHUB_REF_NAME#v}"
+          for f in python/gleipnir-verify/pyproject.toml python/gleipnir/pyproject.toml; do
+            got=$(grep -m1 '^version = ' "$f" | cut -d'"' -f2)
+            [ "$got" = "$want" ] || { echo "$f is $got, tag is $want"; exit 1; }
+          done
+          for f in typescript/packages/verify/package.json typescript/packages/sdk/package.json; do
+            got=$(node -p "require('./$f').version")
+            [ "$got" = "$want" ] || { echo "$f is $got, tag is $want"; exit 1; }
+          done
+      - name: Python
+        run: |
+          uv sync --all-packages
+          uv run ruff check python
+          uv run pytest python -q
+      - name: TypeScript
+        working-directory: typescript
+        run: |
+          npm ci
+          npm run build
+          npm run typecheck
+          npm test
+
+  pypi:
+    needs: check
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      id-token: write  # PyPI trusted publishing
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Build
+        run: |
+          uv build python/gleipnir-verify -o dist
+          uv build python/gleipnir -o dist
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist
+
+  npm:
+    needs: check
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      id-token: write  # npm provenance
+    defaults:
+      run:
+        working-directory: typescript
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+          cache: npm
+          cache-dependency-path: typescript/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - name: Publish (verify first: the SDK depends on it)
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          npm publish -w @getgleipnir/verify --access public --provenance
+          npm publish -w @getgleipnir/sdk --access public --provenance

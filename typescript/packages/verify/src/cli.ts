@@ -14,7 +14,7 @@ import { PyError, pyEq } from "./py.js";
 import { reconcile, type Reconciliation } from "./reconcile.js";
 import { ERROR, INFO, WARN, badBundleReport, parseKnownHead, verifyBundle, type Report } from "./verifier.js";
 
-const VERSION_STRING = "gleipnir-verify 0.1.0 (typescript)";
+const VERSION_STRING = "gleipnir-verify 0.4.0 (typescript)";
 
 const MARK: Record<string, string> = { [ERROR]: "FAIL", [WARN]: "WARN", [INFO]: "info" };
 const PROG = "gleipnir-verify";

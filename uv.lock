@@ -611,7 +611,7 @@ wheels = [
 
 [[package]]
 name = "gleipnir-sdk"
-version = "0.1.0.dev0"
+version = "0.4.0"
 source = { editable = "python/gleipnir" }
 dependencies = [
     { name = "cryptography" },
@@ -665,7 +665,7 @@ provides-extras = ["mcp", "otel", "openai-agents", "claude-agent-sdk", "langchai
 
 [[package]]
 name = "gleipnir-verify"
-version = "0.1.0.dev0"
+version = "0.4.0"
 source = { editable = "python/gleipnir-verify" }
 dependencies = [
     { name = "cryptography" },

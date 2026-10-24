@@ -1,8 +1,14 @@
 {
   "name": "@getgleipnir/verify",
-  "version": "0.1.0",
+  "version": "0.4.0",
   "description": "Offline verifier for Gleipnir agent action record bundles, and the KYA mandate checker (Node and browsers).",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/getgleipnir/gleipnir.git",
+    "directory": "typescript/packages/verify"
+  },
+  "homepage": "https://getgleipnir.com",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

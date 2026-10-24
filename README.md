@@ -220,7 +220,7 @@ Docs: [design](docs/design.md), [adapters](docs/adapters.md), [threat model](doc
 
 ### Status
 
-Pre-release (0.1.0.dev0), not yet on PyPI or npm.
+Version 0.4.0, matching spec 0.4. Releases are published from tags by `.github/workflows/release.yml`.
 
 ```bash
 git clone https://github.com/getgleipnir/gleipnir && cd gleipnir

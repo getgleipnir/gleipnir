@@ -1,6 +1,6 @@
 [project]
 name = "gleipnir-verify"
-version = "0.1.0.dev0"
+version = "0.4.0"
 description = "Offline verifier for Gleipnir agent action record bundles"
 readme = "README.md"
 license = "Apache-2.0"
