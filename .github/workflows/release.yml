@@ -90,7 +90,7 @@ jobs:
           cache-dependency-path: typescript/package-lock.json
       - run: npm ci
       - run: npm run build
-      - name: Publish (verify first: the SDK depends on it)
+      - name: "Publish (verify first: the SDK depends on it)"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
