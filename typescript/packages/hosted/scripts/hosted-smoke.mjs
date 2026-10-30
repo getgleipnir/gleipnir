@@ -1,15 +1,16 @@
 #!/usr/bin/env node
 // Smoke test for the SANDBOX hosted checker: the three demo cases against a live deployment.
 //
-//   node scripts/hosted-smoke.mjs <base-url> <tenant-api-key>
-//   (or GLEIPNIR_BASE_URL / GLEIPNIR_API_KEY)
+//   GLEIPNIR_API_KEY=gks_... GLEIPNIR_KYB_KEY=gkk_... node scripts/hosted-smoke.mjs <base-url>
+//   (keys from the environment only, so they stay out of shell history and process lists;
+//    the base URL may also come from GLEIPNIR_BASE_URL)
 //
 // 1. allow:     the agent pays a payee on the mandate, within limits
 // 2. block:     a tricked agent pays a new account (payee_not_on_mandate)
 // 3. escalate:  over the per-payment limit; the company signatory signs an override; resolve -> allow
 //
-// It adds a throwaway company ("Gleipnir Smoke ...") with a fresh signatory key to the tenant's authority
-// table (keeping every other row, and dropping earlier smoke rows). Needs the library built once:
+// With the KYB key it adds a throwaway company ("Gleipnir Smoke ...") with a fresh signatory key to the tenant's
+// authority table (keeping every other row, and dropping earlier smoke rows). Use a dedicated smoke tenant. Needs the library built once:
 //   cd typescript && npm ci && npm run build -w @getgleipnir/verify
 
 import {
@@ -17,16 +18,17 @@ import {
 } from "@getgleipnir/verify/mandate";
 
 const base = (process.argv[2] ?? process.env.GLEIPNIR_BASE_URL ?? "").replace(/\/+$/, "");
-const apiKey = process.argv[3] ?? process.env.GLEIPNIR_API_KEY ?? "";
+const apiKey = process.env.GLEIPNIR_API_KEY ?? "";
+const kybKey = process.env.GLEIPNIR_KYB_KEY ?? "";
 const tenant = /^gks_([a-z0-9-]+)_/.exec(apiKey)?.[1];
-if (!base || !tenant) {
-  console.error("usage: node scripts/hosted-smoke.mjs <base-url> <tenant-api-key>");
+if (!base || !tenant || /^gkk_([a-z0-9-]+)_/.exec(kybKey)?.[1] !== tenant) {
+  console.error("usage: GLEIPNIR_API_KEY=gks_... GLEIPNIR_KYB_KEY=gkk_... node scripts/hosted-smoke.mjs <base-url>");
   process.exit(2);
 }
 
-async function call(method, path, body, auth = true) {
+async function call(method, path, body, auth = apiKey) {
   const headers = {};
-  if (auth) headers.Authorization = `Bearer ${apiKey}`;
+  if (auth) headers.Authorization = `Bearer ${auth}`;
   if (body !== undefined) headers["Content-Type"] = "application/json";
   const res = await fetch(base + path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
   const text = await res.text();
@@ -57,16 +59,16 @@ const signer = { id: `cfo@smoke-${run}.example`, public_key: publicKeyOf(signerS
 
 const keys = await call("GET", "/v1/keys");
 if (!String(keys.checker).includes("sandbox")) throw new Error(`not a sandbox checker: ${keys.checker}`);
-const keyset = await call("GET", `/t/${tenant}/.well-known/gleipnir-checker.json`, undefined, false);
+const keyset = await call("GET", `/t/${tenant}/.well-known/gleipnir-checker.json`, undefined, null);
 console.log(`checker ${keys.checker} at ${base}`);
 
-const authority = await call("GET", `/v1/admin/tenants/${tenant}/authority`);
+const authority = await call("GET", `/v1/admin/tenants/${tenant}/authority`, undefined, kybKey);
 const keep = (rows) => rows.filter((r) => !String(r.company).startsWith("Gleipnir Smoke "));
 await call("PUT", `/v1/admin/tenants/${tenant}/authority`, {
   ...authority,
   signers: [...keep(authority.signers), { company: company.name, signer: signer.id, keys: [signer.public_key] }],
   accounts: [...keep(authority.accounts), { company: company.name, account: from }],
-});
+}, kybKey);
 
 const mandate = signMandate(issue({
   id: `m_smoke_${run}`, company, agent: { id: "ap-agent", public_key: publicKeyOf(agentSeed) },

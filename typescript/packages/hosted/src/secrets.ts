@@ -7,6 +7,8 @@
 import { createCipheriv, createDecipheriv, createHmac, hkdfSync, randomBytes, timingSafeEqual } from "node:crypto";
 
 export const MIN_SECRET = 32;
+export type KeyKind = "check" | "kyb";
+const PREFIX: Record<KeyKind, string> = { check: "gks", kyb: "gkk" };
 const TENANT_RE = /^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$/;
 
 export function tenantIdOk(id: unknown): id is string {
@@ -45,9 +47,12 @@ export class Secrets {
     return new Uint8Array(Buffer.concat([d.update(all.subarray(0, 32)), d.final()]));
   }
 
-  /** A new API key for a tenant: gks_<tenant>_<256 random bits>. Returned once; only its hash is stored. */
-  newApiKey(tenant: string): { key: string; hash: string } {
-    const key = `gks_${tenant}_${randomBytes(32).toString("base64url")}`;
+  /**
+   * A new key for a tenant, returned once; only its hash is stored. "check" keys (gks_<tenant>_...) call the
+   * checker; "kyb" keys (gkk_<tenant>_...) may only read and replace the tenant's authority table.
+   */
+  newApiKey(tenant: string, kind: KeyKind = "check"): { key: string; hash: string } {
+    const key = `${PREFIX[kind]}_${tenant}_${randomBytes(32).toString("base64url")}`;
     return { key, hash: this.hashKey(key) };
   }
 
@@ -70,7 +75,7 @@ export class Secrets {
 }
 
 /** The tenant an API key claims to belong to (not yet verified), or null if it is not one of ours. */
-export function tenantOfKey(key: string): string | null {
-  const m = /^gks_([a-z0-9-]+)_([A-Za-z0-9_-]{43})$/.exec(key);
+export function tenantOfKey(key: string, kind: KeyKind = "check"): string | null {
+  const m = new RegExp(`^${PREFIX[kind]}_([a-z0-9-]+)_([A-Za-z0-9_-]{43})$`).exec(key);
   return m && tenantIdOk(m[1]) ? m[1]! : null;
 }

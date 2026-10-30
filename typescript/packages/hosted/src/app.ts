@@ -5,45 +5,51 @@
  *
  *   POST /v1/check        {"mandate", "payment"}                         -> the signed decision (200)
  *   POST /v1/resolve      {"mandate", "payment", "decision", "override"} -> the decision after a signed override
- *   POST /v1/revoke       {"revocation", "mandate"}                      -> {"ok": true}
+ *   POST /v1/revoke       {"revocation", "mandate"}                      -> {"ok": true, "checker"}
  *   GET  /v1/revocations  -> the signed list of stored revocations, current for an hour
  *   GET  /v1/keys         -> {"checker", "keys"}
  *   GET  /t/<tenant>/keys, /t/<tenant>/.well-known/gleipnir-checker.json  (public, no auth)
- *   POST /v1/admin/tenants                    (ADMIN_TOKEN)          {"id"[, "authority"]} -> api_key, once
- *   POST /v1/admin/tenants/<id>/api-key       (ADMIN_TOKEN)          -> a new api_key, once; the old one stops working
- *   PUT  /v1/admin/tenants/<id>/authority     (ADMIN_TOKEN or the tenant's key) the KYB table
- *   GET  /v1/admin/tenants/<id>/authority     (ADMIN_TOKEN or the tenant's key)
  *
- * Everything else needs `Authorization: Bearer <tenant api key>`. Bodies are strict JSON (parseStrict: no
- * duplicate keys, no floats), 1 byte to 1 MiB, Content-Type application/json. Errors are {"error": text}.
+ *   POST /v1/admin/tenants                 (ADMIN_TOKEN) {["id"][, "authority"]} -> api_key and kyb_key, once
+ *   POST /v1/admin/tenants/<id>/api-key    (ADMIN_TOKEN) -> a new check key, once; the old one stops working
+ *   POST /v1/admin/tenants/<id>/kyb-key    (ADMIN_TOKEN) -> a new KYB key, once; the old one stops working
+ *   PUT  /v1/admin/tenants/<id>/authority  (ADMIN_TOKEN or the tenant's KYB key) the authority table
+ *   GET  /v1/admin/tenants/<id>/authority  (ADMIN_TOKEN or the tenant's KYB key)
+ *
+ * The check key (gks_...) only checks; the KYB key (gkk_...) only maintains the authority table, so a leaked
+ * check key cannot add signers. Bodies are strict JSON (parseStrict: no duplicate keys, no floats), 1 byte to
+ * 1 MiB, Content-Type application/json. Errors are {"error": text}.
  */
 
 import {
   Checker,
+  delegationHash,
+  fmtTs,
   keyset,
+  mandateHash,
   newSeed,
   parseStrict,
   publicKeyOf,
   revocationList,
   revocationProblem,
-  fmtTs,
 } from "@getgleipnir/verify/mandate";
+import { randomBytes } from "node:crypto";
+import { EMPTY_AUTHORITY, authorityOf, authorityProblem, holdsOf, type AuthorityDoc } from "./authority.js";
 import type { KV } from "./kv.js";
 import { Secrets, MIN_SECRET, tenantIdOk, tenantOfKey } from "./secrets.js";
 import {
-  EMPTY_AUTHORITY,
   KVLedger,
   KVPaymentLog,
-  MAX_REVOCATIONS,
   addRevocation,
-  authorityOf,
-  authorityProblem,
   changeTenant,
   createTenant,
-  holdsOf,
-  loadRevocations,
+  h,
+  listRevocations,
+  loadPublic,
+  loadRevocationsFor,
   loadTenant,
-  type AuthorityDoc,
+  logAuthority,
+  savePublic,
   type Tenant,
 } from "./state.js";
 
@@ -65,7 +71,7 @@ export interface Env {
 export interface Deps {
   kv: KV;
   env: Env;
-  /** Client IP, for limiting unauthenticated and failed requests. */
+  /** Client IP, for limiting unauthenticated and failed requests. Unknown: no per-IP limits (never one shared bucket). */
   ip?: string;
   clock?: () => Date;
   limiter?: RateLimiter;
@@ -76,6 +82,8 @@ class HttpError extends Error {
     super(message);
   }
 }
+
+const isDict = (v: unknown): v is J => typeof v === "object" && v !== null && !Array.isArray(v);
 
 // ---------- rate limiting: fixed one-minute windows, per function instance (best effort) ----------
 
@@ -104,19 +112,23 @@ export class RateLimiter {
 const defaultLimiter = new RateLimiter();
 const PUBLIC_PER_MIN = 120; // per IP, unauthenticated GETs
 const FAILED_AUTH_PER_MIN = 20; // per IP
+const REVOCATIONS_PER_SIGNER_PER_MIN = 10;
 
 // ---------- responses ----------
+
+const SECURITY_HEADERS = {
+  "Cache-Control": "no-store",
+  "X-Content-Type-Options": "nosniff",
+  "Strict-Transport-Security": "max-age=31536000",
+  "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+  "Referrer-Policy": "no-referrer",
+  "Gleipnir-Environment": "sandbox",
+};
 
 function json(status: number, body: unknown, extra: Record<string, string> = {}): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: {
-      "Content-Type": "application/json",
-      "Cache-Control": "no-store",
-      "X-Content-Type-Options": "nosniff",
-      "Gleipnir-Environment": "sandbox",
-      ...extra,
-    },
+    headers: { "Content-Type": "application/json", ...SECURITY_HEADERS, ...extra },
   });
 }
 
@@ -160,10 +172,10 @@ async function readBody(req: Request): Promise<unknown> {
 }
 
 function exactly(body: unknown, keys: string[], what: string): J {
-  if (typeof body !== "object" || body === null || Array.isArray(body)) throw new HttpError(400, `expected ${what}`);
+  if (!isDict(body)) throw new HttpError(400, `expected ${what}`);
   const got = Object.keys(body).sort(), want = [...keys].sort();
   if (got.length !== want.length || got.some((k, i) => k !== want[i])) throw new HttpError(400, `expected ${what}`);
-  return body as J;
+  return body;
 }
 
 // ---------- the handler ----------
@@ -182,7 +194,7 @@ interface Ctx {
   deps: Deps;
   secrets: Secrets;
   limiter: RateLimiter;
-  ip: string;
+  ip: string | null;
   now: () => Date;
 }
 
@@ -193,26 +205,25 @@ async function route(req: Request, deps: Deps): Promise<Response> {
   const master = deps.env.MASTER_KEY ?? "";
   if (master.length < MIN_SECRET) throw new HttpError(503, "checker not configured (MASTER_KEY)");
   const ctx: Ctx = {
-    deps, secrets: new Secrets(master), limiter: deps.limiter ?? defaultLimiter, ip: deps.ip ?? "unknown",
+    deps, secrets: new Secrets(master), limiter: deps.limiter ?? defaultLimiter, ip: deps.ip || null,
     now: deps.clock ?? (() => new Date()),
   };
 
   if (path === "/" || path === "/v1") {
     if (method !== "GET") throw new HttpError(405, "method not allowed");
-    return json(200, { service: "gleipnir hosted checker", environment: "sandbox", warning: SANDBOX_NOTICE,
-      docs: "https://github.com/getgleipnir/gleipnir/tree/main/typescript/packages/hosted" });
+    return json(200, { service: "gleipnir hosted checker", environment: "sandbox", warning: SANDBOX_NOTICE });
   }
 
   // Public: a tenant's checker keys, so companies and auditors can verify decisions.
   const pub = /^\/t\/([^/]+)\/(keys|\.well-known\/gleipnir-checker\.json)$/.exec(path);
   if (pub) {
     if (method !== "GET") throw new HttpError(405, "method not allowed");
-    if (!ctx.limiter.allow(`ip:${ctx.ip}`, PUBLIC_PER_MIN)) throw new HttpError(429, "too many requests");
-    const t = tenantIdOk(pub[1]) ? await storeCall(() => loadTenant(deps.kv, pub[1]!)) : null;
-    if (t === null) throw new HttpError(404, "not found");
-    const cors = { "Access-Control-Allow-Origin": "*", "Gleipnir-Checker": t.checker };
-    if (pub[2] === "keys") return json(200, { checker: t.checker, keys: [t.public_key] }, cors);
-    return json(200, keyset(t.checker, [{ public_key: t.public_key }], fmtTs(BigInt(ctx.now().getTime()) * 1000n)), cors);
+    if (ctx.ip !== null && !ctx.limiter.allow(`ip:${ctx.ip}`, PUBLIC_PER_MIN)) throw new HttpError(429, "too many requests");
+    const info = tenantIdOk(pub[1]) ? await storeCall(() => publicInfo(deps.kv, pub[1]!)) : null;
+    if (info === null) throw new HttpError(404, "not found");
+    const cors = { "Access-Control-Allow-Origin": "*", "Gleipnir-Checker": info.checker };
+    if (pub[2] === "keys") return json(200, { checker: info.checker, keys: [info.public_key] }, cors);
+    return json(200, keyset(info.checker, [{ public_key: info.public_key }], fmtTs(BigInt(ctx.now().getTime()) * 1000n)), cors);
   }
 
   if (!path.startsWith("/v1/")) throw new HttpError(404, "not found");
@@ -226,7 +237,7 @@ async function route(req: Request, deps: Deps): Promise<Response> {
     if (ctype !== "application/json") throw new HttpError(415, "Content-Type must be application/json");
   }
 
-  const admin = /^\/v1\/admin\/tenants(?:\/([^/]+)\/(authority|api-key))?$/.exec(path);
+  const admin = /^\/v1\/admin\/tenants(?:\/([^/]+)\/(authority|api-key|kyb-key))?$/.exec(path);
   if (admin) return adminRoute(req, ctx, method, admin[1], admin[2]);
 
   const t = await authTenant(req, ctx);
@@ -234,12 +245,12 @@ async function route(req: Request, deps: Deps): Promise<Response> {
   const id = `${method} ${path}`;
   if (id === "POST /v1/check") {
     const b = exactly(await readBody(req), ["mandate", "payment"], '{"mandate": ..., "payment": ...}');
-    return json(200, await (await checkerFor(t, ctx)).check(b.mandate, b.payment), hdr);
+    return json(200, await (await checkerFor(t, ctx, b.mandate)).check(b.mandate, b.payment), hdr);
   }
   if (id === "POST /v1/resolve") {
     const b = exactly(await readBody(req), ["mandate", "payment", "decision", "override"],
       '{"mandate", "payment", "decision", "override"}');
-    return json(200, await (await checkerFor(t, ctx)).resolve(b.mandate, b.payment, b.decision, b.override), hdr);
+    return json(200, await (await checkerFor(t, ctx, b.mandate)).resolve(b.mandate, b.payment, b.decision, b.override), hdr);
   }
   if (id === "POST /v1/revoke") {
     const b = exactly(await readBody(req), ["revocation", "mandate"], '{"revocation": ..., "mandate": ...}');
@@ -247,8 +258,9 @@ async function route(req: Request, deps: Deps): Promise<Response> {
     return json(200, { ok: true, checker: t.checker }, hdr);
   }
   if (id === "GET /v1/revocations") {
-    const revs = await storeCall(() => loadRevocations(deps.kv, t.id));
-    const now = BigInt(ctx.now().getTime()) * 1000n;
+    const nowMs = ctx.now().getTime();
+    const revs = await storeCall(() => listRevocations(deps.kv, t.id, nowMs));
+    const now = BigInt(nowMs) * 1000n;
     return json(200, revocationList(revs, { issuer: t.checker, seed: seedOf(t, ctx), issuedAt: fmtTs(now),
       nextUpdate: fmtTs(now + 3600n * 1_000_000n) }), hdr);
   }
@@ -257,6 +269,17 @@ async function route(req: Request, deps: Deps): Promise<Response> {
     throw new HttpError(405, "method not allowed");
   }
   throw new HttpError(404, "not found");
+}
+
+/** The public blob; for a tenant created before it existed (or whose public write failed), from the record. */
+async function publicInfo(kv: KV, id: string) {
+  const p = await loadPublic(kv, id);
+  if (p !== null) return p;
+  const t = await loadTenant(kv, id);
+  if (t === null) return null;
+  const info = { checker: t.checker, public_key: t.public_key };
+  await savePublic(kv, id, info).catch(() => undefined);
+  return info;
 }
 
 /** A store call that fails closed: the caller gets 503, never a guess. */
@@ -274,8 +297,13 @@ function bearer(req: Request): string | null {
 }
 
 function failedAuth(ctx: Ctx, message = "missing or wrong bearer token"): never {
-  ctx.limiter.allow(`fail:${ctx.ip}`, FAILED_AUTH_PER_MIN);
+  if (ctx.ip !== null) ctx.limiter.allow(`fail:${ctx.ip}`, FAILED_AUTH_PER_MIN);
   throw new HttpError(401, message);
+}
+
+/** Failed attempts are counted by failedAuth(); this only looks whether the IP has used up its window. */
+function tooManyFailures(ctx: Ctx): boolean {
+  return ctx.ip !== null && ctx.limiter.spent(`fail:${ctx.ip}`, FAILED_AUTH_PER_MIN);
 }
 
 function perMinute(ctx: Ctx): number {
@@ -283,21 +311,16 @@ function perMinute(ctx: Ctx): number {
   return Number.isInteger(n) && n > 0 ? n : 120;
 }
 
-/** The tenant whose API key this request carries. 401 otherwise; 429 over the rate limit. */
+/** The tenant whose check key this request carries. 401 otherwise; 429 over the rate limit. */
 async function authTenant(req: Request, ctx: Ctx): Promise<Tenant> {
   if (tooManyFailures(ctx)) throw new HttpError(429, "too many failed attempts");
   const key = bearer(req);
-  const tid = key === null ? null : tenantOfKey(key);
+  const tid = key === null ? null : tenantOfKey(key, "check");
   if (key === null || tid === null) failedAuth(ctx);
   const t = await storeCall(() => loadTenant(ctx.deps.kv, tid));
   if (t === null || !ctx.secrets.keyMatches(key, t.api_key_hash)) failedAuth(ctx);
   if (!ctx.limiter.allow(`tenant:${t.id}`, perMinute(ctx))) throw new HttpError(429, "too many requests");
   return t;
-}
-
-/** Failed attempts are counted by failedAuth(); this only looks whether the IP has used up its window. */
-function tooManyFailures(ctx: Ctx): boolean {
-  return ctx.limiter.spent(`fail:${ctx.ip}`, FAILED_AUTH_PER_MIN);
 }
 
 function isAdmin(req: Request, ctx: Ctx): boolean {
@@ -314,18 +337,29 @@ function seedOf(t: Tenant, ctx: Ctx): Uint8Array {
   }
 }
 
+/** The objects whose revocations matter for this mandate: the mandate and each link of its chain. */
+function targetsOf(mandate: unknown): string[] {
+  try {
+    if (!isDict(mandate)) return [];
+    const chain = Array.isArray(mandate.delegation) ? (mandate.delegation as unknown[]).filter(isDict) : [];
+    return [mandateHash(mandate), ...chain.map((d) => delegationHash(d))];
+  } catch {
+    return []; // not hashable: the checker refuses it as malformed before revocations matter
+  }
+}
+
 /**
- * A Checker for this tenant on the shared store. The revocations are read first; if that read fails, the
- * checker is built with a `holds` that fails, so every payment gets a signed escalate `checker_unavailable`
- * (fail closed, and the same outcome the library gives when the ledger or payment log is down).
+ * A Checker for this tenant on the shared store. The revocations of this mandate and its chain are read first;
+ * if that read fails, the checker is built with a `holds` that fails, so every payment gets a signed escalate
+ * `checker_unavailable` (fail closed, as when the ledger or payment log is down).
  */
-async function checkerFor(t: Tenant, ctx: Ctx, withState = true): Promise<Checker> {
+async function checkerFor(t: Tenant, ctx: Ctx, mandate: unknown, withState = true): Promise<Checker> {
   const seed = seedOf(t, ctx);
   let revocations: J[] = [];
   let down = false;
   if (withState) {
     try {
-      revocations = await loadRevocations(ctx.deps.kv, t.id);
+      revocations = await loadRevocationsFor(ctx.deps.kv, t.id, targetsOf(mandate), ctx.now().getTime());
     } catch {
       down = true;
     }
@@ -350,14 +384,36 @@ async function checkerFor(t: Tenant, ctx: Ctx, withState = true): Promise<Checke
 async function revokeFor(t: Tenant, ctx: Ctx, r: unknown, mandate: unknown): Promise<void> {
   const problem = revocationProblem(r);
   if (problem) throw new HttpError(400, `revocation rejected: ${problem}`);
-  if (new TextEncoder().encode(canonicalText(r)).byteLength > MAX_REVOCATION) throw new HttpError(400, `revocation rejected: larger than ${MAX_REVOCATION} bytes`);
-  if (!(await (await checkerFor(t, ctx, false)).revocationCounts(mandate, r))) {
+  const rd = r as J;
+  if (new TextEncoder().encode(canonicalText(r)).byteLength > MAX_REVOCATION) {
+    throw new HttpError(400, `revocation rejected: larger than ${MAX_REVOCATION} bytes`);
+  }
+  // Every link of the chain must be for the mandate's company: the authority table is asked per company.
+  const md = isDict(mandate) ? mandate : {};
+  const company = isDict(md.company) ? md.company.name : undefined;
+  const chain = Array.isArray(md.delegation) ? (md.delegation as unknown[]) : [];
+  if (chain.some((d) => !isDict(d) || !isDict(d.company) || d.company.name !== company)) {
+    throw new HttpError(400, "revocation rejected: a delegation link is for another company");
+  }
+  const signer = isDict(rd.signer) ? String(rd.signer.public_key) : "";
+  if (!ctx.limiter.allow(`revoke:${t.id}:${signer}`, REVOCATIONS_PER_SIGNER_PER_MIN)) {
+    throw new HttpError(429, "too many revocations from this signer; try again in a minute");
+  }
+  let counts: boolean;
+  try {
+    counts = await (await checkerFor(t, ctx, mandate, false)).revocationCounts(mandate, r);
+  } catch {
+    counts = false;
+  }
+  if (!counts) {
     throw new HttpError(400, "revocation rejected: not a valid revocation of this mandate by someone who may revoke it");
   }
-  const res = await storeCall(() => addRevocation(ctx.deps.kv, t.id, r as J, canonicalText));
-  if (res === "full") {
-    throw new HttpError(400, `revocation store is full: this sandbox keeps at most ${MAX_REVOCATIONS} per tenant`);
-  }
+  // revocationCounts matched the target: the mandate itself, or one link of its chain.
+  const target = typeof rd.mandate_hash === "string" ? rd.mandate_hash : rd.delegation_hash as string;
+  const obj = typeof rd.mandate_hash === "string" ? md
+    : (chain as J[]).find((d) => { try { return delegationHash(d) === target; } catch { return false; } });
+  const until = obj && typeof obj.valid_until === "string" ? obj.valid_until : null;
+  await storeCall(() => addRevocation(ctx.deps.kv, t.id, target, rd, until, ctx.now().getTime(), canonicalText));
 }
 
 /** Key-sorted JSON, to tell two stored revocations apart. */
@@ -378,60 +434,74 @@ async function adminRoute(req: Request, ctx: Ctx, method: string, tid: string | 
     if (method !== "POST") throw new HttpError(405, "method not allowed");
     if (!admin) failedAuth(ctx);
     const body = await readBody(req);
-    if (typeof body !== "object" || body === null || Array.isArray(body)
-      || !Object.keys(body).every((k) => k === "id" || k === "authority") || !("id" in body)) {
-      throw new HttpError(400, 'expected {"id": "<tenant id>"[, "authority": {...}]}');
+    if (!isDict(body) || !Object.keys(body).every((k) => k === "id" || k === "authority")) {
+      throw new HttpError(400, 'expected {["id": "<tenant id>"][, "authority": {...}]}');
     }
-    const b = body as J;
-    if (!tenantIdOk(b.id)) throw new HttpError(400, "id must be 3 to 40 of a-z, 0-9 and single hyphens, e.g. \"acme-psp\"");
-    const authority = (b.authority ?? EMPTY_AUTHORITY) as AuthorityDoc;
+    const id = body.id ?? `t-${randomBytes(8).toString("hex")}`;
+    if (!tenantIdOk(id)) throw new HttpError(400, "id must be 3 to 40 of a-z, 0-9 and single hyphens, e.g. \"acme-psp\"");
+    const authority = (body.authority ?? EMPTY_AUTHORITY) as AuthorityDoc;
     const problem = authorityProblem(authority);
     if (problem) throw new HttpError(400, problem);
     const seed = newSeed();
-    const { key, hash } = ctx.secrets.newApiKey(b.id);
+    const check = ctx.secrets.newApiKey(id, "check"), kyb = ctx.secrets.newApiKey(id, "kyb");
     const t: Tenant = {
-      v: 1, id: b.id, checker: `sandbox:${b.id}`, created_at: ctx.now().toISOString(), public_key: publicKeyOf(seed),
-      seed: ctx.secrets.sealSeed(seed, b.id), api_key_hash: hash, authority,
+      v: 1, id, checker: `sandbox:${id}`, created_at: ctx.now().toISOString(), public_key: publicKeyOf(seed),
+      seed: ctx.secrets.sealSeed(seed, id), api_key_hash: check.hash, kyb_key_hash: kyb.hash, authority,
+      authority_version: 1, authority_hash: h(canonicalText(authority)),
     };
     if (!(await storeCall(() => createTenant(kv, t)))) throw new HttpError(409, "tenant exists");
+    await storeCall(() => logAuthority(kv, id, 1, { at: t.created_at, by: "admin", hash: t.authority_hash, authority: authority as unknown as J }));
     return json(201, {
-      id: t.id, checker: t.checker, public_key: t.public_key, api_key: key,
+      id: t.id, checker: t.checker, public_key: t.public_key, api_key: check.key, kyb_key: kyb.key,
       keys: `/t/${t.id}/keys`, keyset: `/t/${t.id}/.well-known/gleipnir-checker.json`,
-      note: "The api_key is shown once; only its hash is stored. " + SANDBOX_NOTICE,
+      note: "api_key checks payments; kyb_key only maintains the authority table. Both are shown once; only "
+        + "their hashes are stored. Tenant ids appear in public URLs. " + SANDBOX_NOTICE,
     }, { "Gleipnir-Checker": t.checker });
   }
 
   if (!tenantIdOk(tid)) throw new HttpError(404, "not found");
-  // The tenant itself may read and set its own authority table; only the admin may issue keys.
-  let self = false;
-  if (!admin && what === "authority") {
-    const key = bearer(req);
-    if (key !== null && tenantOfKey(key) === tid) {
-      const t = await storeCall(() => loadTenant(kv, tid));
-      self = t !== null && ctx.secrets.keyMatches(key, t.api_key_hash);
-      if (self && !ctx.limiter.allow(`tenant:${tid}`, perMinute(ctx))) throw new HttpError(429, "too many requests");
-    }
-  }
-  if (!admin && !self) failedAuth(ctx);
 
-  if (what === "api-key") {
+  if (what === "api-key" || what === "kyb-key") { // admin only
     if (method !== "POST") throw new HttpError(405, "method not allowed");
-    const { key, hash } = ctx.secrets.newApiKey(tid);
-    if (!(await storeCall(() => changeTenant(kv, tid, (t) => ({ ...t, api_key_hash: hash }))))) throw new HttpError(404, "not found");
-    return json(200, { id: tid, api_key: key, note: "Shown once; the previous key no longer works." });
+    if (!admin) failedAuth(ctx);
+    const kind = what === "api-key" ? "check" : "kyb";
+    const { key, hash } = ctx.secrets.newApiKey(tid, kind);
+    const res = await storeCall(() => changeTenant(kv, tid, (t) =>
+      kind === "check" ? { ...t, api_key_hash: hash } : { ...t, kyb_key_hash: hash }));
+    if (res !== "ok") throw new HttpError(404, "not found");
+    return json(200, { id: tid, [kind === "check" ? "api_key" : "kyb_key"]: key, note: "Shown once; the previous key no longer works." });
   }
-  if (method === "GET") {
-    const t = await storeCall(() => loadTenant(kv, tid));
-    if (t === null) throw new HttpError(404, "not found");
-    return json(200, t.authority, { "Gleipnir-Checker": t.checker });
+
+  // The authority table: the admin, or the tenant's KYB key (never its check key).
+  let kybHash: string | null = null;
+  if (!admin) {
+    const key = bearer(req);
+    if (key !== null && tenantOfKey(key, "kyb") === tid) {
+      const t = await storeCall(() => loadTenant(kv, tid));
+      if (t !== null && typeof t.kyb_key_hash === "string" && ctx.secrets.keyMatches(key, t.kyb_key_hash)) kybHash = t.kyb_key_hash;
+    }
+    if (kybHash === null) failedAuth(ctx);
+    if (!ctx.limiter.allow(`kyb:${tid}`, perMinute(ctx))) throw new HttpError(429, "too many requests");
   }
+  const t = await storeCall(() => loadTenant(kv, tid));
+  if (t === null) throw new HttpError(404, "not found");
+  if (method === "GET") return json(200, t.authority, { "Gleipnir-Checker": t.checker });
   if (method !== "PUT") throw new HttpError(405, "method not allowed");
   const doc = await readBody(req);
   const problem = authorityProblem(doc);
   if (problem) throw new HttpError(400, problem);
-  if (!(await storeCall(() => changeTenant(kv, tid, (t) => ({ ...t, authority: doc as AuthorityDoc }))))) {
-    throw new HttpError(404, "not found");
-  }
-  return json(200, { ok: true, checker: `sandbox:${tid}`, signers: (doc as AuthorityDoc).signers.length,
+  const version = (t.authority_version ?? 1) + 1;
+  const hash = h(canonicalText(doc));
+  // Log first (append-only), then switch the table only if nothing changed meanwhile and the key still holds.
+  await storeCall(() => logAuthority(kv, tid, version, { at: ctx.now().toISOString(), by: admin ? "admin" : "kyb_key",
+    hash, previous_hash: t.authority_hash ?? null, authority: doc as J }));
+  const res = await storeCall(() => changeTenant(kv, tid, (cur) => {
+    if ((cur.authority_version ?? 1) !== version - 1) return null;
+    if (kybHash !== null && cur.kyb_key_hash !== kybHash) return null;
+    return { ...cur, authority: doc as AuthorityDoc, authority_version: version, authority_hash: hash };
+  }));
+  if (res === "missing") throw new HttpError(404, "not found");
+  if (res === "aborted") throw new HttpError(409, "the authority table or the key changed meanwhile; read it again and retry");
+  return json(200, { ok: true, checker: t.checker, version, hash, signers: (doc as AuthorityDoc).signers.length,
     accounts: (doc as AuthorityDoc).accounts.length });
 }

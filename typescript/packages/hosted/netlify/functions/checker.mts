@@ -19,4 +19,11 @@ export default async (req: Request, context: { ip?: string }): Promise<Response>
 
 export const config = {
   path: ["/v1", "/v1/*", "/t/*"],
+  // Platform rate limit per client IP and domain, in front of the function (Netlify's rate limiting
+  // rules; availability depends on the plan). The in-function limits are per instance and best effort.
+  rateLimit: {
+    windowLimit: 300,
+    windowSize: 60,
+    aggregateBy: ["ip", "domain"],
+  },
 };

@@ -33,13 +33,15 @@ let kv: MemoryKV;
 let limiter: RateLimiter;
 let env: Env;
 
+let ip: string | undefined = "203.0.113.7";
+
 async function call(method: string, path: string, body?: unknown, token?: string, extra: Record<string, string> = {}): Promise<[number, J, Headers]> {
   const headers: Record<string, string> = { ...extra };
   if (body !== undefined) headers["Content-Type"] ??= "application/json";
   if (token) headers.Authorization = `Bearer ${token}`;
   const init: RequestInit = { method, headers };
   if (body !== undefined) init.body = typeof body === "string" ? body : JSON.stringify(body);
-  const res = await handle(new Request(BASE + path, init), { kv, env, limiter, ip: "203.0.113.7" });
+  const res = await handle(new Request(BASE + path, init), { kv, env, limiter, ip });
   const text = await res.text();
   return [res.status, text ? (JSON.parse(text) as J) : {}, res.headers];
 }
@@ -50,14 +52,14 @@ async function setup(tenant = "acme-psp") {
   const signer = { id: "kberger@nordhafen.at", public_key: publicKeyOf(signerSeed) };
   const [st, created] = await call("POST", "/v1/admin/tenants", { id: tenant }, ENV.ADMIN_TOKEN);
   expect(st).toBe(201);
-  const apiKey = created.api_key as string;
+  const apiKey = created.api_key as string, kybKey = created.kyb_key as string;
   const authority = {
     source: "bank_kyb",
     signers: [{ company: COMPANY.name, signer: signer.id, keys: [signer.public_key] }],
     accounts: [{ company: COMPANY.name, account: FROM }],
   };
-  const [st2] = await call("PUT", `/v1/admin/tenants/${tenant}/authority`, authority, apiKey);
-  expect(st2).toBe(200);
+  const [st2, put] = await call("PUT", `/v1/admin/tenants/${tenant}/authority`, authority, kybKey);
+  expect([st2, put.version]).toEqual([200, 2]);
   const mandate = signMandate(issue({
     id: "m_ap_2026", company: COMPANY, agent: { id: "ap-agent", public_key: publicKeyOf(agentSeed) },
     signer: { ...signer, name: "K. Berger" },
@@ -67,13 +69,14 @@ async function setup(tenant = "acme-psp") {
   }), signerSeed);
   const pay = (id: string, amount: string, payee: J = BRENNER) =>
     attach(mandate, { id, rail: "sepa", amount, currency: "EUR", payee, agentSeed });
-  return { apiKey, mandate, pay, signer, signerSeed, checkerId: created.checker as string, publicKey: created.public_key as string };
+  return { apiKey, kybKey, mandate, pay, signer, signerSeed, checkerId: created.checker as string, publicKey: created.public_key as string };
 }
 
 beforeEach(() => {
   kv = new MemoryKV();
   limiter = new RateLimiter();
   env = { ...ENV };
+  ip = "203.0.113.7";
 });
 
 describe("hosted sandbox checker", () => {
@@ -185,7 +188,13 @@ describe("hosted sandbox checker", () => {
     expect((await call("POST", "/v1/check", body, s.apiKey.slice(0, -2) + "AA"))[0]).toBe(401);
     expect((await call("POST", "/v1/check", body, ENV.ADMIN_TOKEN))[0]).toBe(401);
     expect((await call("POST", "/v1/admin/tenants", { id: "evil" }, s.apiKey))[0]).toBe(401);
-    expect((await call("PUT", "/v1/admin/tenants/acme-psp/authority", { signers: [], accounts: [] }, other.apiKey))[0]).toBe(401);
+    expect((await call("PUT", "/v1/admin/tenants/acme-psp/authority", { signers: [], accounts: [] }, other.kybKey))[0]).toBe(401);
+    // The check key cannot touch the authority table (a leaked check key cannot add signers).
+    expect((await call("PUT", "/v1/admin/tenants/acme-psp/authority", { signers: [], accounts: [] }, s.apiKey))[0]).toBe(401);
+    expect((await call("GET", "/v1/admin/tenants/acme-psp/authority", undefined, s.apiKey))[0]).toBe(401);
+    // And the KYB key cannot check payments or rotate keys.
+    expect((await call("POST", "/v1/check", body, s.kybKey))[0]).toBe(401);
+    expect((await call("POST", "/v1/admin/tenants/acme-psp/kyb-key", {}, s.kybKey))[0]).toBe(401);
     expect((await call("POST", "/v1/admin/tenants/acme-psp/api-key", {}, s.apiKey))[0]).toBe(401);
     expect((await call("GET", "/v1/revocations"))[0]).toBe(401);
     // Another tenant's key works, but for its own checker: K. Berger is unknown there.
@@ -197,7 +206,7 @@ describe("hosted sandbox checker", () => {
     const stored = kv.items.get("t/acme-psp/tenant")!.data;
     expect(stored).not.toContain(s.apiKey);
     const t = JSON.parse(stored) as J;
-    for (const [, r] of [await call("GET", "/t/acme-psp/keys"), await call("GET", "/v1/admin/tenants/acme-psp/authority", undefined, s.apiKey)]) {
+    for (const [, r] of [await call("GET", "/t/acme-psp/keys"), await call("GET", "/v1/admin/tenants/acme-psp/authority", undefined, s.kybKey)]) {
       expect(JSON.stringify(r)).not.toContain(t.seed as string);
       expect(JSON.stringify(r)).not.toContain(t.api_key_hash as string);
     }
@@ -223,7 +232,7 @@ describe("hosted sandbox checker", () => {
     env = { ...ENV, RATE_LIMIT_PER_MIN: "3" };
     const codes = [];
     for (let i = 0; i < 5; i++) codes.push((await call("GET", "/v1/keys", undefined, s.apiKey))[0]);
-    expect(codes).toEqual([200, 200, 429, 429, 429]); // setup() already used one request of this window
+    expect(codes).toEqual([200, 200, 200, 429, 429]);
     limiter = new RateLimiter();
     const fails = [];
     for (let i = 0; i < 22; i++) fails.push((await call("GET", "/v1/keys", undefined, "wrong"))[0]);
@@ -248,13 +257,81 @@ describe("hosted sandbox checker", () => {
     expect((await call("POST", "/v1/check", "", s.apiKey))[0]).toBe(400);
     expect((await call("POST", "/v1/check", "{}", s.apiKey, { "Content-Type": "text/plain" }))[0]).toBe(415);
     expect((await call("POST", "/v1/check", "{}", s.apiKey, { Origin: "https://evil.example" }))[0]).toBe(403);
-    expect((await call("PUT", "/v1/admin/tenants/acme-psp/authority", { signers: [{ company: "x" }], accounts: [] }, s.apiKey))[0]).toBe(400);
+    expect((await call("PUT", "/v1/admin/tenants/acme-psp/authority", { signers: [{ company: "x" }], accounts: [] }, s.kybKey))[0]).toBe(400);
     expect((await call("POST", "/v1/admin/tenants", { id: "../etc" }, ENV.ADMIN_TOKEN))[0]).toBe(400);
+  });
+
+  it("authority changes: KYB key or admin only, versioned, logged append-only, refused with a rotated key", async () => {
+    const s = await setup();
+    const [, cur] = await call("GET", "/v1/admin/tenants/acme-psp/authority", undefined, s.kybKey);
+    const [st, put] = await call("PUT", "/v1/admin/tenants/acme-psp/authority", { ...cur, require_payees: true }, ENV.ADMIN_TOKEN);
+    expect([st, put.version]).toEqual([200, 3]);
+    const log = [...kv.items.keys()].filter((k) => k.startsWith("t/acme-psp/authority-log/"));
+    expect(log.length).toBe(3);
+    expect(JSON.parse(kv.items.get(log.sort()[2]!)!.data).by).toBe("admin");
+    const [, rot] = await call("POST", "/v1/admin/tenants/acme-psp/kyb-key", {}, ENV.ADMIN_TOKEN);
+    expect((await call("PUT", "/v1/admin/tenants/acme-psp/authority", cur, s.kybKey))[0]).toBe(401);
+    expect((await call("PUT", "/v1/admin/tenants/acme-psp/authority", cur, rot.kyb_key as string))[0]).toBe(200);
+  });
+
+  it("creates opaque tenant ids when none is given", async () => {
+    const [st, t] = await call("POST", "/v1/admin/tenants", {}, ENV.ADMIN_TOKEN);
+    expect(st).toBe(201);
+    expect(t.id).toMatch(/^t-[0-9a-f]{16}$/);
+    expect((await call("GET", `/t/${t.id as string}/keys`))[1].checker).toBe(`sandbox:${t.id as string}`);
+  });
+
+  it("stores revocations per revoked mandate: no tenant-wide cap, per-signer rate limit", async () => {
+    const s = await setup();
+    const signed = (id: string) => signMandate(issue({
+      id, company: COMPANY, agent: { id: "ap-agent" }, signer: s.signer,
+      scope: { currency: "EUR", max_per_payment: "100.00", from_accounts: [FROM] }, validUntil: "2099-12-31T23:59:59.000Z",
+    }), s.signerSeed);
+    const codes: number[] = [];
+    for (let i = 0; i < 12; i++) {
+      const m = signed(`m_${i}`);
+      const r = revoke(m, { signer: s.signer, seed: s.signerSeed, id: `r_${i}` });
+      codes.push((await call("POST", "/v1/revoke", { revocation: r, mandate: m }, s.apiKey))[0]);
+    }
+    expect(codes).toEqual([...Array(10).fill(200), 429, 429]);
+    expect([...kv.items.keys()].filter((k) => k.startsWith("t/acme-psp/rev/")).length).toBe(10);
+    const [, list] = await call("GET", "/v1/revocations", undefined, s.apiKey);
+    expect((list.revocations as unknown[]).length).toBe(10);
+    // The payment mandate is unaffected by revocations of other mandates.
+    const [, d] = await call("POST", "/v1/check", { mandate: s.mandate, payment: s.pay("INV-R", "10.00") }, s.apiKey);
+    expect(d.outcome).toBe("allow");
+  });
+
+  it("applies a write once when the store commits it but the answer is lost", async () => {
+    const s = await setup();
+    kv.lostAnswer = (key) => key.includes("/ledger/") || key.includes("/payments/");
+    const p = s.pay("L-1", "20000.00");
+    const [, d1] = await call("POST", "/v1/check", { mandate: s.mandate, payment: p }, s.apiKey);
+    const [, d2] = await call("POST", "/v1/check", { mandate: s.mandate, payment: p }, s.apiKey);
+    expect(d1.outcome).toBe("allow");
+    expect(d2.id).toBe(d1.id); // the claim was ours, and the retry gets the same decision
+    const [, d3] = await call("POST", "/v1/check", { mandate: s.mandate, payment: s.pay("L-2", "20000.00") }, s.apiKey);
+    expect(d3.outcome).toBe("allow");
+    const [, d] = await call("POST", "/v1/check", { mandate: s.mandate, payment: s.pay("L-3", "0.01") }, s.apiKey);
+    expect(d.reasons).toEqual(["over_period_limit"]); // 40000.00 counted exactly, not twice
+  });
+
+  it("without a client IP, failed attempts are not pooled into one shared bucket", async () => {
+    ip = undefined;
+    const codes = [];
+    for (let i = 0; i < 25; i++) codes.push((await call("GET", "/v1/keys", undefined, "wrong"))[0]);
+    expect(new Set(codes)).toEqual(new Set([401]));
+  });
+
+  it("sets security headers on API responses", async () => {
+    const [, , hd] = await call("GET", "/v1");
+    expect(hd.get("Strict-Transport-Security")).toMatch(/max-age/);
+    expect(hd.get("Content-Security-Policy")).toMatch(/default-src 'none'/);
   });
 
   it("fails closed when the store is down: escalate checker_unavailable, signed", async () => {
     const s = await setup();
-    for (const part of ["/ledger/", "/payments/", "/revocations"]) {
+    for (const part of ["/ledger/", "/payments/", "/rev/"]) {
       kv.failOn = (_op, key) => key.includes(part);
       const [st, d] = await call("POST", "/v1/check", { mandate: s.mandate, payment: s.pay(`F${part}`, "10.00") }, s.apiKey);
       expect(st).toBe(200);

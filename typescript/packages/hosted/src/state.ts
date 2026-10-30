@@ -1,20 +1,33 @@
 /**
  * Tenant state on a KV store with conditional writes: the payment log and period ledger the Checker expects
- * (spec 7), stored revocations, and tenant records. Every read-modify-write is a compare-and-swap on the
- * entry's ETag, retried a few times; if it cannot get through it throws, and the Checker turns that into
- * `checker_unavailable` (fail closed).
+ * (spec 7), stored revocations, and tenant records.
+ *
+ * Every read-modify-write is a compare-and-swap on the entry's ETag, retried a few times; if it cannot get
+ * through it throws, and the Checker turns that into `checker_unavailable`. Every value written carries the
+ * random op ids of its last writes (`ops`), so a write whose answer was lost (the store committed it, then a
+ * retry of the same request saw 412) is recognised on the next read and never applied twice.
  */
 
-import { createHash } from "node:crypto";
-import { accountProblem, periodKey, type Authority, type Holds, type Ledger, type PaymentLog } from "@getgleipnir/verify/mandate";
+import { createHash, randomBytes } from "node:crypto";
+import { periodKey, type Ledger, type PaymentLog } from "@getgleipnir/verify/mandate";
+import type { AuthorityDoc } from "./authority.js";
 import type { KV } from "./kv.js";
 
 type J = Record<string, unknown>;
 
 const RETRIES = 8;
+const KEEP_OPS = 16;
 
-function h(text: string): string {
+export function h(text: string): string {
   return createHash("sha256").update(text, "utf8").digest("hex");
+}
+
+function newOp(): string {
+  return randomBytes(12).toString("base64url");
+}
+
+function opsOf(v: J | null): string[] {
+  return v !== null && Array.isArray(v.ops) ? (v.ops as unknown[]).filter((x): x is string => typeof x === "string") : [];
 }
 
 async function backoff(i: number): Promise<void> {
@@ -29,22 +42,31 @@ export class ContentionError extends Error {
 
 /**
  * Compare-and-swap loop: `f(current)` returns the new value (or undefined to write nothing) and a result.
- * Returns the result of the call whose write went through.
+ * Returns the result of the attempt whose write went through, also when its answer was lost.
  */
-async function update<T>(kv: KV, key: string, f: (cur: J | null) => [J | undefined | "delete", T]): Promise<T> {
+export async function update<T>(kv: KV, key: string, f: (cur: J | null) => [J | undefined, T]): Promise<T> {
+  const mine = new Map<string, T>();
   for (let i = 0; i < RETRIES; i++) {
     const e = await kv.get(key);
     const cur = e === null ? null : (JSON.parse(e.data) as J);
+    for (const op of opsOf(cur)) if (mine.has(op)) return mine.get(op)!; // an earlier attempt of ours landed
     const [next, out] = f(cur);
     if (next === undefined) return out;
-    if (next === "delete") {
-      await kv.del(key);
-      return out;
-    }
-    if (await kv.put(key, JSON.stringify(next), e === null ? { ifNew: true } : { ifMatch: e.etag })) return out;
+    const op = newOp();
+    mine.set(op, out);
+    const value = { ...next, ops: [...opsOf(cur), op].slice(-KEEP_OPS) };
+    if (await kv.put(key, JSON.stringify(value), e === null ? { ifNew: true } : { ifMatch: e.etag })) return out;
     await backoff(i);
   }
   throw new ContentionError(key);
+}
+
+/** Create-only write; true if this call created it (also when the store's answer was lost). */
+async function createOnce(kv: KV, key: string, value: J): Promise<boolean> {
+  const op = newOp();
+  if (await kv.put(key, JSON.stringify({ ...value, ops: [op] }), { ifNew: true })) return true;
+  const back = await kv.get(key);
+  return back !== null && opsOf(JSON.parse(back.data) as J).includes(op);
 }
 
 // ---------- payment log (idempotency, replay protection) ----------
@@ -64,7 +86,7 @@ export class KVPaymentLog implements PaymentLog {
   }
 
   async register(key: string, paymentHash: string): Promise<boolean> {
-    return this.kv.put(this.k(key), JSON.stringify({ hash: paymentHash, decision: null }), { ifNew: true });
+    return createOnce(this.kv, this.k(key), { hash: paymentHash, decision: null });
   }
 
   async remember(key: string, decision: J): Promise<void> {
@@ -110,37 +132,60 @@ export class KVLedger implements Ledger {
   }
 }
 
-// ---------- revocations ----------
+// ---------- revocations: one small blob per revoked object (mandate hash or delegation hash) ----------
 
-export const MAX_REVOCATIONS = 1000;
+/** Per object, the earliest revocations are kept; one valid revocation already switches it off. */
+export const MAX_PER_TARGET = 32;
 
-export async function loadRevocations(kv: KV, tenant: string): Promise<J[]> {
-  const e = await kv.get(`t/${tenant}/revocations`);
-  return e === null ? [] : ((JSON.parse(e.data) as { revocations: J[] }).revocations);
+interface RevEntry {
+  r: J;
+  until: string | null; // valid_until of the revoked object: after that the revocation is moot and is dropped
 }
 
-/** Adds a revocation (no-op if already stored). "full" if the sandbox store is full. */
-export async function addRevocation(kv: KV, tenant: string, r: J, canonical: (v: unknown) => string): Promise<"ok" | "full"> {
+function revKey(tenant: string, target: string): string {
+  return `t/${tenant}/rev/${h(target)}`;
+}
+
+function live(entries: unknown, nowMs: number): RevEntry[] {
+  if (!Array.isArray(entries)) return [];
+  return (entries as RevEntry[]).filter((e) => e.until === null || !(Date.parse(e.until) < nowMs));
+}
+
+/** The stored revocations of these objects (mandate and delegation hashes). Throws if the store is down. */
+export async function loadRevocationsFor(kv: KV, tenant: string, targets: string[], nowMs: number): Promise<J[]> {
+  const out: J[] = [];
+  for (const t of new Set(targets)) {
+    const e = await kv.get(revKey(tenant, t));
+    if (e !== null) out.push(...live((JSON.parse(e.data) as J).entries, nowMs).map((x) => x.r));
+  }
+  return out;
+}
+
+/** Store a (verified) revocation of `target`. Never refused for capacity: the earliest ones are kept. */
+export async function addRevocation(kv: KV, tenant: string, target: string, r: J, until: string | null, nowMs: number,
+  canonical: (v: unknown) => string): Promise<void> {
   const want = canonical(r);
-  return update(kv, `t/${tenant}/revocations`, (cur) => {
-    const list = (cur?.revocations as J[] | undefined) ?? [];
-    if (list.some((x) => canonical(x) === want)) return [undefined, "ok"];
-    if (list.length >= MAX_REVOCATIONS) return [undefined, "full"];
-    return [{ revocations: [...list, r] }, "ok"];
+  await update(kv, revKey(tenant, target), (cur) => {
+    const list = live(cur?.entries, nowMs);
+    if (list.some((x) => canonical(x.r) === want)) return [undefined, undefined];
+    const at = (x: RevEntry) => Date.parse(String(x.r.revoked_at)) || 0;
+    const entries = [...list, { r, until }].sort((a, b) => at(a) - at(b)).slice(0, MAX_PER_TARGET);
+    return [{ target, entries }, undefined];
   });
 }
 
-// ---------- tenants ----------
-
-export interface AuthorityDoc {
-  source?: string;
-  signers: { company: string; signer: string; keys: string[]; may_sign?: boolean; joint?: number;
-    retired?: Record<string, string>; person?: string }[];
-  accounts: { company: string; account: J; customer?: string }[];
-  officers?: string[];
-  require_payees?: boolean;
-  webauthn?: { rp_id?: string; origins?: string[] };
+/** Every stored, live revocation of a tenant, for the signed list (bounded). */
+export async function listRevocations(kv: KV, tenant: string, nowMs: number, maxTargets = 500): Promise<J[]> {
+  const keys = await kv.list(`t/${tenant}/rev/`, maxTargets);
+  const out: J[] = [];
+  for (const k of keys) {
+    const e = await kv.get(k);
+    if (e !== null) out.push(...live((JSON.parse(e.data) as J).entries, nowMs).map((x) => x.r));
+  }
+  return out;
 }
+
+// ---------- tenants ----------
 
 export interface Tenant {
   v: 1;
@@ -149,11 +194,17 @@ export interface Tenant {
   created_at: string;
   public_key: string;
   seed: string; // sealed with MASTER_KEY, never returned
-  api_key_hash: string; // HMAC of the API key, never returned
+  api_key_hash: string; // HMAC of the check key, never returned
+  kyb_key_hash: string; // HMAC of the KYB key (authority table only), never returned
   authority: AuthorityDoc;
+  authority_version: number;
+  authority_hash: string;
 }
 
-export const EMPTY_AUTHORITY: AuthorityDoc = { source: "bank_kyb", signers: [], accounts: [] };
+export interface PublicInfo {
+  checker: string;
+  public_key: string;
+}
 
 export function tenantKey(id: string): string {
   return `t/${id}/tenant`;
@@ -164,91 +215,36 @@ export async function loadTenant(kv: KV, id: string): Promise<Tenant | null> {
   return e === null ? null : (JSON.parse(e.data) as Tenant);
 }
 
+/** The public part of a tenant, in its own blob, so public endpoints never read the record with secrets. */
+export async function loadPublic(kv: KV, id: string): Promise<PublicInfo | null> {
+  const e = await kv.get(`t/${id}/public`);
+  if (e === null) return null;
+  const v = JSON.parse(e.data) as J;
+  return { checker: v.checker as string, public_key: v.public_key as string };
+}
+
+export async function savePublic(kv: KV, id: string, p: PublicInfo): Promise<void> {
+  await kv.put(`t/${id}/public`, JSON.stringify({ ...p, ops: [newOp()] }), null);
+}
+
+/** false if the tenant exists. */
 export async function createTenant(kv: KV, t: Tenant): Promise<boolean> {
-  return kv.put(tenantKey(t.id), JSON.stringify(t), { ifNew: true });
+  if (!(await createOnce(kv, tenantKey(t.id), t as unknown as J))) return false;
+  await savePublic(kv, t.id, { checker: t.checker, public_key: t.public_key });
+  return true;
 }
 
-/** Change a stored tenant; false if it does not exist. */
-export async function changeTenant(kv: KV, id: string, f: (t: Tenant) => Tenant): Promise<boolean> {
-  return update(kv, tenantKey(id), (cur) => (cur === null ? [undefined, false] : [f(cur as unknown as Tenant) as unknown as J, true]));
+/** Change a stored tenant. `f` returns null to abort (e.g. the key it authenticated with was rotated meanwhile). */
+export async function changeTenant(kv: KV, id: string, f: (t: Tenant) => Tenant | null): Promise<"ok" | "missing" | "aborted"> {
+  return update(kv, tenantKey(id), (cur) => {
+    if (cur === null) return [undefined, "missing"];
+    const next = f(cur as unknown as Tenant);
+    return next === null ? [undefined, "aborted"] : [next as unknown as J, "ok"];
+  });
 }
 
-const MAX_ROWS = 1000;
-const str = (v: unknown, max = 512): v is string => typeof v === "string" && v.length > 0 && v.length <= max;
-const isObj = (v: unknown): v is J => typeof v === "object" && v !== null && !Array.isArray(v);
-const only = (o: J, keys: string[]) => Object.keys(o).every((k) => keys.includes(k));
-const TS_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?Z$/;
-
-/**
- * Why this is not an authority document, or null. The same shape as the KYB file of `gleipnir mandate serve
- * --authority`, plus the sandbox policy (officers, require_payees, webauthn).
- */
-export function authorityProblem(doc: unknown): string | null {
-  if (!isObj(doc)) return "authority must be an object";
-  if (!only(doc, ["source", "signers", "accounts", "officers", "require_payees", "webauthn"])) {
-    return "authority: unknown field (allowed: source, signers, accounts, officers, require_payees, webauthn)";
-  }
-  if (doc.source !== undefined && !str(doc.source, 64)) return "authority.source must be a short string";
-  if (!Array.isArray(doc.signers) || doc.signers.length > MAX_ROWS) return `authority.signers must be a list of at most ${MAX_ROWS}`;
-  for (const [i, s] of doc.signers.entries()) {
-    const at = `authority.signers[${i}]`;
-    if (!isObj(s) || !only(s, ["company", "signer", "keys", "may_sign", "joint", "retired", "person"])) return `${at}: unknown field or not an object`;
-    if (!str(s.company) || !str(s.signer)) return `${at}: company and signer must be non-empty strings`;
-    if (!Array.isArray(s.keys) || s.keys.length < 1 || s.keys.length > 16 || !s.keys.every((k) => str(k, 2048))) {
-      return `${at}.keys must be 1 to 16 public keys`;
-    }
-    if (s.may_sign !== undefined && typeof s.may_sign !== "boolean") return `${at}.may_sign must be true or false`;
-    if (s.joint !== undefined && !(Number.isInteger(s.joint) && (s.joint as number) >= 1 && (s.joint as number) <= 16)) {
-      return `${at}.joint must be an integer from 1 to 16`;
-    }
-    if (s.retired !== undefined && (!isObj(s.retired) || Object.keys(s.retired).length > 16
-      || !Object.values(s.retired).every((t) => typeof t === "string" && TS_RE.test(t)))) {
-      return `${at}.retired must map keys to RFC 3339 UTC times`;
-    }
-    if (s.person !== undefined && !str(s.person)) return `${at}.person must be a non-empty string`;
-  }
-  if (!Array.isArray(doc.accounts) || doc.accounts.length > MAX_ROWS) return `authority.accounts must be a list of at most ${MAX_ROWS}`;
-  for (const [i, a] of doc.accounts.entries()) {
-    const at = `authority.accounts[${i}]`;
-    if (!isObj(a) || !only(a, ["company", "account", "customer"])) return `${at}: unknown field or not an object`;
-    if (!str(a.company)) return `${at}.company must be a non-empty string`;
-    const bad = accountProblem(a.account);
-    if (bad) return `${at}.account: ${bad}`;
-    if (a.customer !== undefined && !str(a.customer)) return `${at}.customer must be a non-empty string`;
-  }
-  if (doc.officers !== undefined && (!Array.isArray(doc.officers) || doc.officers.length > 16 || !doc.officers.every((k) => str(k, 2048)))) {
-    return "authority.officers must be at most 16 public keys";
-  }
-  if (doc.require_payees !== undefined && typeof doc.require_payees !== "boolean") return "authority.require_payees must be true or false";
-  if (doc.webauthn !== undefined) {
-    const w = doc.webauthn;
-    if (!isObj(w) || !only(w, ["rp_id", "origins"]) || (w.rp_id !== undefined && !str(w.rp_id, 253))
-      || (w.origins !== undefined && (!Array.isArray(w.origins) || w.origins.length > 16 || !w.origins.every((o) => str(o, 2048))))) {
-      return "authority.webauthn must be {rp_id, origins}";
-    }
-  }
-  return null;
-}
-
-/** Accounts compared exactly, as the bank's systems would: same fields, same values. */
-function accountText(acc: unknown): string {
-  const o = acc as Record<string, string>;
-  return JSON.stringify(Object.keys(o).sort().map((k) => [k, o[k]]));
-}
-
-/** authority(company, personId) from the tenant's KYB table, as `gleipnir mandate serve --authority`. */
-export function authorityOf(doc: AuthorityDoc): Authority {
-  const table = new Map(doc.signers.map((s) => [JSON.stringify([s.company, s.signer]), s]));
-  return (company, personId) => {
-    const s = table.get(JSON.stringify([company.name, personId]));
-    if (!s) return null;
-    return { source: doc.source ?? "bank_kyb", keys: s.keys, maySign: s.may_sign ?? true, joint: s.joint ?? 1,
-      retired: s.retired ?? {}, person: s.person ?? null };
-  };
-}
-
-/** holds(company, account): the customer id (default: the company name), as `gleipnir mandate serve`. */
-export function holdsOf(doc: AuthorityDoc): Holds {
-  const held = new Map(doc.accounts.map((a) => [JSON.stringify([a.company, accountText(a.account)]), a.customer ?? a.company]));
-  return (company, account) => held.get(JSON.stringify([company.name, accountText(account)])) ?? null;
+/** Append-only record of every authority table a tenant has had (written before the table is switched). */
+export async function logAuthority(kv: KV, id: string, version: number, entry: J): Promise<void> {
+  const key = `t/${id}/authority-log/${String(version).padStart(8, "0")}-${newOp()}`;
+  if (!(await createOnce(kv, key, entry))) throw new Error("authority log entry exists");
 }
