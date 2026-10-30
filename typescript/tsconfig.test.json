@@ -9,5 +9,5 @@
       "@getgleipnir/sdk": ["./packages/sdk/src/index.ts"]
     }
   },
-  "include": ["packages/*/src/**/*.ts", "packages/*/test/**/*.ts", "vitest.config.ts"]
+  "include": ["packages/*/src/**/*.ts", "packages/*/test/**/*.ts", "packages/hosted/netlify/functions/*.mts", "vitest.config.ts"]
 }

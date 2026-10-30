@@ -1,0 +1,22 @@
+# SANDBOX hosted checker: a separate Netlify site (e.g. gleipnir-check.netlify.app), NOT getgleipnir.com.
+# Deploy from this directory: netlify deploy --build   (see README.md)
+
+[build]
+  # Builds the shared library (@getgleipnir/verify) the function imports; the function itself is bundled by Netlify.
+  command = "cd ../.. && npm ci --no-audit --no-fund && npm run build -w @getgleipnir/verify"
+  publish = "public"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "no-referrer"
+    Content-Security-Policy = "default-src 'none'; style-src 'unsafe-inline'"
+    Strict-Transport-Security = "max-age=31536000"

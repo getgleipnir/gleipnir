@@ -4,7 +4,8 @@
   "type": "module",
   "workspaces": [
     "packages/verify",
-    "packages/sdk"
+    "packages/sdk",
+    "packages/hosted"
   ],
   "engines": {
     "node": ">=20.19"
