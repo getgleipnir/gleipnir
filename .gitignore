@@ -9,3 +9,4 @@ examples/refund-agent/.gleipnir/
 examples/refund-agent/*.zip
 .claude/
 !action/dist/
+decisions.jsonl
