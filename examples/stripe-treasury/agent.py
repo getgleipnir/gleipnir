@@ -24,10 +24,12 @@ Gleipnir never touches the money: Stripe moves it, the checker only says whether
 from __future__ import annotations
 
 import argparse
+import http.client
 import json
 import os
 import re
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -39,6 +41,20 @@ from gleipnir_verify import mandate as m
 API = "https://api.stripe.com"
 # Treasury for agents and the v2 money management APIs are in public preview; the docs pin this version.
 STRIPE_VERSION = os.environ.get("STRIPE_VERSION", "2026-10-28.preview")
+# Mandate rail -> Stripe preferred network (enum: ach, fedwire, fps, rtp, sepa, swift). Anything else: not sent.
+STRIPE_NETWORK = {"ach": "ach", "wire": "fedwire", "rtp": "rtp", "sepa": "sepa", "faster_payments": "fps"}
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):  # never follow a redirect with the bearer token attached
+        return None
+
+
+_OPENER = urllib.request.build_opener(_NoRedirect)
+
+
+def q(part: str) -> str:
+    return urllib.parse.quote(part, safe="")
 
 # Stripe's documented US sandbox test bank account (docs.stripe.com/global-payouts/testing): payouts succeed.
 ACME = {"name": "Acme Supplies Inc", "account": m.account(
@@ -96,16 +112,24 @@ class Stripe:
         req = urllib.request.Request(url, data=None if body is None else json.dumps(body).encode(),
                                      method=method, headers=headers)
         try:
-            with urllib.request.urlopen(req, timeout=30) as r:
+            with _OPENER.open(req, timeout=30) as r:
                 return json.loads(r.read())
         except urllib.error.HTTPError as e:
             raise StripeError(e.code, e.read().decode(errors="replace")[:600], f"{method} {path}") from None
+        except (urllib.error.URLError, TimeoutError, http.client.HTTPException, ConnectionError) as e:
+            raise StripeUnknown(f"Stripe {method} {path}: no answer ({type(e).__name__})") from None
+
+
+class StripeUnknown(Exception):
+    """The request may or may not have reached Stripe."""
 
 
 class StripeError(Exception):
     def __init__(self, status: int, body: str, what: str) -> None:
         super().__init__(f"Stripe {what}: HTTP {status} {body}")
         self.status = status
+        # A 4xx other than 409/429 means Stripe refused it: definitely not sent. Anything else may have gone out.
+        self.definitely_not_sent = 400 <= status < 500 and status not in (409, 429)
         try:
             self.code = json.loads(body).get("error", {}).get("code")
         except ValueError:
@@ -116,7 +140,7 @@ class FakeStripe:
     """Offline stand-in for the same calls, with the response fields this example reads (from Stripe's docs)."""
 
     def __init__(self) -> None:
-        self.n, self.payments, self.allowed = 0, [], []
+        self.n, self.payments, self.keys = 0, [], {}
         self.fa = "fa_test_fake_nordwind"
         self.recipient, self.payout_method = "acct_fake_acme", "usba_test_fake_acme"
 
@@ -126,7 +150,7 @@ class FakeStripe:
 
     def call(self, method: str, path: str, body: dict | None = None, *, context: str | None = None,
              idempotency_key: str | None = None, query: dict | None = None) -> dict:
-        if method == "GET" and path == f"/v2/money_management/financial_accounts/{self.fa}":
+        if method == "GET" and path == f"/v2/money_management/financial_accounts/{q(self.fa)}":
             return {"id": self.fa, "object": "v2.money_management.financial_account", "status": "open",
                     "type": "storage", "country": "US", "livemode": False,
                     "balance": {"available": {"usd": {"value": 5_000_000, "currency": "usd"}}}}
@@ -136,19 +160,21 @@ class FakeStripe:
                               "bank_account": {"type": "aba", "currency": "usd", "country": "us", "aba": {
                                   "routing_number": "110000000", "account_number": "123456890",
                                   "bank_name": "STRIPE TEST BANK", "last4": "6890"}}}]}
-        if method == "GET" and path == f"/v2/money_management/payout_methods/{self.payout_method}":
+        if method == "GET" and path == f"/v2/money_management/payout_methods/{q(self.payout_method)}":
             assert context == self.recipient, "payout methods are read in the recipient's Stripe-Context"
             return {"id": self.payout_method, "object": "v2.money_management.payout_method",
                     "type": "bank_account", "archived": False, "usage_status": {"payments": "eligible"},
                     "bank_account": {"bank_name": "Test Bank", "country": "US", "last4": "6789",
                                      "routing_number": "110000000", "supported_currencies": ["usd"]}}
         if method == "POST" and path == "/v2/money_management/outbound_payments":
-            # Fail loudly if the example ever sends something other than exactly what a decision allowed.
-            if body not in self.allowed or not idempotency_key:
-                raise AssertionError(f"outbound payment not covered by an allow decision: {body}")
+            if not idempotency_key:
+                raise AssertionError("outbound payment without an Idempotency-Key")
+            if idempotency_key in self.keys:  # Stripe replays the first response for a repeated key
+                return self.keys[idempotency_key]
             p = {"id": self._id("obp"), "object": "v2.money_management.outbound_payment", "status": "processing",
                  "livemode": False, **body}
             self.payments.append(p)
+            self.keys[idempotency_key] = p
             return p
         raise ValueError(f"{method} {path}")
 
@@ -181,15 +207,22 @@ def own_account(stripe: Stripe | FakeStripe, fa: str) -> dict:
     bank_account.aba.{routing_number, account_number}. If your sandbox masks the number or has no USD address
     yet, set FA_ROUTING and FA_ACCOUNT instead (Dashboard > Treasury > account details).
     """
-    if os.environ.get("FA_ROUTING") and os.environ.get("FA_ACCOUNT"):
-        return m.account("us_aba", routing=os.environ["FA_ROUTING"], account=os.environ["FA_ACCOUNT"])
+    override = (os.environ.get("FA_ROUTING"), os.environ.get("FA_ACCOUNT"))
     addrs = stripe.call("GET", "/v2/money_management/financial_addresses", query={"financial_account": fa})
     for a in addrs.get("data", []):
-        aba = (a.get("bank_account") or {}).get("aba") or {}
-        if a.get("status") == "active" and aba.get("routing_number") and aba.get("account_number"):
+        ba = a.get("bank_account") or {}
+        aba = ba.get("aba") or {}
+        # The filter is optional on Stripe's side, so check the address really belongs to this account, in USD.
+        if a.get("financial_account") != fa or a.get("status") != "active" or ba.get("currency") != "usd":
+            continue
+        if all(override):
+            # Your own numbers must still match an address of THIS financial account (routing and last4).
+            if aba.get("routing_number") == override[0] and aba.get("last4") == override[1][-4:]:
+                return m.account("us_aba", routing=override[0], account=override[1])
+        elif aba.get("routing_number") and aba.get("account_number"):
             return m.account("us_aba", routing=aba["routing_number"], account=aba["account_number"])
-    sys.exit(f"No active USD (ABA) financial address with a full account number on {fa}: "
-             "create one (POST /v2/money_management/financial_addresses) or set FA_ROUTING and FA_ACCOUNT.")
+    sys.exit(f"No active USD (ABA) financial address on {fa} matching the mandate's account: create one "
+             "(POST /v2/money_management/financial_addresses) or set FA_ROUTING and FA_ACCOUNT to its numbers.")
 
 
 def main() -> int:
@@ -215,7 +248,7 @@ def main() -> int:
         print(f"Stripe: sandbox, API version {STRIPE_VERSION}")
 
     try:
-        fa = stripe.call("GET", f"/v2/money_management/financial_accounts/{fa_id}")
+        fa = stripe.call("GET", f"/v2/money_management/financial_accounts/{q(fa_id)}")
         if fa.get("livemode") is not False:
             sys.exit(f"{fa_id} is not a sandbox financial account; refusing.")
         if fa.get("status") != "open":
@@ -224,9 +257,12 @@ def main() -> int:
         # The supplier's payout method must be the bank account the mandate names. Stripe returns only the routing
         # number and last4 of a payout method, so this confirms, it cannot prove: the binding of payout method id
         # to the full account number is ours, made when the payout method was set up (see payee_route below).
-        pm = stripe.call("GET", f"/v2/money_management/payout_methods/{payout_method}", context=recipient)
-    except StripeError as e:
+        pm = stripe.call("GET", f"/v2/money_management/payout_methods/{q(payout_method)}", context=recipient)
+    except (StripeError, StripeUnknown) as e:
         sys.exit(str(e))
+    if pm.get("archived") is not False or (pm.get("usage_status") or {}).get("payments") != "eligible" \
+            or "usd" not in (pm.get("bank_account") or {}).get("supported_currencies", []):
+        sys.exit(f"{payout_method} is archived, not eligible for payments, or doesn't take USD.")
     ba = pm.get("bank_account") or {}
     if (ba.get("routing_number"), ba.get("last4")) != (ACME["account"]["routing"], ACME["account"]["account"][-4:]):
         sys.exit(f"{payout_method} is not the supplier's account {ACME['account']['routing']} / "
@@ -290,26 +326,51 @@ def main() -> int:
         if payment["from_account"] != own:
             raise RuntimeError("payment is not from the mandate's financial account")
         to_recipient, to_pm = payee_route(payment["payee"]["account"])
+        network = STRIPE_NETWORK.get(payment["rail"])
+        if network is None:
+            raise RuntimeError(f"rail {payment['rail']!r} has no Stripe network here; not sending")
         cur = payment["currency"]
         minor = int(m.parse_amount(payment["amount"], cur).scaleb(m.MINOR_UNITS[cur]))
         return {"from": {"financial_account": fa_id, "currency": cur.lower()},
                 "to": {"recipient": to_recipient, "payout_method": to_pm, "currency": cur.lower(),
-                       "payout_method_options": {"bank_account": {"preferred_networks": [payment["rail"]]}}},
+                       "payout_method_options": {"bank_account": {"preferred_networks": [network]}}},
                 "amount": {"value": minor, "currency": cur.lower()},
                 "description": f"{payment.get('reference', '')} ({payment['id']})".strip(),
                 "metadata": {"gleipnir_mandate": mandate["id"], "gleipnir_payment": payment["id"],
                              "gleipnir_payment_hash": m.obj_hash(payment, "agent_sig")}}
 
+    sent: dict[str, str] = {}  # the gateway's own ledger: payment key -> Stripe outbound payment id
+
     def pay_out(decision: dict, payment: dict) -> dict:
-        """Send money only for a verified allow decision about this very payment."""
+        """Send money only for a verified allow decision about this very payment, at most once."""
+        p_hash = m.obj_hash(payment, "agent_sig")
         if not (decision["outcome"] == "allow" and m.verify_decision(decision, [checker_pk])
-                and decision["payment"] == {"id": payment["id"], "hash": m.obj_hash(payment, "agent_sig")}):
+                and decision["payment"] == {"id": payment["id"], "hash": p_hash}):
             raise RuntimeError(f"refusing to send {payment['id']}: no verified allow for this payment")
+        key = f"{mandate['id']}:{p_hash}"  # unique per mandate and exact payment, so a re-run never collides
+        if key in sent:
+            raise RuntimeError(f"{payment['id']} was already sent as {sent[key]}; not sending twice")
         body = outbound_payment_body(payment)
         body["metadata"]["gleipnir_decision"] = decision["id"]
-        if isinstance(stripe, FakeStripe):
-            stripe.allowed.append(body)
-        return stripe.call("POST", "/v2/money_management/outbound_payments", body, idempotency_key=payment["id"])
+        for attempt in range(3):
+            try:
+                obp = stripe.call("POST", "/v2/money_management/outbound_payments", body, idempotency_key=key)
+                break
+            except StripeUnknown:
+                if attempt == 2:
+                    raise
+            except StripeError as e:
+                if e.definitely_not_sent or attempt == 2:
+                    raise
+            time.sleep(2 ** attempt)  # same body, same Idempotency-Key: Stripe pays it at most once
+        # What Stripe accepted must be what was checked.
+        if (obp.get("amount", {}).get("value"), (obp.get("from") or {}).get("financial_account"),
+                (obp.get("to") or {}).get("payout_method"), (obp.get("to") or {}).get("recipient")) != (
+                body["amount"]["value"], body["from"]["financial_account"], body["to"]["payout_method"],
+                body["to"]["recipient"]):
+            sys.exit(f"Stripe's outbound payment {obp.get('id')} differs from the checked payment; investigate")
+        sent[key] = obp["id"]
+        return obp
 
     def sent_text(decision: dict, payment: dict) -> str:
         try:
@@ -318,7 +379,11 @@ def main() -> int:
         except StripeError as e:
             if e.code == "approval_required":  # Stripe's own approval rule (agent keys) paused it: also fine
                 return "-> held by a Stripe approval rule (approve in Dashboard > Settings > Approvals)"
-            sys.exit(str(e))
+            if e.definitely_not_sent:
+                sys.exit(f"not sent: {e}")
+            sys.exit(f"outcome unknown, look up metadata gleipnir_payment={payment['id']} before retrying: {e}")
+        except StripeUnknown as e:
+            sys.exit(f"outcome unknown, look up metadata gleipnir_payment={payment['id']} before retrying: {e}")
 
     def send(payment: dict, label: str, expected: str) -> dict:
         nonlocal ok

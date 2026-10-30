@@ -2,7 +2,7 @@
 
 An accounts payable agent pays supplier invoices from a Stripe [financial account][fa] through Stripe's
 [Outbound Payments API][obp], which is what Stripe's MCP tool `send_money` does
-([Treasury for agents][agents], public preview since 21 Oct 2026). Before every payment the agent asks a
+([Treasury for agents][agents], public preview). Before every payment the agent asks a
 checker whether the company's signatory allowed it. Only an `allow` for exactly that payment reaches
 `POST /v2/money_management/outbound_payments`.
 
@@ -21,17 +21,16 @@ changed, use account ...") and the agent takes it. The Stripe key could pay that
 
 Stripe already has real controls, and you should keep them on:
 
-- **Human approval for agent money movement.** By default, any live money movement an agent starts through
-  the MCP server needs a person to approve it at a Stripe URL. The agent then gets an approval token and
-  retries ([Treasury for agents][agents], [MCP: confirm actions][mcp-confirm]).
+- **Human review for agent money movement.** Per [Treasury for agents][agents], money movement started by an
+  agent needs review by default. Per [MCP: confirm actions][mcp-confirm], when an agent uses
+  `stripe_api_write` with a user's OAuth credentials, Stripe returns an approval URL and the agent retries
+  with a token after a person approves. For agent API keys, the control is approval rules (next point).
 - **Approval rules** ([two-party approvals][approvals]). For agent-tagged API keys you can require approval
   for, or block, "Outbound payment is created", with conditions on amount, actor or rate. The API then
   returns `403 approval_required`. Stripe ships default rules for agent keys.
 - **Scoped credentials**: per-tool permissions on the MCP OAuth grant, and [agent API keys][keys] with only
   the permissions they need. The MCP server stops accepting non-agent secret keys after 30 Nov 2026
   ([MCP][mcp]).
-- **Agent spending limits** are announced for "the coming weeks" and are not live yet ([Treasury for
-  agents][agents]).
 
 All of these live inside one Stripe account, and they answer "did someone with a role in this Stripe account
 click approve?" or "is this under a number?". Gleipnir adds three things:
@@ -83,7 +82,8 @@ export STRIPE_PAYOUT_METHOD=usba_test_...
 uv run python examples/stripe-treasury/agent.py
 ```
 
-A restricted key needs `Money Management Financial Accounts: Read`, access to `Money Management Payout Methods`
+A restricted key needs `Money Management Financial Accounts: Read`, read access to Financial Addresses
+(exact permission name: check your Dashboard), access to `Money Management Payout Methods`
 (Stripe's send-payouts guide lists `Write`; the script only reads one) and
 `Money Management Outbound Payments: Write`. If you use an agent-tagged
 key and Stripe's default approval rule holds the payment, the script prints that it is held. That's
@@ -98,14 +98,18 @@ All requests send `Stripe-Version: 2026-10-28.preview` (override with `STRIPE_VE
 | `GET /v2/money_management/financial_accounts/{id}` | open, sandbox, balance | [Financial Accounts][fa-api] |
 | `GET /v2/money_management/financial_addresses?financial_account={id}` | the company's own ABA routing and account number, for the mandate's `from_accounts` | [Financial Addresses][faddr] |
 | `GET /v2/money_management/payout_methods/{id}` with `Stripe-Context: {recipient}` | confirm the supplier's payout method has the mandate's routing number and last4 | [Payout Methods][pm], [recipients][recipients] |
-| `POST /v2/money_management/outbound_payments` with `Idempotency-Key: {payment id}` | the payment, only after a verified `allow` | [Create an Outbound Payment][obp-create], [send payouts][send] |
+| `POST /v2/money_management/outbound_payments` with `Idempotency-Key: {mandate id}:{payment hash}` | the payment, only after a verified `allow` | [Create an Outbound Payment][obp-create], [send payouts][send] |
 
 The outbound payment body is built from the checked payment and nothing else. `amount.value` is the payment's
 amount in cents, `to` is the payout method the gateway registered for the payment's payee account,
-`to.payout_method_options.bank_account.preferred_networks` is the payment's rail (`ach`), and `metadata`
+`to.payout_method_options.bank_account.preferred_networks` is the payment's rail mapped to Stripe's network
+(`ach`; a rail with no mapping is never sent), and `metadata`
 carries the mandate, payment, payment hash and decision ids. After the CFO's override in case c, the same
 function sends the escalated payment itself, so the amount and payee can't differ from what was checked.
-The dry run's fake Stripe fails if anything is sent that no `allow` covered.
+The dry run asserts that exactly payments a and c reached the fake Stripe, with their own amounts and the
+mandate's payee. If Stripe doesn't answer, or answers 5xx/409/429, the same body is retried with the same
+Idempotency-Key, so it pays at most once; if it still fails the script says the outcome is unknown and how to
+look the payment up. Stripe's response is compared with what was checked.
 
 ## What is uncertain (read before relying on it)
 
@@ -126,6 +130,9 @@ The dry run's fake Stripe fails if anything is sent that no `allow` covered.
   Payments because that is the permission `send_money` needs. The same gate fits in front of a PayoutIntent.
 - **Not run live by the author.** The live path follows the docs above but has not been run against a
   sandbox yet. `--dry-run` is tested.
+
+**Payments held by a Stripe approval rule** go out when someone approves them in the Dashboard, per Stripe's
+docs up to 14 days later, even if the mandate was revoked in between. Revoke the pending request in Stripe too.
 
 **Demo shortcut, not the production setup.** To run on its own, this script holds the Stripe key, the CFO's
 key, the agent's key and the checker's key in one process. In production the CFO signs with their own

@@ -103,13 +103,14 @@ On `escalate`, the guard returns the decision and the agent asks a person. The C
 ## Pattern B: a transparent proxy in front of `mcp.stripe.com`
 
 If the agent must keep calling Stripe's own `send_money`, put a proxy between the agent and
-`https://mcp.stripe.com` that forwards everything except money-moving tools:
+`https://mcp.stripe.com` that works from an **allowlist**, not a denylist:
 
 | Tool call | Proxy does |
 | --- | --- |
-| `tools/list` | forward; drop `setup_recipient`, `transfer_money`, `convert_currency`, `stripe_api_write` from the result |
-| `send_money` | map arguments to a Gleipnir payment, check, then forward **arguments rebuilt from the checked payment** on `allow`; return an MCP tool error otherwise |
-| anything read-only | forward |
+| `tools/list` | forward; keep only the allowlisted read-only tools and `send_money` in the result |
+| `tools/call` of an allowlisted read-only tool | forward, using a **read-only** Stripe key |
+| `send_money` | map arguments to a Gleipnir payment, check, then call with the write key and **arguments rebuilt from the checked payment** on `allow`; return an MCP tool error otherwise |
+| any other `tools/call` (incl. `stripe_api_write`, `setup_recipient`, `transfer_money`, unknown names) | reject. Hiding a tool from `tools/list` doesn't stop an agent from calling it by name |
 
 Two caveats, which is why Pattern A is recommended:
 
@@ -118,9 +119,9 @@ Two caveats, which is why Pattern A is recommended:
   recipient, payout method, amount, currency) to a Gleipnir payment must be written against the schema the
   server returns in `tools/list`, and checked again whenever Stripe changes it. Keep that mapping in one
   clearly marked adapter function, and fail closed (block) on any argument it doesn't understand.
-- **Human approval in the MCP flow.** For live money movement, Stripe answers `send_money` with an approval
-  URL. The agent retries with an approval token after a person approves ([agents][agents],
-  [MCP][mcp-confirm]). The proxy must treat the retry as the same payment: same Gleipnir payment id, which the
+- **Human approval in the MCP flow.** Per Stripe's docs, with user (OAuth) credentials Stripe can answer a
+  money-moving call with an approval URL, and the agent retries with an approval token after a person approves
+  ([MCP][mcp-confirm]); with agent API keys, approval rules apply instead ([approvals][approvals]). The proxy must treat the retry as the same payment: same Gleipnir payment id, which the
   checker's payment log answers idempotently. It must not run a fresh check that could count against the
   monthly limit twice.
 
