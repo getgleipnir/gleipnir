@@ -812,7 +812,7 @@ def add_subcommands(p: argparse.ArgumentParser) -> None:
     g.add_argument("-o", "--output")
     g.set_defaults(mandate_fn=cmd_delegate)
 
-    r = sub.add_parser("revoke", help="write a signed revocation of a mandate or a delegation")
+    r = sub.add_parser("revoke", help="write a signed revocation of a mandate, a delegation or a payee approval")
     r.add_argument("mandate")
     r.add_argument("--key", required=True, help="key of a signatory of the company")
     r.add_argument("--id", required=True)

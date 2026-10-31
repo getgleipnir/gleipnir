@@ -1,11 +1,14 @@
 # Gleipnir for TypeScript
 
-Two packages that produce and check the [Gleipnir record format](../spec/format.md), byte for byte compatible with the Python SDK and verifier:
+Two packages that produce and check the [Gleipnir record format](../spec/format.md), byte for byte compatible with the Python SDK and verifier, plus the mandate checker and a hosted sandbox:
 
 | Package | What it is | Runs in |
 |---|---|---|
-| [`@getgleipnir/verify`](packages/verify) | Offline verifier for record bundles, plus the `gleipnir-verify` CLI | Node 20+ and browsers (pure JS: `@noble/curves`, `@noble/hashes`, `fflate`) |
-| [`@getgleipnir/sdk`](packages/sdk) | Recorder that wraps agent tool calls into signed, hash-chained, segmented, anchored records | Node 20+ |
+| [`@getgleipnir/verify`](packages/verify) | Offline verifier for record bundles, plus the `gleipnir-verify` CLI. `@getgleipnir/verify/mandate`: the mandate checker ([spec 0.5 draft](../spec/mandate.md), 0.4 objects still accepted), same results as the Python reference on every shared vector | Node 20+ and browsers (pure JS: `@noble/curves`, `@noble/hashes`, `fflate`) |
+| [`@getgleipnir/sdk`](packages/sdk) | Recorder that wraps agent tool calls into signed, hash-chained, segmented, anchored records; the `gleipnir-mandate-mcp` MCP server for agents | Node 20+ |
+| [`packages/hosted`](packages/hosted) | Hosted sandbox mandate checker (Netlify Functions), not published to npm. Not for real money | Netlify |
+
+Package versions are 0.4.0, the last release (spec 0.4); the code implements spec 0.5 (draft).
 
 A bundle written by the TypeScript SDK verifies with the Python `gleipnir-verify`, and a bundle written by the Python SDK verifies with the TypeScript one. Both verifiers return the same report (result, finding codes, messages, summary) for the same bundle.
 
@@ -138,7 +141,7 @@ npm ci
 npm run build
 npm test            # spec vectors, Rekor/RFC 3161 fixtures, tamper tests; differential tests run if `uv` is available
 npm run interop     # Python SDK bundle -> TS verifier and TS SDK bundle -> Python verifier (needs `uv sync --all-packages`)
-npm run build:site  # site/verify/index.html (a test fails if it is stale)
+npm run build:site  # site/verify, site/approve, site/mandate and site/demo bundles (a test fails if one is stale)
 GLEIPNIR_LIVE_REKOR=1 npx vitest run packages/sdk/test/anchors.test.ts  # publishes test hashes to public Rekor + Sigstore TSA
 node scripts/record-anchor-fixtures.mjs  # re-record the Rekor/TSA responses the anchor unit tests replay
 ```

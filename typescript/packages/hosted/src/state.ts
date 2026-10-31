@@ -151,7 +151,7 @@ export class KVLedger implements Ledger {
   }
 }
 
-// ---------- revocations: one small blob per revoked object (mandate hash or delegation hash) ----------
+// ---------- revocations: one small blob per revoked object (mandate, delegation or payee approval hash) ----------
 
 /** Per object, the earliest revocations are kept; one valid revocation already switches it off. */
 export const MAX_PER_TARGET = 32;
@@ -170,7 +170,7 @@ function live(entries: unknown, nowMs: number): RevEntry[] {
   return (entries as RevEntry[]).filter((e) => e.until === null || !(Date.parse(e.until) < nowMs));
 }
 
-/** The stored revocations of these objects (mandate and delegation hashes). Throws if the store is down. */
+/** The stored revocations of these objects (mandate, delegation and payee approval hashes). Throws if the store is down. */
 export async function loadRevocationsFor(kv: KV, tenant: string, targets: string[], nowMs: number): Promise<J[]> {
   const out: J[] = [];
   for (const t of new Set(targets)) {

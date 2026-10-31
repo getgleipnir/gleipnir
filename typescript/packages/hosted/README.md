@@ -5,8 +5,8 @@
 
 A hosted version of the reference bank checker (`gleipnir mandate serve`) for pilot partners. Before a
 platform, PSP or bank sends a transfer an AI agent started, it posts the agent's mandate and payment here and gets
-back a signed **allow / block / escalate** decision (spec/mandate.md v0.4, checked by `@getgleipnir/verify`, the
-same library and the same conformance vectors as the Python reference).
+back a signed **allow / block / escalate** decision (spec/mandate.md v0.5 draft, 0.4 objects still accepted, checked
+by `@getgleipnir/verify`, the same library and the same conformance vectors as the Python reference).
 
 It runs as **its own Netlify site** (Functions v2 + Netlify Blobs), e.g. `https://gleipnir-check.netlify.app`. It
 has nothing to do with the getgleipnir.com site.
@@ -70,7 +70,7 @@ Same contract as `gleipnir mandate serve`, under `/v1`, with a bearer key:
 | `GET /v1/admin/tenants/<id>/authority` | `ADMIN_TOKEN` or that tenant's KYB key | the authority table |
 
 `/v1/revoke` answers `ok` once the revocation is **verified and stored**: well formed, at most 4 KiB, validly
-signed, aimed at this mandate or a link of its chain, by someone the authority table says may revoke it, every
+signed, aimed at this mandate, a link of its chain or one of its payee approvals, by someone the authority table says may revoke it, every
 link of the chain for the mandate's company. It is checked again on every payment (a revocation stops counting if
 the authority table no longer backs its signer). A revocation with a future `revoked_at` is stored but switches
 the mandate off only from then.
@@ -155,7 +155,7 @@ curl -sS -X POST $BASE/v1/check -H "Authorization: Bearer $GLEIPNIR_API_KEY" \
 curl -sS $BASE/t/acme-psp/.well-known/gleipnir-checker.json
 ```
 
-Mandates and payments are made with the SDKs (`gleipnir mandate sign` / `attach` in Python, `issue`, `signMandate`,
+Mandates and payments are made with the SDKs (`gleipnir mandate issue` / `sign` / `pay` in Python, `issue`, `signMandate`,
 `attach` from `@getgleipnir/verify/mandate`). `scripts/hosted-smoke.mjs` shows the whole flow in about 100 lines.
 
 **Smoke test** (the three demo cases: allow, tricked-agent payee block, over-limit escalate then signatory override).
@@ -213,7 +213,7 @@ Netlify UI that the function's rate limit rule (from `config.rateLimit`) is acti
   create-only; `remember` and `take` are compare-and-swap on the ETag, so two concurrent overrides of one
   escalation cannot both re-check.
 - **Period ledger**: one blob per (tenant, limited object, calendar period); compare-and-swap with 8 tries.
-- **Revocations**: one small blob per revoked object (mandate hash or delegation link hash). A check reads only
+- **Revocations**: one small blob per revoked object (mandate hash, delegation link hash or payee approval hash). A check reads only
   the blobs of its mandate and its chain. Revocations of expired objects are dropped. There is no tenant-wide cap;
   per object the 32 earliest are kept (one valid revocation already switches it off); revocations are rate-limited
   per signer (10 per minute per instance).
