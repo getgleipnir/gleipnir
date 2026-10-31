@@ -55,7 +55,7 @@ describe("site/demo (getgleipnir.com/demo, CSP script-src 'self'; style-src 'sel
   it("has no inline script, inline style or external origin", () => {
     expect(html).not.toMatch(/<script(?![^>]*\bsrc="\/demo\/demo\.js")[^>]*>/);
     expect(html).not.toMatch(/\sstyle=|<style|\son[a-z]+=/i);
-    expect(html.match(/(?:src|href)="https?:\/\/[^"]+"/g) ?? []).toEqual(["href=\"https://getgleipnir.com/demo\"",
+    expect(html.match(/(?:src|href)="https?:\/\/[^"]+"/g) ?? []).toEqual(["href=\"https://getgleipnir.com/demo/\"",
       "href=\"https://github.com/getgleipnir/gleipnir\""]);
     const js = readFileSync(SITE + "demo/demo.js", "utf8");
     expect(js).not.toMatch(/\bfetch\(|XMLHttpRequest|WebSocket|sendBeacon|EventSource|\.innerHTML\b|eval\(/);
