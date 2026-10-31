@@ -3,7 +3,12 @@
 ## Unreleased: mandate spec 0.5
 
 Additive: only objects that use something new are `0.5`. A 0.5 checker accepts every 0.4 object and checks it
-exactly as before (every 0.4 conformance vector is unchanged).
+exactly as before (every 0.4 conformance vector is unchanged). Package versions stay at 0.4.0 until 0.5 is
+released.
+
+Covers the branches `feat/new-payee-escalation` (spec 0.5, new payees, payee approvals, hosted delete and
+release), `fix/review-05` (review follow-ups), `fix/release-opt-in` (hosted release off by default) and
+`docs/sync-0.5` (documentation brought in line with the code).
 
 ### Added
 
@@ -13,7 +18,8 @@ exactly as before (every 0.4 conformance vector is unchanged).
   payments to an unlisted payee outright (`over_unlisted_payee_limit`).
 - **Changed bank details stay blocked**: a payee name that matches a listed payee (by a fixed name key: NFKD,
   lowercase, letters and digits only, look-alikes folded) with another account is `payee_account_changed`
-  (block), whatever the policy, and is never escalated.
+  (block), whatever the policy, and is never escalated. A payee approval for that exact account is the one way
+  through.
 - **Payee approvals** (spec 7.2): `gleipnir/payee_approval/0.5`, signed by the company's signatories (as many as
   the mandate needed), bound to one mandate by hash, optional `valid_until`, revocable by hash with the existing
   revocation (0.5 revocations may target a payee approval). They travel with the payment; an approved account
@@ -34,8 +40,9 @@ exactly as before (every 0.4 conformance vector is unchanged).
 - Hosted sandbox checker (merged from `hosted-checker`): `DELETE /v1/admin/tenants/<id>` deletes a tenant and
   all its data; `POST /v1/release` gives back the period reservations of an allowed payment the bank did
   not execute, once (a repeat returns the same answer), bound to the decision, only within `RELEASE_WINDOW_HOURS`
-  (off by default; turn on only where the check key holder executes the payments) and the same limit period; the payment id stays used, so the same payment sent again is blocked
-  `duplicate_payment`; `payee_approvals` on `/v1/check` and `/v1/resolve`,
+  (off by default; turn on only where the check key holder executes the payments) and the same limit period;
+  the payment id stays used, so the same payment sent again is blocked `duplicate_payment`; `payee_approvals` on
+  `/v1/check` and `/v1/resolve`,
   `payee_approval` on `/v1/revoke`.
 - The signing page (site/mandate) shows what happens to payees that are not on the list before a person signs.
 
@@ -53,6 +60,33 @@ exactly as before (every 0.4 conformance vector is unchanged).
 - Integrators who adopt 0.5 must pass payee approvals next to the mandate (they are not part of the payment), may
   see the new reason codes, and must keep `new_payee` escalations (they hold the payment id) like
   `over_payment_limit`.
+
+### Fixed (`fix/review-05`, `fix/release-opt-in`)
+
+- A payee approval dated before its mandate's `issued_at` is `payee_approval_invalid` (block), in Python and
+  TypeScript. Before, an approval backdated under a signer key retired before the mandate still counted.
+  Spec 7.2 step 1, threat model, three new vectors.
+- Hosted `/v1/release` keeps the payment id used: the same payment sent again is blocked `duplicate_payment`, and
+  a retry needs a new id. Release works only within `RELEASE_WINDOW_HOURS` of the decision and in the same limit
+  period, once, with the answer stored before anything is released. Before, release freed the id, so one payment
+  could be allowed and released again and again past the period limit.
+- Hosted `/v1/release` is off by default (`403`). Turn it on with `RELEASE_WINDOW_HOURS` (1 to 744) only where the
+  holder of the check key executes the payments: release trusts that holder's word that a payment was not
+  executed.
+- Conformance vectors for a payment log whose `take` answers junk, and whose `register` answers junk after the
+  first call (reaches the override-block `register`). The `error` mode of the broken payment log now raises from
+  every call. Regenerating the vectors is reproducible (a fixed `revoked_at` in one problem row).
+- Spec 7: after `checker_unavailable` from a store, the bank reconciles its payment log and ledger.
+
+### Docs (`docs/sync-0.5`)
+
+- README, package READMEs, spec and CHANGELOG describe the 0.5 code: release is a hosted, opt-in feature and not
+  part of the spec's checker; an approved account passes the changed-account rule; vector and test counts.
+- Hosted: the `RELEASE_WINDOW_HOURS` comment and the `403` message say release is off unless turned on.
+- CLI: `revoke --help` mentions payee approvals.
+
+Tests at the end of this release: pytest 954 passed (10 skipped, 1 xfailed), vitest 762 passed (2 skipped),
+192 shared mandate vectors.
 
 ## mandate spec 0.4.1
 
