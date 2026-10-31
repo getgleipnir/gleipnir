@@ -504,7 +504,8 @@ describe("releasing a reservation", () => {
       env = { ...ENV };
       if (off !== undefined) env.RELEASE_WINDOW_HOURS = off;
       else delete env.RELEASE_WINDOW_HOURS;
-      expect((await release(s, p, d))[0]).toBe(403);
+      const [st, err] = await release(s, p, d);
+      expect([st, err.error]).toEqual([403, "release is disabled on this checker (set RELEASE_WINDOW_HOURS to enable)"]);
     }
   });
 

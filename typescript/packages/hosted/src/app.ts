@@ -84,7 +84,7 @@ export interface Env {
   ALLOW_ORIGINS?: string;
   /** Requests per minute per API key (default 120). */
   RATE_LIMIT_PER_MIN?: string;
-  /** Hours after an allow during which /v1/release may give its reservation back (default 24, 0 disables, max 744). */
+  /** Hours after an allow during which /v1/release may give its reservation back (default: off; unset, blank or 0 disables; max 744). */
   RELEASE_WINDOW_HOURS?: string;
 }
 
@@ -505,7 +505,7 @@ function releaseWindow(ctx: Ctx): bigint {
  */
 async function releaseFor(t: Tenant, ctx: Ctx, mandate: unknown, payment: unknown, decision: unknown): Promise<J> {
   const window = releaseWindow(ctx);
-  if (window === 0n) throw new HttpError(403, "release is disabled on this checker (RELEASE_WINDOW_HOURS=0)");
+  if (window === 0n) throw new HttpError(403, "release is disabled on this checker (set RELEASE_WINDOW_HOURS to enable)");
   if (mandateProblem(mandate) || paymentProblem(payment)) throw new HttpError(400, "release rejected: malformed mandate or payment");
   const m = mandate as J, p = payment as J;
   if (!verifyDecision(decision, [t.public_key])) throw new HttpError(400, "release rejected: not a decision of this checker");
