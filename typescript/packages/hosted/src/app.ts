@@ -8,7 +8,8 @@
  *                         a signed override
  *   POST /v1/revoke       {"revocation", "mandate"[, "payee_approval"]}  -> {"ok": true, "checker"}
  *   POST /v1/release      {"mandate", "payment", "decision"}             -> {"released": true, ...}: the bank did not
- *                         execute this allowed payment; its period reservations and payment id are given back, once
+ *                         execute this allowed payment; its period reservations are given back, once, within
+ *                         RELEASE_WINDOW_HOURS and the same limit period; the payment id stays used
  *   GET  /v1/revocations  -> the signed list of stored revocations, current for an hour
  *   GET  /v1/keys         -> {"checker", "keys"}
  *   GET  /t/<tenant>/keys, /t/<tenant>/.well-known/gleipnir-checker.json  (public, no auth)
@@ -36,6 +37,7 @@ import {
   newSeed,
   objHash,
   parseAmount,
+  periodKey,
   parseStrict,
   payeeApprovalHash,
   payeeApprovalProblem,
@@ -82,6 +84,8 @@ export interface Env {
   ALLOW_ORIGINS?: string;
   /** Requests per minute per API key (default 120). */
   RATE_LIMIT_PER_MIN?: string;
+  /** Hours after an allow during which /v1/release may give its reservation back (default 24, 0 disables, max 744). */
+  RELEASE_WINDOW_HOURS?: string;
 }
 
 export interface Deps {
@@ -462,18 +466,41 @@ async function revokeFor(t: Tenant, ctx: Ctx, r: unknown, mandate: unknown, appr
   await storeCall(() => addRevocation(ctx.deps.kv, t.id, target, rd, until, ctx.now().getTime(), canonicalText));
 }
 
+/** Default for RELEASE_WINDOW_HOURS: how long after an allow the bank may still release it. */
+export const RELEASE_WINDOW_HOURS = 24;
+const MAX_RELEASE_WINDOW_HOURS = 24 * 31;
+
+/** The release window in microseconds; 0 disables /v1/release. A bad setting is 503 (never a guess). */
+function releaseWindow(ctx: Ctx): bigint {
+  const raw = (ctx.deps.env.RELEASE_WINDOW_HOURS ?? "").trim();
+  if (raw === "") return BigInt(RELEASE_WINDOW_HOURS) * 3600n * 1_000_000n;
+  if (!/^\d{1,4}$/.test(raw) || Number(raw) > MAX_RELEASE_WINDOW_HOURS) {
+    throw new HttpError(503, "checker not configured (RELEASE_WINDOW_HOURS)");
+  }
+  return BigInt(raw) * 3600n * 1_000_000n;
+}
+
 /**
- * The bank did not execute an allowed payment: give back what the allow took, once. Bound to the decision by its
- * hash, which must be one this tenant's checker signed, an allow naming exactly this payment and mandate, and the
- * one the payment log holds for this payment now. The period reservations it made (the mandate's, and those of
- * every delegation link with a period limit) are released at the period it was checked in, and the payment id is
- * freed, so the payment can be checked afresh. A repeated call answers the same without releasing twice; a decision
- * this checker does not hold (never allowed here, superseded, or released) is 409.
+ * The bank did not execute an allowed payment: give back the period reservations the allow made, once, and keep
+ * the payment id used.
  *
- * The release marker is written first: if the store fails half way, the reservations stay (limits stricter, never
- * looser) and a repeated call does not release twice.
+ * - Bound to the decision by its hash, which must be one this tenant's checker signed, an allow naming exactly this
+ *   payment and mandate, and the one the payment log holds for this payment now.
+ * - Only within RELEASE_WINDOW_HOURS (default 24) of the decision's `checked_at`, and only while every limit period
+ *   it reserved in (the mandate's, and each delegation link's with a period limit) is still the current one. Later
+ *   the reservation stands.
+ * - The payment id is NOT freed: the payment log keeps the key claimed and records the release, so the same payment
+ *   (or any other under its id) sent again is blocked `duplicate_payment`. A payment that is to be tried again
+ *   needs a new id, checked afresh against the limits.
+ * - Idempotent: the result is stored in a release marker keyed by the decision hash, written first; a repeated call
+ *   answers exactly that result and releases nothing (also after the window closed).
+ *
+ * If the store fails half way (503), what is left is stricter, never looser: reservations stay reserved, and the
+ * payment log keeps either the allow or the released claim.
  */
 async function releaseFor(t: Tenant, ctx: Ctx, mandate: unknown, payment: unknown, decision: unknown): Promise<J> {
+  const window = releaseWindow(ctx);
+  if (window === 0n) throw new HttpError(403, "release is disabled on this checker (RELEASE_WINDOW_HOURS=0)");
   if (mandateProblem(mandate) || paymentProblem(payment)) throw new HttpError(400, "release rejected: malformed mandate or payment");
   const m = mandate as J, p = payment as J;
   if (!verifyDecision(decision, [t.public_key])) throw new HttpError(400, "release rejected: not a decision of this checker");
@@ -485,7 +512,10 @@ async function releaseFor(t: Tenant, ctx: Ctx, mandate: unknown, payment: unknow
     throw new HttpError(400, "release rejected: the decision is not an allow of this payment under this mandate");
   }
   const dh = objHash(d);
-  const done = { released: true, checker: t.checker, decision: { id: d.id, hash: dh } };
+  // Released before: the same answer again, nothing released twice.
+  const before = await storeCall(() => wasReleased(ctx.deps.kv, t.id, dh));
+  if (before !== null && isDict(before.result)) return before.result;
+
   let customer: string | null;
   try {
     const c = await holdsOf(t.authority)(m.company as J, p.from_account as J);
@@ -494,35 +524,56 @@ async function releaseFor(t: Tenant, ctx: Ctx, mandate: unknown, payment: unknow
     customer = null;
   }
   if (customer === null) throw new HttpError(400, "release rejected: this tenant does not hold the debtor account");
+
+  // The window: within RELEASE_WINDOW_HOURS of the decision, and in the limit periods it reserved in.
+  const nowUs = BigInt(ctx.now().getTime()) * 1000n;
+  const at = BigInt(Date.parse(String(d.checked_at))) * 1000n;
+  if (nowUs - at > window) {
+    throw new HttpError(409, `release rejected: the decision is older than the release window (${window / 3_600_000_000n} hours)`);
+  }
+  // What step 23 reserved: only when the allow went through it (within_period_limit, or approved over the limit).
+  const checks = Array.isArray(d.checks) ? d.checks : [];
+  const reserved = checks.includes("within_period_limit") || checks.includes("over_period_limit_approved");
+  const wanted: [string, string][] = [];
+  if (reserved) {
+    const chain = Array.isArray(m.delegation) ? (m.delegation as J[]) : [];
+    const periodOf = (sc: unknown) => (isDict(sc) && isDict(sc.max_per_period) ? String(sc.max_per_period.period) : null);
+    const mp = periodOf(m.scope);
+    if (mp !== null) wanted.push([`mandate:${mh}`, mp]);
+    for (const link of chain) {
+      const lp = periodOf(link.scope);
+      if (lp !== null) wanted.push([`delegation:${delegationHash(link)}`, lp]);
+    }
+    if (wanted.some(([, period]) => periodKey(period, at) !== periodKey(period, nowUs))) {
+      throw new HttpError(409, "release rejected: the limit period the reservation was made in has ended");
+    }
+  }
+
   const key = paymentKey(customer, p.id as string);
   const log = new KVPaymentLog(ctx.deps.kv, t.id);
   const held = await storeCall(() => log.lookup(key, pHash));
   if (!isDict(held) || held.id !== d.id || objHash(held) !== dh) {
-    if (await storeCall(() => wasReleased(ctx.deps.kv, t.id, dh)) !== null) return { ...done, already: true };
     throw new HttpError(409, "release rejected: this checker does not hold this allow for this payment");
   }
-  const first = await storeCall(() => markReleased(ctx.deps.kv, t.id, dh, { decision: { id: d.id, hash: dh },
-    payment: { id: p.id, hash: pHash }, at: ctx.now().toISOString() }));
-  if (!first) return { ...done, already: true };
-  // What step 23 reserved: only when the allow went through it (within_period_limit, or approved over the limit).
-  const checks = Array.isArray(d.checks) ? d.checks : [];
-  const reserved = checks.includes("within_period_limit") || checks.includes("over_period_limit_approved");
-  const released: string[] = [];
-  if (reserved) {
-    const ledger = new KVLedger(ctx.deps.kv, t.id);
-    const amount = parseAmount(p.amount, p.currency);
-    const at = BigInt(Date.parse(String(d.checked_at))) * 1000n;
-    const chain = Array.isArray(m.delegation) ? (m.delegation as J[]) : [];
-    const wanted: [string, J][] = [];
-    if (isDict((m.scope as J).max_per_period)) wanted.push([`mandate:${mh}`, m.scope as J]);
-    for (const link of chain) if (isDict((link.scope as J).max_per_period)) wanted.push([`delegation:${delegationHash(link)}`, link.scope as J]);
-    for (const [k, sc] of wanted) {
-      await storeCall(() => ledger.release(k, (sc.max_per_period as J).period as string, amount, at));
-      released.push(k);
-    }
+  const result: J = {
+    released: true, checker: t.checker, decision: { id: d.id, hash: dh }, payment: { id: p.id, hash: pHash },
+    reservations: wanted.map(([k]) => k), payment_id: "held", released_at: ctx.now().toISOString(),
+  };
+  // Marker first, holding the answer: exactly one caller goes on; any other (or later) one gets this result.
+  const first = await storeCall(() => markReleased(ctx.deps.kv, t.id, dh, { result }));
+  if (!first) {
+    const won = await storeCall(() => wasReleased(ctx.deps.kv, t.id, dh));
+    if (won !== null && isDict(won.result)) return won.result;
+    throw new HttpError(503, "store unavailable");
   }
-  await storeCall(() => log.forget(key));
-  return { ...done, reservations: released, payment_id_freed: true };
+  // Keep the payment id claimed, recording the release, so the allow is no longer served and the id stays used.
+  const kept = await storeCall(() => log.holdReleased(key, pHash, (x) => x.id === d.id && objHash(x) === dh,
+    { decision: { id: d.id, hash: dh }, at: result.released_at }));
+  if (!kept) throw new HttpError(503, "store unavailable: the payment log changed meanwhile; reservations stay");
+  const ledger = new KVLedger(ctx.deps.kv, t.id);
+  const amount = parseAmount(p.amount, p.currency);
+  for (const [k, period] of wanted) await storeCall(() => ledger.release(k, period, amount, at));
+  return result;
 }
 
 /** Key-sorted JSON, to tell two stored revocations apart. */

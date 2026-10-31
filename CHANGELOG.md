@@ -32,8 +32,10 @@ exactly as before (every 0.4 conformance vector is unchanged).
   `check_payment` returns `new_payee: true` and specific advice for the new reason codes. Approvals come from the
   operator (`--payee-approval`), never from the agent.
 - Hosted sandbox checker (merged from `hosted-checker`): `DELETE /v1/admin/tenants/<id>` deletes a tenant and
-  all its data; `POST /v1/release` gives back the reservations and payment id of an allowed payment the bank did
-  not execute, once, bound to the decision; `payee_approvals` on `/v1/check` and `/v1/resolve`,
+  all its data; `POST /v1/release` gives back the period reservations of an allowed payment the bank did
+  not execute, once (a repeat returns the same answer), bound to the decision, only within `RELEASE_WINDOW_HOURS`
+  (default 24) and the same limit period; the payment id stays used, so the same payment sent again is blocked
+  `duplicate_payment`; `payee_approvals` on `/v1/check` and `/v1/resolve`,
   `payee_approval` on `/v1/revoke`.
 - The signing page (site/mandate) shows what happens to payees that are not on the list before a person signs.
 

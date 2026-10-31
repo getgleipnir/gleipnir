@@ -36,6 +36,7 @@ let limiter: RateLimiter;
 let env: Env;
 
 let ip: string | undefined = "203.0.113.7";
+let clock: (() => Date) | undefined;
 
 async function call(method: string, path: string, body?: unknown, token?: string, extra: Record<string, string> = {}): Promise<[number, J, Headers]> {
   const headers: Record<string, string> = { ...extra };
@@ -43,7 +44,7 @@ async function call(method: string, path: string, body?: unknown, token?: string
   if (token) headers.Authorization = `Bearer ${token}`;
   const init: RequestInit = { method, headers };
   if (body !== undefined) init.body = typeof body === "string" ? body : JSON.stringify(body);
-  const res = await handle(new Request(BASE + path, init), { kv, env, limiter, ip });
+  const res = await handle(new Request(BASE + path, init), { kv, env, limiter, ip, clock });
   const text = await res.text();
   return [res.status, text ? (JSON.parse(text) as J) : {}, res.headers];
 }
@@ -79,6 +80,7 @@ beforeEach(() => {
   limiter = new RateLimiter();
   env = { ...ENV };
   ip = "203.0.113.7";
+  clock = undefined;
 });
 
 describe("hosted sandbox checker", () => {
@@ -417,37 +419,140 @@ describe("deleting a tenant", () => {
 // ---------- releasing an allowed payment that was not executed ----------
 
 describe("releasing a reservation", () => {
-  it("gives back the period reservation and the payment id once, bound to the allow decision", async () => {
+  const check = (s: Awaited<ReturnType<typeof setup>>, payment: J) => call("POST", "/v1/check", { mandate: s.mandate, payment }, s.apiKey);
+  const release = (s: Awaited<ReturnType<typeof setup>>, payment: J, decision: J) =>
+    call("POST", "/v1/release", { mandate: s.mandate, payment, decision }, s.apiKey);
+
+  it("review 05 M1: check + release of the same payment cannot be repeated to get past the period limit", async () => {
+    // 25 000 per payment, 40 000 per month. Before the fix: 5 x 20 000 allowed under one id (100 000).
+    const s = await setup();
+    const p = s.pay("INV-LOOP", "20000.00");
+    let allowed = 0n;
+    for (let i = 0; i < 5; i++) {
+      const [st, d] = await check(s, p);
+      expect(st).toBe(200);
+      if (d.outcome === "allow") allowed += 2_000_000n;
+      await release(s, p, d);
+    }
+    expect(allowed).toBe(2_000_000n); // once
+    const [, again] = await check(s, p);
+    expect([again.outcome, again.reasons]).toEqual(["block", ["duplicate_payment"]]);
+    // A released id stays used for any payment under it, too.
+    const [, other] = await check(s, s.pay("INV-LOOP", "10.00"));
+    expect(other.reasons).toEqual(["duplicate_payment"]);
+    // New ids are checked against the limit as usual: 40 000 a month in total, never more.
+    const [, a] = await check(s, s.pay("INV-A", "20000.00"));
+    const [, b] = await check(s, s.pay("INV-B", "20000.00"));
+    const [, c] = await check(s, s.pay("INV-C", "0.01"));
+    expect([a.outcome, b.outcome, c.reasons]).toEqual(["allow", "allow", ["over_period_limit"]]);
+  });
+
+  it("gives back the period reservation once, keeps the payment id used, and answers a repeat with the same result", async () => {
     const s = await setup();
     const p1 = s.pay("p_1", "20000.00"), p2 = s.pay("p_2", "20000.00");
-    const [, d1] = await call("POST", "/v1/check", { mandate: s.mandate, payment: p1 }, s.apiKey);
-    const [, d2] = await call("POST", "/v1/check", { mandate: s.mandate, payment: p2 }, s.apiKey);
+    const [, d1] = await check(s, p1);
+    const [, d2] = await check(s, p2);
     expect([d1.outcome, d2.outcome]).toEqual(["allow", "allow"]);
-    expect((await call("POST", "/v1/check", { mandate: s.mandate, payment: s.pay("p_3", "1.00") }, s.apiKey))[1].reasons)
-      .toEqual(["over_period_limit"]);
+    expect((await check(s, s.pay("p_3", "1.00")))[1].reasons).toEqual(["over_period_limit"]);
 
-    const [st, r] = await call("POST", "/v1/release", { mandate: s.mandate, payment: p2, decision: d2 }, s.apiKey);
-    expect([st, r.released, r.payment_id_freed, (r.reservations as string[]).length]).toEqual([200, true, true, 1]);
-    // Idempotent: the same release again changes nothing.
-    const [st2, r2] = await call("POST", "/v1/release", { mandate: s.mandate, payment: p2, decision: d2 }, s.apiKey);
-    expect([st2, r2.released, r2.already]).toEqual([200, true, true]);
+    const [st, r] = await release(s, p2, d2);
+    expect(st).toBe(200);
+    expect(r).toMatchObject({ released: true, payment_id: "held", decision: { id: d2.id }, payment: { id: "p_2" } });
+    expect((r.reservations as string[]).length).toBe(1);
+    expect(r).not.toHaveProperty("payment_id_freed");
+    // Idempotent: the same release again is a no-op with exactly the same answer.
+    const [st2, r2] = await release(s, p2, d2);
+    expect([st2, r2]).toEqual([200, r]);
     // 20 000 is free again, exactly once.
-    expect((await call("POST", "/v1/check", { mandate: s.mandate, payment: s.pay("p_3", "1.00") }, s.apiKey))[1].outcome).toBe("allow");
-    expect((await call("POST", "/v1/check", { mandate: s.mandate, payment: s.pay("p_4", "19999.00") }, s.apiKey))[1].outcome).toBe("allow");
-    expect((await call("POST", "/v1/check", { mandate: s.mandate, payment: s.pay("p_5", "0.01") }, s.apiKey))[1].reasons)
-      .toEqual(["over_period_limit"]);
-    // p_2's id is free: the same payment is checked afresh (a new decision), not answered from the log.
-    const [, again] = await call("POST", "/v1/check", { mandate: s.mandate, payment: p2 }, s.apiKey);
-    expect(again.id).not.toBe(d2.id);
-    expect(again.reasons).toEqual(["over_period_limit"]);
+    expect((await check(s, s.pay("p_3", "1.00")))[1].outcome).toBe("allow");
+    expect((await check(s, s.pay("p_4", "19999.00")))[1].outcome).toBe("allow");
+    expect((await check(s, s.pay("p_5", "0.01")))[1].reasons).toEqual(["over_period_limit"]);
+    // p_2 sent again: a terminal block, not the old allow and not a fresh check.
+    const [, again] = await check(s, p2);
+    expect([again.outcome, again.reasons]).toEqual(["block", ["duplicate_payment"]]);
+    // The payment log records the release.
+    const entry = [...kv.items.entries()].find(([k, v]) => k.includes("/payments/") && v.data.includes("released"));
+    expect(JSON.parse(entry![1].data)).toMatchObject({ decision: null, released: { decision: { id: d2.id } } });
+    // And a third release still gives the same answer, releasing nothing.
+    expect((await release(s, p2, d2))[1]).toEqual(r);
+    expect((await check(s, s.pay("p_6", "0.01")))[1].reasons).toEqual(["over_period_limit"]);
+  });
+
+  it("concurrent releases of one decision release once and all get the same answer", async () => {
+    const s = await setup();
+    const p1 = s.pay("p_1", "20000.00"), p2 = s.pay("p_2", "20000.00");
+    await check(s, p1);
+    const [, d2] = await check(s, p2);
+    const all = await Promise.all(Array.from({ length: 6 }, () => release(s, p2, d2)));
+    expect(all.every(([st]) => st === 200)).toBe(true);
+    for (const [, r] of all) expect(r).toEqual(all[0]![1]);
+    expect((await check(s, s.pay("p_3", "20000.00")))[1].outcome).toBe("allow");
+    expect((await check(s, s.pay("p_4", "0.01")))[1].reasons).toEqual(["over_period_limit"]);
+  });
+
+  it("only within the release window after the decision (RELEASE_WINDOW_HOURS, default 24)", async () => {
+    const s = await setup();
+    let now = Date.parse("2026-10-05T08:00:00.000Z");
+    clock = () => new Date(now);
+    const pay = (id: string) => attach(s.mandate, { id, rail: "sepa", amount: "15000.00", currency: "EUR", payee: BRENNER,
+      agentSeed: s.agentSeed, requestedAt: new Date(now).toISOString() });
+    const p1 = pay("w_1"), p2 = pay("w_2");
+    const [, d1] = await check(s, p1);
+    const [, d2] = await check(s, p2);
+    expect([d1.outcome, d2.outcome]).toEqual(["allow", "allow"]);
+    // 24 h + 1 ms later: refused, the reservation stands.
+    now += 24 * 3600_000 + 1;
+    const [st, err] = await release(s, p1, d1);
+    expect([st, err.error]).toEqual([409, "release rejected: the decision is older than the release window (24 hours)"]);
+    // Exactly 24 h is still inside.
+    now -= 1;
+    const [st2, r2] = await release(s, p2, d2);
+    expect([st2, r2.released]).toEqual([200, true]);
+    // Once released, a repeat gives the same answer even after the window has closed.
+    now += 72 * 3600_000;
+    expect(await release(s, p2, d2)).toEqual([200, r2, expect.anything()]);
+    // Configurable: 1 hour.
+    env = { ...ENV, RELEASE_WINDOW_HOURS: "1" };
+    const p3 = pay("w_3");
+    const [, d3] = await check(s, p3);
+    now += 3600_000 + 1;
+    expect((await release(s, p3, d3))[0]).toBe(409);
+    // 0 disables release; a bad setting fails closed.
+    env = { ...ENV, RELEASE_WINDOW_HOURS: "0" };
+    expect((await release(s, p3, d3))[0]).toBe(403);
+    for (const bad of ["-1", "1.5", "24h", "745", "99999"]) {
+      env = { ...ENV, RELEASE_WINDOW_HOURS: bad };
+      expect((await release(s, p3, d3))[0]).toBe(503);
+    }
+  });
+
+  it("only in the limit period the reservation was made in", async () => {
+    const s = await setup();
+    let now = Date.parse("2026-10-31T23:30:00.000Z");
+    clock = () => new Date(now);
+    const pay = (id: string, amount = "20000.00") => attach(s.mandate, { id, rail: "sepa", amount, currency: "EUR", payee: BRENNER,
+      agentSeed: s.agentSeed, requestedAt: new Date(now).toISOString() });
+    const p1 = pay("x_1"), p2 = pay("x_2");
+    const [, d1] = await check(s, p1);
+    const [, d2] = await check(s, p2);
+    expect([d1.outcome, d2.outcome]).toEqual(["allow", "allow"]);
+    // 00:30 the next day is inside 24 h but in November: October's reservation cannot be given back any more.
+    now = Date.parse("2026-11-01T00:30:00.000Z");
+    const [st, err] = await release(s, p1, d1);
+    expect([st, err.error]).toEqual([409, "release rejected: the limit period the reservation was made in has ended"]);
+    // Still in October: allowed, and the October total goes down.
+    now = Date.parse("2026-10-31T23:59:59.000Z");
+    expect((await release(s, p2, d2))[1].released).toBe(true);
+    expect((await check(s, pay("x_3")))[1].outcome).toBe("allow");
+    expect((await check(s, pay("x_4", "0.01")))[1].reasons).toEqual(["over_period_limit"]);
   });
 
   it("refuses what it must not release", async () => {
     const s = await setup();
     const p1 = s.pay("p_1", "100.00");
-    const [, d1] = await call("POST", "/v1/check", { mandate: s.mandate, payment: p1 }, s.apiKey);
+    const [, d1] = await check(s, p1);
     const big = s.pay("p_big", "30000.00");
-    const [, esc] = await call("POST", "/v1/check", { mandate: s.mandate, payment: big }, s.apiKey);
+    const [, esc] = await check(s, big);
     const rel = (body: J, key = s.apiKey) => call("POST", "/v1/release", body, key);
     expect((await rel({ mandate: s.mandate, payment: big, decision: esc }))[0]).toBe(400); // not an allow
     expect((await rel({ mandate: s.mandate, payment: s.pay("p_1", "100.01"), decision: d1 }))[0]).toBe(400); // other payment
@@ -457,17 +562,40 @@ describe("releasing a reservation", () => {
     // Another tenant cannot release this tenant's decision: it is not signed by its checker.
     const o = await setup("other-psp");
     expect((await rel({ mandate: s.mandate, payment: p1, decision: d1 }, o.apiKey))[0]).toBe(400);
-    // A decision this checker does not hold (here: released, then the payment allowed again) is not released twice.
-    expect((await rel({ mandate: s.mandate, payment: p1, decision: d1 }))[1].released).toBe(true);
-    const [, d1b] = await call("POST", "/v1/check", { mandate: s.mandate, payment: p1 }, s.apiKey);
-    expect((await rel({ mandate: s.mandate, payment: p1, decision: d1 }))[1].already).toBe(true);
-    expect((await rel({ mandate: s.mandate, payment: p1, decision: d1b }))[1].already).toBeUndefined();
+    // Released once; the payment sent again is blocked, and that block cannot be released.
+    const [, first] = await rel({ mandate: s.mandate, payment: p1, decision: d1 });
+    expect(first.released).toBe(true);
+    const [, d1b] = await check(s, p1);
+    expect(d1b.reasons).toEqual(["duplicate_payment"]);
+    expect((await rel({ mandate: s.mandate, payment: p1, decision: d1b }))[0]).toBe(400);
+    expect((await rel({ mandate: s.mandate, payment: p1, decision: d1 }))[1]).toEqual(first);
     // A real allow of this checker that the log does not hold for the payment: 409.
     const p9 = s.pay("p_9", "1.00");
-    const [, d9] = await call("POST", "/v1/check", { mandate: s.mandate, payment: p9 }, s.apiKey);
+    const [, d9] = await check(s, p9);
     for (const k of [...kv.items.keys()]) if (k.includes("/payments/")) kv.items.delete(k);
     expect((await rel({ mandate: s.mandate, payment: p9, decision: d9 }))[0]).toBe(409);
     expect((await call("GET", "/v1/release", undefined, s.apiKey))[0]).toBe(405);
+  });
+
+  it("a release interrupted by the store leaves limits stricter, never looser", async () => {
+    const s = await setup();
+    const p1 = s.pay("p_1", "20000.00"), p2 = s.pay("p_2", "20000.00");
+    await check(s, p1);
+    const [, d2] = await check(s, p2);
+    // The store fails right after the release marker is written.
+    const put = kv.put.bind(kv);
+    let fail = false;
+    kv.put = async (k, v, c) => {
+      if (fail) throw new Error("store down");
+      const ok = await put(k, v, c);
+      if (k.includes("/released/")) fail = true;
+      return ok;
+    };
+    expect((await release(s, p2, d2))[0]).toBe(503);
+    kv.put = put;
+    // The reservation stands, and nothing is released later either.
+    expect((await release(s, p2, d2))[1].released).toBe(true);
+    expect((await check(s, s.pay("p_3", "0.01")))[1].reasons).toEqual(["over_period_limit"]);
   });
 });
 
@@ -515,7 +643,7 @@ interface Vector {
   ops?: ("check" | { resolve: { of: number; id: string; outcome: "allow" | "block"; decided_at: string; reason?: string;
     decision_hash?: string; signers: { seed: string; id: string }[] } })[];
   expect: J[]; webauthn: { rp_id?: string; origins?: string[] }; mandates?: unknown[]; which?: number[];
-  ledger: boolean | "error" | "junk"; payment_log?: "error" | "junk"; approvals?: (unknown[] | null)[];
+  ledger: boolean | "error" | "junk"; payment_log?: LogMode; approvals?: (unknown[] | null)[];
 }
 
 /** The KV ledger, failing as a vector asks (spec 0.4.1: "error" throws, "junk" answers a non-boolean). */
@@ -527,16 +655,41 @@ class BrokenKVLedger extends KVLedger {
   }
 }
 
-/** The KV payment log, failing as a vector asks: "error" throws on lookup, "junk" claims with a non-boolean. */
+type LogMode = "error" | "junk" | "junk_take" | "junk_late_register";
+
+/**
+ * The KV payment log, failing as a vector asks: "error" throws on every call, "junk" claims and answers a
+ * non-boolean, "junk_take" takes and answers a non-boolean, "junk_late_register" answers a non-boolean from every
+ * register after the first.
+ */
 class BrokenKVPaymentLog extends KVPaymentLog {
-  constructor(kv: MemoryKV, private readonly mode: "error" | "junk") { super(kv, "vectors"); }
-  override async lookup(key: string, paymentHash: string): Promise<J | null> {
+  private registers = 0;
+  constructor(kv: MemoryKV, private readonly mode: LogMode) { super(kv, "vectors"); }
+  private down(): void {
     if (this.mode === "error") throw new Error("payment log down");
+  }
+  override async lookup(key: string, paymentHash: string): Promise<J | null> {
+    this.down();
     return super.lookup(key, paymentHash);
   }
   override async register(key: string, paymentHash: string): Promise<boolean> {
-    await super.register(key, paymentHash);
-    return 1 as unknown as boolean;
+    this.down();
+    this.registers += 1;
+    const ok = await super.register(key, paymentHash);
+    return this.mode === "junk" || (this.mode === "junk_late_register" && this.registers > 1) ? 1 as unknown as boolean : ok;
+  }
+  override async remember(key: string, decision: J): Promise<void> {
+    this.down();
+    await super.remember(key, decision);
+  }
+  override async forget(key: string): Promise<void> {
+    this.down();
+    await super.forget(key);
+  }
+  override async take(key: string, paymentHash: string, decisionId: string): Promise<boolean> {
+    this.down();
+    const took = await super.take(key, paymentHash, decisionId);
+    return this.mode === "junk_take" ? 1 as unknown as boolean : took;
   }
 }
 

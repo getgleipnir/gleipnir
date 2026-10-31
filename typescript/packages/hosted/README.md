@@ -57,7 +57,7 @@ Same contract as `gleipnir mandate serve`, under `/v1`, with a bearer key:
 | `POST /v1/check` | check key | `{"mandate", "payment"[, "payee_approvals"]}` → the signed decision |
 | `POST /v1/resolve` | check key | `{"mandate", "payment", "decision", "override"[, "payee_approvals"]}` → the decision after a signed override |
 | `POST /v1/revoke` | check key | `{"revocation", "mandate"[, "payee_approval"]}` → `{"ok": true, "checker"}` |
-| `POST /v1/release` | check key | `{"mandate", "payment", "decision"}` → `{"released": true, ...}`: the bank did not execute this allowed payment |
+| `POST /v1/release` | check key | `{"mandate", "payment", "decision"}` → `{"released": true, ...}`: the bank did not execute this allowed payment; its reservations come back once, within `RELEASE_WINDOW_HOURS` and the same limit period; the payment id stays used |
 | `GET /v1/revocations` | check key | signed list of the stored revocations, current for an hour |
 | `GET /v1/keys` | check key | `{"checker", "keys"}` |
 | `GET /t/<tenant>/keys` | public | `{"checker", "keys"}` |
@@ -90,12 +90,35 @@ revoke it.
 **Release** (`/v1/release`): when the bank does not execute a payment the checker allowed (the payment failed,
 was cancelled, or the bank's own controls stopped it), it hands back the mandate, the payment and the allow decision.
 The decision must be signed by this tenant's checker key, be an `allow` naming exactly this payment and mandate,
-and be the decision the payment log holds for that payment now. The checker then releases the period reservations
-the allow made (the mandate's and every delegation link's with a period limit, in the period it was checked in) and
-frees the payment id, so the same payment is checked afresh if it is sent again. It happens once: a release marker
-keyed by the decision hash is written first, a repeated call answers `{"released": true, "already": true}` and
-releases nothing, and a decision the checker does not hold (never allowed here, or superseded) is `409`. If the
-store fails half way, reservations stay in place: limits get stricter, never looser.
+and be the decision the payment log holds for that payment now. Then:
+
+- **Reservations come back, the payment id does not.** The period reservations the allow made (the mandate's and
+  every delegation link's with a period limit) are released. The payment id stays used: the payment log keeps the
+  key claimed and records the release. If the same payment (or any other payment under its id) is sent again, the
+  answer is a signed **block `duplicate_payment`**, never the old allow and never a fresh check. A payment the bank
+  wants to try again needs a **new payment id**, which is checked against the limits like any other. We chose the
+  existing code over a new one (`payment_released`) so every 0.5 verifier and receipt already understands it; the
+  release answer and this page say why the id is used.
+- **Only soon after the decision, and in the same period.** The release must come within `RELEASE_WINDOW_HOURS`
+  (default 24) of the decision's `checked_at`, and while each limit period the allow reserved in is still the
+  current one (an allow of 31 October cannot be released on 1 November). Otherwise `409`, and the reservation
+  stands. `RELEASE_WINDOW_HOURS=0` turns release off (`403`); a value that is not a whole number from 0 to 744 is
+  `503`.
+- **Once.** The answer is stored in a release marker keyed by the decision hash, written before anything is
+  released. A repeated call (also concurrent, and also after the window has closed) is a no-op that returns exactly
+  the same answer:
+  `{"released": true, "checker", "decision": {"id", "hash"}, "payment": {"id", "hash"}, "reservations": [...], "payment_id": "held", "released_at"}`.
+- A decision the checker does not hold for the payment (never allowed here, or superseded) is `409`; an escalate
+  or block, an edited decision, another payment or another tenant's decision is `400`.
+- If the store fails half way (`503`), what is left is stricter, never looser: reservations stay reserved and the
+  payment log keeps either the allow or the released claim. A repeat then returns the stored answer and does not
+  release again.
+
+**What release still trusts.** The check key holder says the bank did not execute the payment; the checker cannot
+see the bank's books. With the window, the period rule and the id kept used, the most a check key holder can do is
+claim that an allowed payment was not executed: once per allow, within its window and its period. It can no longer
+reset limits with old decisions or get the same payment allowed twice. If the party
+holding the check key is not the one executing payments, set `RELEASE_WINDOW_HOURS=0`.
 
 **Deleting a tenant** (`DELETE /v1/admin/tenants/<id>`) removes the tenant record first, so its check and KYB keys
 stop working at once, then every key under `t/<id>/`: its public key, the authority table log, the payment log, the
@@ -164,6 +187,7 @@ Environment variables:
 | `ADMIN_TOKEN` | yes for admin (≥ 32 chars) | bearer token for `/v1/admin/*`. Without it admin is closed. |
 | `RATE_LIMIT_PER_MIN` | no (120) | requests per minute per key, per function instance |
 | `ALLOW_ORIGINS` | no | comma-separated browser origins allowed to call authenticated endpoints |
+| `RELEASE_WINDOW_HOURS` | no (24) | hours after an allow during which `/v1/release` may give its reservations back; `0` turns release off, max 744 |
 
 The build runs `npm ci` at `typescript/` and builds `@getgleipnir/verify`, which the function imports; Netlify
 bundles the function with esbuild (Node 20). State lives in the site-wide Blobs store `gleipnir-sandbox-checker`

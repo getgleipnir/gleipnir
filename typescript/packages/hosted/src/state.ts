@@ -26,6 +26,8 @@ function newOp(): string {
   return randomBytes(12).toString("base64url");
 }
 
+const isDict = (v: unknown): v is J => typeof v === "object" && v !== null && !Array.isArray(v);
+
 function opsOf(v: J | null): string[] {
   return v !== null && Array.isArray(v.ops) ? (v.ops as unknown[]).filter((x): x is string => typeof x === "string") : [];
 }
@@ -95,6 +97,23 @@ export class KVPaymentLog implements PaymentLog {
 
   async forget(key: string): Promise<void> {
     await this.kv.del(this.k(key));
+  }
+
+  /**
+   * Hosted release: if the key holds an allow for this payment that `isIt` recognises, keep the key claimed but
+   * clear the decision, recording why (`released`). The payment id stays used: a later check of any payment under
+   * it finds the key claimed and is blocked `duplicate_payment`, never checked afresh. true if this call (or an
+   * earlier attempt of it whose answer was lost) did it, or the key already records this release.
+   */
+  async holdReleased(key: string, paymentHash: string, isIt: (decision: J) => boolean, released: J): Promise<boolean> {
+    return update(this.kv, this.k(key), (cur) => {
+      if (!cur || cur.hash !== paymentHash) return [undefined, false];
+      const d = cur.decision as J | null | undefined;
+      if (d === null && isDict(cur.released) && isDict(released.decision)
+        && (cur.released.decision as J | undefined)?.hash === released.decision.hash) return [undefined, true];
+      if (!d || typeof d !== "object" || !isIt(d)) return [undefined, false];
+      return [{ hash: cur.hash, decision: null, released }, true];
+    });
   }
 
   async take(key: string, paymentHash: string, decisionId: string): Promise<boolean> {
