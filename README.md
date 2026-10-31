@@ -34,7 +34,7 @@ Gleipnir does not move money and does not verify identities: the bank (KYB) or a
 | **Spec** | [spec/mandate.md](spec/mandate.md), version 0.5 (draft). 0.4 objects are still accepted and checked exactly as in 0.4. Covers enrollment, payees not on the mandate and payee approvals, multi-signature, delegation, debtor accounts, accounts and rails worldwide, ISO 20022 pain.001, overrides, signed status, revocation and revocation lists, bank key sets, receipts, closed shapes and versioning, threat model, reason codes (Appendix A), conformance (Appendix B) |
 | **Python checker** | `gleipnir_verify.mandate`, the reference |
 | **TypeScript checker** | `@getgleipnir/verify/mandate` (Node and browsers), same results on every shared vector |
-| **Test vectors** | [192 shared cases](typescript/packages/verify/test/fixtures/mandate-vectors.json) (37 of them `v05_*`): both implementations run them and verify each other's decisions; plus pinned problem messages, payee name keys, key sets and byte-identical pain.001 XML |
+| **Test vectors** | [192 shared cases](typescript/packages/verify/test/fixtures/mandate-vectors.json) (40 of them `v05_*`): both implementations run them and verify each other's decisions; plus pinned problem messages, payee name keys, key sets and byte-identical pain.001 XML |
 | **CLI** | `gleipnir mandate keygen · issue · sign · delegate · approve-payee · pay · kyb · check · resolve · override · status · revoke · revocations · keyset · pain001 · verify · serve · mcp`. `issue --unlisted-payees block\|escalate [--max-per-unlisted-payee X]`; `check` and `resolve` take `--payee-approval FILE` |
 | **Bank side** | `gleipnir mandate serve`: reference `POST /check`, `POST /resolve` and `POST /revoke` server, with `/.well-known/gleipnir-checker.json` and a signed `GET /revocations` list |
 | **Hosted sandbox** | [typescript/packages/hosted](typescript/packages/hosted): the same checker as a multi-tenant Netlify service for pilot partners, with tenant delete (`DELETE /v1/admin/tenants/<id>`) and reservation release (`POST /v1/release`, off by default). Sandbox keys, not for real money |
@@ -152,9 +152,9 @@ g pain001 m.json p.json --check pain.xml                     # before executing:
 ```bash
 uv sync --all-packages
 uv run ruff check python spec examples
-uv run pytest python                      # 954 passed, 10 skipped, 1 xfailed
 
-cd typescript && npm ci && npm run build
+cd typescript && npm ci && npm run build  # build first: one Python test runs the TS MCP
+cd .. && uv run pytest python && cd typescript   # 954 passed, 10 skipped, 1 xfailed
 npx vitest run                            # all packages incl. hosted: 762 passed, 2 skipped
 npx tsc -p tsconfig.test.json --noEmit    # typecheck
 npm run interop                           # Python and TypeScript read each other's output
