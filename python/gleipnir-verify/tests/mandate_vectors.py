@@ -475,6 +475,10 @@ def keyset_cases(signed: list[dict]) -> list[list[Any]]:
     d = signed[0]
     bank = M.public_key_of(BANK)
     at = d["checked_at"]
+    # A decision minted by an attacker with their own key, naming the bank as checker and saying allow.
+    forged = M._sign(OTHER, "decision", {**{k: v for k, v in d.items() if k != "sig"}, "outcome": "allow",
+                                         "reasons": [], "checker": {"id": "bank:VECTORS",
+                                                                    "public_key": M.public_key_of(OTHER)}})
     mk = lambda keys, checker="bank:VECTORS": {"v": f"gleipnir/keys/{M.V}", "checker": checker,  # noqa: E731
                                                "issued_at": "2026-10-24T00:00:00.000Z", "keys": keys}
     return [
@@ -486,6 +490,15 @@ def keyset_cases(signed: list[dict]) -> list[list[Any]]:
         [mk([{"public_key": bank}], "bank:OTHER"), d, False],
         [mk([{"public_key": M.public_key_of(OTHER)}]), d, False],
         [mk([{"public_key": bank, "extra": 1}]), d, False],
+        # C3: a decision is only as good as the key it is checked against, which comes from the bank.
+        [mk([{"public_key": bank}]), forged, False],
+        [mk([{"public_key": bank}]), {**d, "outcome": "block" if d["outcome"] == "allow" else "allow"}, False],
+        [mk([{"public_key": bank}]), {k: v for k, v in d.items() if k != "sig"}, False],
+        # The same as a plain list of the bank's keys (also accepted by verify_decision).
+        [[bank], d, True],
+        [[bank], forged, False],
+        [[M.public_key_of(OTHER)], forged, True],  # only proves who signed: the attacker's key is not the bank's
+        [[], d, False],
     ]
 
 
@@ -647,21 +660,26 @@ def pay(m: dict, pid: str, amount: str = "100.00", *, payee: dict = BRENNER, rai
 
 
 def case(name: str, m: Any, payments: list[Any], *, now: str | list[str] = NOW, authority: list | None = None,
-         revocations: list | None = None, status: Any = None, ledger: bool = True,
+         revocations: list | None = None, status: Any = None, ledger: bool | str = True,
          webauthn: dict | None = None, mandates: list | None = None, which: list[int] | None = None,
          holds: list | None = None, ops: list | None = None, policy: dict | None = None,
-         officers: list[str] | None = None, feed: Any = None) -> dict[str, Any]:
+         officers: list[str] | None = None, feed: Any = None, payment_log: str | None = None) -> dict[str, Any]:
     """One checker, several steps. Step i checks payments[i] against mandates[which[i]] (default: the mandate),
     or, when ops[i] is a resolve op, applies an override to the decision of step ops[i]["of"].
 
     ``status``: None (no status client), "error" (unreachable), or the signed response the status client returns.
     ``holds``: the bank's accounts as {company, account}. ``policy``: {"require_payees": bool}.
+    ``ledger``: True (in-memory), False (none wired), "error" (every call raises) or "junk" (reserve answers
+    "ok", not a bool). ``payment_log``: None (in-memory), "error" (every call raises) or "junk" (register
+    answers 1, not a bool).
     """
     extra: dict[str, Any] = {"mandates": mandates, "which": which} if mandates else {}
     if ops:
         extra["ops"] = ops
     if feed is not None:
         extra["feed"] = feed
+    if payment_log is not None:
+        extra["payment_log"] = payment_log
     return {"name": name, "mandate": m, "payments": payments, "webauthn": webauthn or {}, **extra,
             "now": now if isinstance(now, list) else [now] * len(payments),
             "authority": KYB if authority is None else authority, "revocations": revocations or [],
@@ -744,6 +762,41 @@ def cases() -> list[dict[str, Any]]:
         case("mandate_malformed_amount", mandate(sign=False, scope=scope(max_per_payment="25000")),
              [pay(m, "p_1")]),
         *v02_cases(),
+        *attack_cases(),
+    ]
+
+
+def attack_cases() -> list[dict[str, Any]]:
+    """The attacks of the 23.10.2026 audit (C1-C3, H1, H2), one vector each. None of them may end in allow."""
+    m = mandate()
+    # C1: the attacker signs a mandate with their own key. Naming a real signatory does not help (the bank binds
+    # other keys to that id); inventing a signatory does not either (no source knows them).
+    known_id = mandate(sk=OTHER)
+    own_id = mandate(sk=OTHER, signer=signer(OTHER, "ceo@nordhafen-payments.example"))
+    rev = M.revoke(m, signer=signer(), sk=SIGNER, id="r_atk", revoked_at="2026-10-23T09:00:00.000Z")
+    after_expiry = "2027-01-01T00:00:10.000Z"
+    return [
+        case("attack_C1_self_asserted_key_for_known_signer", known_id, [pay(known_id, "p_1")]),
+        case("attack_C1_self_asserted_signer", own_id, [pay(own_id, "p_1")]),
+        # C2: the agent's clock says "before expiry / before revocation"; the checker's clock decides.
+        case("attack_C2_backdated_after_expiry", m,
+             [pay(m, "p_1", at="2026-12-31T23:00:00.000Z"), pay(m, "p_2", at=after_expiry)], now=after_expiry),
+        case("attack_C2_backdated_before_revocation", m,
+             [pay(m, "p_1", at="2026-10-23T08:59:00.000Z"), pay(m, "p_2")], revocations=[rev]),
+        case("attack_C2_future_dated_payment", m, [pay(m, "p_1", at="2027-06-01T00:00:00.000Z")]),
+        # H1: a replay gets the decision already made (same id, execute at most once), never a second one;
+        # the same id with another payment is a duplicate, also after a block released nothing.
+        case("attack_H1_replayed_payment", m, [pay(m, "p_1", "18400.00"), pay(m, "p_1", "18400.00"),
+                                                pay(m, "p_1", "18400.00"), pay(m, "p_1", "18400.01")]),
+        case("attack_H1_replay_does_not_spend_twice", m,
+             [pay(m, "p_1", "20000.00"), pay(m, "p_1", "20000.00"), pay(m, "p_2", "20000.00"),
+              pay(m, "p_3", "0.01")]),
+        # H2 / fail-open: a ledger or payment log that is down or answers nonsense never lets a payment through.
+        case("attack_H2_ledger_raises", m, [pay(m, "p_1")], ledger="error"),
+        case("attack_H2_ledger_answers_junk", m, [pay(m, "p_1")], ledger="junk"),
+        case("attack_H2_no_ledger_wired", m, [pay(m, "p_1")], ledger=False),
+        case("attack_H1_payment_log_raises", m, [pay(m, "p_1")], payment_log="error"),
+        case("attack_H1_payment_log_answers_junk", m, [pay(m, "p_1")], payment_log="junk"),
     ]
 
 
@@ -805,12 +858,49 @@ def build_override(spec: dict, decision: dict) -> dict:
     return o
 
 
+class BrokenLedger(M.InMemoryLedger):
+    """A ledger that fails: "error" raises, "junk" answers something that is not a bool."""
+
+    def __init__(self, mode: str) -> None:
+        super().__init__()
+        self.mode = mode
+
+    def reserve(self, key: str, period: str, amount: Any, limit: Any, at: datetime) -> Any:
+        if self.mode == "error":
+            raise ConnectionError("ledger down")
+        return "ok"
+
+
+class BrokenPaymentLog(M.InMemoryPaymentLog):
+    """A payment log that fails: "error" raises on every call, "junk" claims with an answer that is not a bool."""
+
+    def __init__(self, mode: str) -> None:
+        super().__init__()
+        self.mode = mode
+
+    def lookup(self, key: str, payment_hash: str) -> Any:
+        if self.mode == "error":
+            raise ConnectionError("payment log down")
+        return super().lookup(key, payment_hash)
+
+    def register(self, key: str, payment_hash: str) -> Any:
+        super().register(key, payment_hash)
+        return 1
+
+
+def ledger_of(mode: bool | str) -> Any:
+    if mode is True:
+        return M.InMemoryLedger()
+    return BrokenLedger(mode) if mode else None
+
+
 def run(c: dict[str, Any]) -> list[dict[str, Any]]:
     """Run a vector through the Python reference; returns the decisions."""
     clock = {"now": c["now"][0]}
+    log = BrokenPaymentLog(c["payment_log"]) if c.get("payment_log") else M.InMemoryPaymentLog()
     checker = M.Checker(id="bank:VECTORS", sk=BANK, authority=authority_fn(c["authority"]),
-                        holds=holds_fn(c["holds"]),
-                        ledger=M.InMemoryLedger() if c["ledger"] else None, revocations=c["revocations"],
+                        holds=holds_fn(c["holds"]), payments=log,
+                        ledger=ledger_of(c["ledger"]), revocations=c["revocations"],
                         status=status_fn(c["status"]), webauthn=c.get("webauthn") or {},
                         require_payees=c["policy"].get("require_payees", False), officers=c["officers"],
                         revocation_feed=feed_fn(c.get("feed"), clock),

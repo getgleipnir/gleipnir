@@ -1263,8 +1263,10 @@ class Checker:
                 ok = self.payments.register(key, p_hash)
             except Exception:  # noqa: BLE001
                 return "checker_unavailable"
-            if not ok:
+            if ok is False:
                 return "duplicate_payment"
+            if ok is not True:  # a store that answers anything but True/False is broken: fail closed
+                return "checker_unavailable"
             state["registered"] = True
         if "valid_from" in m and at < _ts(m["valid_from"]):
             return "mandate_not_yet_valid"
@@ -1373,9 +1375,10 @@ class Checker:
             for key, sc, forced in wanted:
                 per = sc["max_per_period"]
                 limit = None if forced else parse_amount(per["amount"], sc["currency"])
-                if not self.ledger.reserve(key, per["period"], amt, limit, at):
+                ok = self.ledger.reserve(key, per["period"], amt, limit, at)
+                if ok is not True:  # False: over the limit; anything else: a broken ledger, fail closed
                     self._release(done, amt, at)
-                    return "over_period_limit"
+                    return "over_period_limit" if ok is False else "checker_unavailable"
                 done.append((key, per["period"]))
         except Exception:  # noqa: BLE001
             self._release(done, amt, at)
@@ -1552,6 +1555,8 @@ class Checker:
                 took = self.payments.take(key, p_hash, d["id"])
             except Exception:  # noqa: BLE001
                 return "checker_unavailable"
+            if took is not True and took is not False:
+                return "checker_unavailable"
             if not took:  # another override of this escalation got there first
                 try:
                     again = self.payments.lookup(key, p_hash)
@@ -1562,10 +1567,11 @@ class Checker:
         if o["outcome"] == "block":
             if not held:
                 try:
-                    if not self.payments.register(key, p_hash):
-                        return "duplicate_payment"
+                    ok = self.payments.register(key, p_hash)
                 except Exception:  # noqa: BLE001
                     return "checker_unavailable"
+                if ok is not True:
+                    return "duplicate_payment" if ok is False else "checker_unavailable"
             state["registered"], state["key"] = True, key
             return "blocked_by_override"
         return self._run(m, p, p_hash, at, checks, state, waive=waive, claimed=held, vouched=vouched)

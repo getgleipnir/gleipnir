@@ -1483,13 +1483,14 @@ export class Checker {
     }
     // Authentic and authorized from here on: only now may the payment id be claimed (step 14).
     if (!claimed) {
-      let ok: boolean;
+      let ok: unknown;
       try {
         ok = await this.payments.register(key, pHash!);
       } catch {
         return "checker_unavailable";
       }
-      if (!ok) return "duplicate_payment";
+      if (ok === false) return "duplicate_payment";
+      if (ok !== true) return "checker_unavailable"; // a store that answers anything but true/false is broken: fail closed
       state.registered = true;
     }
     if (hasKey(md, "valid_from") && at < ts(md.valid_from)) return "mandate_not_yet_valid";
@@ -1593,9 +1594,10 @@ export class Checker {
       for (const [key, sc, forced] of wanted) {
         const per = sc.max_per_period as JsonDict;
         const limit = forced ? null : parseAmount(per.amount, sc.currency);
-        if (!(await this.ledger.reserve(key, per.period as string, amt, limit, at))) {
+        const ok: unknown = await this.ledger.reserve(key, per.period as string, amt, limit, at);
+        if (ok !== true) { // false: over the limit; anything else: a broken ledger, fail closed
           await this.releaseAll(done, amt, at);
-          return "over_period_limit";
+          return ok === false ? "over_period_limit" : "checker_unavailable";
         }
         done.push([key, per.period as string]);
       }
@@ -1759,12 +1761,13 @@ export class Checker {
     const heldHere = isDict(prior) && prior.id === dd.id;
     if (isDict(prior) && !heldHere) return prior; // already resolved: the same answer again, never a second reservation
     if (heldHere) {
-      let took: boolean;
+      let took: unknown;
       try {
         took = await this.payments.take(key, pHash!, dd.id as string);
       } catch {
         return "checker_unavailable";
       }
+      if (took !== true && took !== false) return "checker_unavailable";
       if (!took) { // another override of this escalation got there first
         let again: JsonDict | null;
         try {
@@ -1778,11 +1781,13 @@ export class Checker {
     }
     if (od.outcome === "block") {
       if (!heldHere) {
+        let ok: unknown;
         try {
-          if (!(await this.payments.register(key, pHash!))) return "duplicate_payment";
+          ok = await this.payments.register(key, pHash!);
         } catch {
           return "checker_unavailable";
         }
+        if (ok !== true) return ok === false ? "duplicate_payment" : "checker_unavailable";
       }
       state.registered = true;
       state.key = key;

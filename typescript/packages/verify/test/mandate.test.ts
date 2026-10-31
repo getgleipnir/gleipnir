@@ -44,7 +44,8 @@ interface Vector {
   }[];
   revocations: unknown[];
   status: unknown;
-  ledger: boolean;
+  ledger: boolean | "error" | "junk";
+  payment_log?: "error" | "junk";
   holds: { company: string; account: J; customer?: string }[];
   policy: { require_payees?: boolean };
   officers: string[];
@@ -61,6 +62,33 @@ interface Vector {
 const DATA = JSON.parse(
   readFileSync(fileURLToPath(new URL("./fixtures/mandate-vectors.json", import.meta.url)), "utf8"),
 ) as { bank: { id: string; seed_hex: string; public_key: string }; other_public_key: string; cases: Vector[]; signed: J[] };
+
+/** A ledger that fails: "error" throws, "junk" answers something that is not a boolean. */
+class BrokenLedger extends InMemoryLedger {
+  constructor(private readonly mode: "error" | "junk") { super(); }
+  override reserve(): boolean {
+    if (this.mode === "error") throw new Error("ledger down");
+    return "ok" as unknown as boolean;
+  }
+}
+
+/** A payment log that fails: "error" throws on every call, "junk" claims with an answer that is not a boolean. */
+class BrokenPaymentLog extends InMemoryPaymentLog {
+  constructor(private readonly mode: "error" | "junk") { super(); }
+  override lookup(key: string, paymentHash: string): J | null {
+    if (this.mode === "error") throw new Error("payment log down");
+    return super.lookup(key, paymentHash);
+  }
+  override register(key: string, paymentHash: string): boolean {
+    super.register(key, paymentHash);
+    return 1 as unknown as boolean;
+  }
+}
+
+function ledgerOf(mode: Vector["ledger"]): InMemoryLedger | null {
+  if (mode === true) return new InMemoryLedger();
+  return mode ? new BrokenLedger(mode) : null;
+}
 
 async function run(c: Vector): Promise<J[]> {
   let now = c.now[0]!;
@@ -84,7 +112,8 @@ async function run(c: Vector): Promise<J[]> {
       return revocationsFromList(f.doc, f.keys, new Date(now));
     },
     officers: c.officers,
-    ledger: c.ledger ? new InMemoryLedger() : null,
+    ledger: ledgerOf(c.ledger),
+    payments: c.payment_log ? new BrokenPaymentLog(c.payment_log) : new InMemoryPaymentLog(),
     revocations: c.revocations,
     status:
       c.status === null

@@ -1,4 +1,4 @@
-# Gleipnir mandate format, version 0.4 (draft)
+# Gleipnir mandate format, version 0.4.1 (draft)
 
 Normative draft. A **mandate** is a power of attorney for an AI agent: a person who may sign for a company states what one agent may pay, from which of the company's accounts, to whom, how much and until when. A bank or payment service provider (PSP) checks the mandate before it executes a transfer the agent started, and records a signed **decision**.
 
@@ -26,6 +26,11 @@ sequenceDiagram
 - **Where trust comes from.** Only from the bank's own records (or a vLEI credential), never from the mandate. Keys in a mandate count only if the bank enrolled them for that person. The debtor account counts only if the bank holds it for that company.
 - **What the bank gets.** One extra, deterministic check before execution, and a receipt it can show anyone later.
 - **Conformance.** A Python reference and a TypeScript port pass the same published test vectors (Appendix B).
+
+Changes from 0.4 to 0.4.1 (clarification; wire format unchanged, all `v` strings and signature prefixes stay `0.4`):
+
+- **Store answers are strict** (section 7, "Idempotency" and "Period ledger"). The payment log's `register` and `take` and the ledger's `reserve` answer exactly true or false. Any other answer (a string, a number, nothing) is a broken dependency: `checker_unavailable` (escalate), never allow. Before, an implementation that answered a truthy non-boolean let the payment through without a reservation or a claimed id.
+- **Attack vectors** (Appendix B). The conformance vectors name each attack of the 23.10.2026 audit (`attack_*`): self-asserted signer keys, back- and forward-dated payments, replays, failing or junk ledgers and payment logs; and decisions forged with a non-bank key.
 
 Changes from 0.3:
 
@@ -357,7 +362,7 @@ Outcomes:
 - **block**: the payment is not covered and must not be executed on the strength of this mandate.
 - **escalate**: the payment may be legitimate but needs a person before execution: a bank officer, or for limit escalations the company's own signatories, who sign an override (section 7.1). A `signer_unknown` escalation names the unknown people (`unknown`).
 
-**Idempotency.** The checker keeps a payment log keyed by payer and payment `id` with the payment hash and the decision it holds. The payer is the bank's own customer id for the debtor account (what `holds` answers in step 7), never the company text in the mandate, so a renewed mandate with a different `company` object shares the same id space. Step 8 only reads the log, and only for a payment whose signatures all verified. A payment claims its key in step 14, after its signers' authority is verified, so an unsigned or forged submission can never use up someone else's payment id. Claiming must be atomic, so two concurrent submissions of one key cannot both pass. The key is JCS of `[customer, id]`, unambiguous. Payment ids are unique per payer at one bank; a mandate whose accounts are at several banks is checked by each bank against its own log.
+**Idempotency.** The checker keeps a payment log keyed by payer and payment `id` with the payment hash and the decision it holds. The payer is the bank's own customer id for the debtor account (what `holds` answers in step 7), never the company text in the mandate, so a renewed mandate with a different `company` object shares the same id space. Step 8 only reads the log, and only for a payment whose signatures all verified. A payment claims its key in step 14, after its signers' authority is verified, so an unsigned or forged submission can never use up someone else's payment id. Claiming must be atomic, so two concurrent submissions of one key cannot both pass. Claiming answers exactly true (claimed) or false (already claimed); a payment log that raises or answers anything else gives `checker_unavailable`. The key is JCS of `[customer, id]`, unambiguous. Payment ids are unique per payer at one bank; a mandate whose accounts are at several banks is checked by each bank against its own log.
 
 What the log keeps:
 
@@ -368,7 +373,7 @@ What the log keeps:
 
 **A cached decision describes the first check.** A resend of the same, authentic payment gets the decision the log holds, unchanged, even after a later revocation or outside the clock-skew window, because step 8 comes before them. That is the point: an allowed payment the bank has already executed must not be executed again, and its record must not change. A bank must therefore treat a returned earlier `allow` as "already decided, execute at most once", never as a fresh authorization.
 
-**Period ledger.** Step 23 uses `reserve(key, period, amount, limit, now) → bool`, which atomically adds the amount to the running total of the current period only if the result stays within the limit (an override that approves going over passes no limit, so the total stays true), and `release(key, period, amount, now)`. Keys are `mandate:<mandate_hash>` and `delegation:<delegation_hash>`, never a mandate `id` alone (ids are chosen by companies and can collide). The checker reserves against the mandate and every link with a period limit; if one reservation fails it releases the ones it made. A checker without a ledger must not allow payments under a mandate or chain with a period limit (`ledger_missing`). If the bank later does not execute an allowed payment it releases the reservations.
+**Period ledger.** Step 23 uses `reserve(key, period, amount, limit, now) → bool`, which atomically adds the amount to the running total of the current period only if the result stays within the limit (an override that approves going over passes no limit, so the total stays true), and `release(key, period, amount, now)`. Keys are `mandate:<mandate_hash>` and `delegation:<delegation_hash>`, never a mandate `id` alone (ids are chosen by companies and can collide). The checker reserves against the mandate and every link with a period limit; if one reservation fails it releases the ones it made. A checker without a ledger must not allow payments under a mandate or chain with a period limit (`ledger_missing`). `reserve` answers exactly true or false; a ledger that raises or answers anything else gives `checker_unavailable` (escalate), and the reservations made so far are released. If the bank later does not execute an allowed payment it releases the reservations.
 
 ### 7.1 Override: resolving an escalation
 
@@ -655,7 +660,7 @@ Lengths: `id` at most 128 characters (payments 35), `reference` 140, `company.na
 
 A conforming checker produces, for the same inputs and clock, the same `outcome`, `reasons`, `checks`, hashes and `checked_at` as the reference. Decision `id` and signature bytes may differ.
 
-- Test vectors: `typescript/packages/verify/test/fixtures/mandate-vectors.json` (generated by `python/gleipnir-verify/tests/mandate_vectors.py` from fixed test keys and clocks). Each case gives the inputs (mandates, payments, authority answers with retired keys, accounts the bank holds, revocations, status answers, ledger, policy, officer keys, passkey settings) and the expected decisions and receipt, plus payment-log keys. A case may resolve an earlier escalation with an override built from Ed25519 seeds, so both implementations sign the same override for their own escalation. Escalation references are pinned by the step they name, since decision ids are random.
+- Test vectors: `typescript/packages/verify/test/fixtures/mandate-vectors.json` (generated by `python/gleipnir-verify/tests/mandate_vectors.py` from fixed test keys and clocks). Each case gives the inputs (mandates, payments, authority answers with retired keys, accounts the bank holds, revocations, status answers, ledger (in memory, none, raising, or answering a non-boolean), payment log (in memory, raising, or answering a non-boolean), policy, officer keys, passkey settings) and the expected decisions and receipt, plus payment-log keys. A case may resolve an earlier escalation with an override built from Ed25519 seeds, so both implementations sign the same override for their own escalation. Escalation references are pinned by the step they name, since decision ids are random.
 - It includes multi-signature, joint signing, delegation, cross-bank vLEI, real ES256 passkey assertions, accounts and rails in eight schemes, signed status, overrides, key rotation, corrected payments, and the inputs found in the 23.10.2026 audits.
 - It also pins, as data both implementations must reproduce exactly: problem messages for malformed objects, decisions checked against key sets, revocation lists (current, stale, untrusted, altered), and ISO 20022: the identical pain.001 XML for each account scheme, and the identical problems for altered and hostile messages.
 - Reference implementations: Python `gleipnir_verify.mandate` and `gleipnir_verify.iso20022`, TypeScript `@getgleipnir/verify/mandate`. Both run every vector and verify each other's decisions.
