@@ -1,6 +1,58 @@
 # Changelog
 
-## Unreleased: mandate spec 0.4.1
+## Unreleased: mandate spec 0.5
+
+Additive: only objects that use something new are `0.5`. A 0.5 checker accepts every 0.4 object and checks it
+exactly as before (every 0.4 conformance vector is unchanged).
+
+### Added
+
+- **Payees that are not on the mandate** (spec 4.1, 7 step 21). A 0.5 mandate may set
+  `scope.unlisted_payees`: `"block"` (default, as in 0.4) or `"escalate"`: a payment to an unlisted payee waits
+  for a person (`new_payee`, escalate, holds the payment id). `scope.max_per_unlisted_payee` blocks larger
+  payments to an unlisted payee outright (`over_unlisted_payee_limit`).
+- **Changed bank details stay blocked**: a payee name that matches a listed payee (by a fixed name key: NFKD,
+  lowercase, letters and digits only, look-alikes folded) with another account is `payee_account_changed`
+  (block), whatever the policy, and is never escalated.
+- **Payee approvals** (spec 7.2): `gleipnir/payee_approval/0.5`, signed by the company's signatories (as many as
+  the mandate needed), bound to one mandate by hash, optional `valid_until`, revocable by hash with the existing
+  revocation (0.5 revocations may target a payee approval). They travel with the payment; an approved account
+  counts as listed, which is also the one way to pay a listed payee at a new account. Decisions name the approval
+  they relied on and whom they counted; receipts check it. New code `payee_approval_invalid` (block).
+- **Overrides of `new_payee`** by the company's signatories or a bank officer (spec 7.1).
+- Python: `approve_payee`, `sign_payee_approval`, `payee_approval_problem`, `payee_approval_hash`,
+  `payee_approval_digest`, `payee_name_key`, `version_of`; `Checker.check/resolve(..., payee_approvals)`,
+  `Checker.revocation_counts(..., payee_approval)`, `verify_receipt(..., payee_approvals=)`. TypeScript: the same
+  as `approvePayee`, `signPayeeApproval`, `payeeApprovalProblem`, `payeeApprovalHash`, `payeeApprovalDigest`,
+  `payeeNameKey`, `versionOf`, `MANDATE_VERSION_05`, `SPEC_VERSION`, `MAX_APPROVALS`.
+- CLI: `gleipnir mandate issue --unlisted-payees block|escalate [--max-per-unlisted-payee AMOUNT]`,
+  `gleipnir mandate approve-payee`, `--payee-approval FILE` on `check` and `resolve`; `revoke` takes an approval.
+  Reference server: `payee_approvals` on `/check` and `/resolve`, `payee_approval` on `/revoke`.
+- MCP (Python and TypeScript): `mandate_scope` shows the unlisted-payee policy, the cap and approved payees;
+  `check_payment` returns `new_payee: true` and specific advice for the new reason codes. Approvals come from the
+  operator (`--payee-approval`), never from the agent.
+- Hosted sandbox checker (merged from `hosted-checker`): `DELETE /v1/admin/tenants/<id>` deletes a tenant and
+  all its data; `POST /v1/release` gives back the reservations and payment id of an allowed payment the bank did
+  not execute, once, bound to the decision; `payee_approvals` on `/v1/check` and `/v1/resolve`,
+  `payee_approval` on `/v1/revoke`.
+- The signing page (site/mandate) shows what happens to payees that are not on the list before a person signs.
+
+### Changed
+
+- Decisions about a 0.5 mandate are `gleipnir/decision/0.5`, signed with the `v0.5` prefix; `verify_decision`
+  reads the prefix from the decision's `v`. Signature prefixes name each object's own version.
+- `mandateMessage(kind, hash, version?)` / `message(kind, h, v=)` take the version (default `0.4`).
+- `payees_required` is satisfied by `unlisted_payees` as well as by a payee list.
+
+### API
+
+- No breaking change for 0.4 users: existing calls, objects, decisions and receipts are unchanged. Receipts of
+  0.5 decisions carry an extra `payee_approved_by` list.
+- Integrators who adopt 0.5 must pass payee approvals next to the mandate (they are not part of the payment), may
+  see the new reason codes, and must keep `new_payee` escalations (they hold the payment id) like
+  `over_payment_limit`.
+
+## mandate spec 0.4.1
 
 Wire format unchanged: every `v` string and signature prefix stays `0.4`, so 0.4 mandates, payments,
 decisions and signatures stay valid.

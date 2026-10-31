@@ -188,4 +188,37 @@ ok &= r["valid"]
 print(f"9. {'UC20 receipt for the CFO payment':<48} valid={r['valid']}  signed_by={r['signed_by']}  "
       f"chain={r['delegation']}")
 
+# 0.5: an accounts payable mandate where new suppliers wait for a person instead of being blocked.
+ap5 = m.sign_mandate(m.issue(
+    id="m_demo_nordhafen_ap5",
+    company={"name": "Nordhafen Logistik GmbH", "country": "AT"},
+    agent={"id": "ap-agent", "name": "Accounts payable agent", "public_key": agent_pk},
+    signer={"id": "kberger@nordhafen.at", "name": "K. Berger", "role": "Authorised signatory", "public_key": berger_pk},
+    scope={"rails": ["sepa"], "currency": "EUR", "max_per_payment": "25000.00", "payees": [BRENNER],
+           "from_accounts": [NORDHAFEN], "unlisted_payees": "escalate", "max_per_unlisted_payee": "5000.00"},
+    valid_until="2026-12-31T23:59:59.000Z",
+), berger_sk)
+KRANBAU = {"name": "Kranbau Wels GmbH", "account": m.iban("AT13 1100 0006 2230 0000")}
+SWAPPED = {"name": "BRENNER-STAHL A.G.", "account": m.iban("LT12 1000 0111 0100 1000")}
+approval = m.sign_payee_approval(m.approve_payee(ap5, payee=KRANBAU, id="pa_kranbau", reason="Contract 2026-118"),
+                                 berger_sk, {"id": "kberger@nordhafen.at", "public_key": berger_pk})
+
+
+def pay5(pid: str, payee: dict, amount: str = "1200.00") -> dict:
+    return m.attach(ap5, id=pid, rail="sepa", amount=amount, currency="EUR", payee=payee, agent_sk=agent_sk)
+
+
+steps = [
+    ("0.5 new supplier, not on the mandate", bank.check(ap5, pay5("p5_1", KRANBAU)), "new_payee"),
+    ("0.5 'we changed our bank details', look-alike", bank.check(ap5, pay5("p5_2", SWAPPED)), "payee_account_changed"),
+    ("0.5 new supplier, 6 000 EUR first payment", bank.check(ap5, pay5("p5_3", KRANBAU, "6000.00")),
+     "over_unlisted_payee_limit"),
+    ("0.5 supplier approved once by K. Berger", bank.check(ap5, pay5("p5_4", KRANBAU), [approval]), "-"),
+]
+for n, (label, d, want) in enumerate(steps, 10):
+    passed = (",".join(d["reasons"]) or "-") == want and m.verify_decision(d, BANK_KEYS)
+    ok &= passed
+    print(f"{n}. {label:<48} {d['outcome']:<9} reason={','.join(d['reasons']) or '-':<22} "
+          f"{'ok' if passed else 'UNEXPECTED'}")
+
 raise SystemExit(0 if ok else 1)

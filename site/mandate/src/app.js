@@ -110,7 +110,12 @@ function render(m) {
     ["Rails", sc.rails ? sc.rails.join(", ") : "any"],
     ["Per payment", `up to ${sc.max_per_payment} ${sc.currency}`],
     ["Per period", sc.max_per_period ? `up to ${sc.max_per_period.amount} ${sc.currency} per ${{ P1D: "day", P7D: "week", P1M: "month" }[sc.max_per_period.period]}` : "no period limit"],
-    ["Payees", sc.payees ? sc.payees.map((p) => `${p.name || "?"}: ${account(p.account)}`).join("\n") : "ANY payee (no list)"],
+    ["Payees", sc.payees ? sc.payees.map((p) => `${p.name || "?"}: ${account(p.account)}`).join("\n")
+      : sc.unlisted_payees ? "none listed" : "ANY payee (no list)"],
+    ...(sc.unlisted_payees ? [["Payees not on the list", sc.unlisted_payees === "escalate"
+      ? `wait for a signatory's approval before they are paid${sc.max_per_unlisted_payee
+        ? `; over ${sc.max_per_unlisted_payee} ${sc.currency} blocked` : ""}`
+      : "blocked, unless a signatory approves the payee"]] : []),
     ["Purpose", sc.purpose || "-"],
     ["Valid", `${m.valid_from ? `from ${when(m.valid_from)}` : "from the moment it is signed"} until ${when(m.valid_until)}`],
   ];

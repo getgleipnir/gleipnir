@@ -15,7 +15,7 @@ flowchart LR
 ## Why
 
 - **Cards have KYA, transfers don't.** Card networks are building agent checks for card payments. For bank transfers there are per-platform limits, but no shared check a bank can run on "was this agent authorized by the company?".
-- **The scam agents fall for first is "we changed our bank details".** A payee list on the mandate blocks it: a changed IBAN is a different payee.
+- **The scam agents fall for first is "we changed our bank details".** A payee list on the mandate blocks it: a changed IBAN is a different payee, and from spec 0.5 a listed payee's name with another account is blocked outright (`payee_account_changed`), even on mandates where new payees may wait for a person instead (`unlisted_payees: escalate`, for AP, payroll and payouts). A signatory approves a new payee, or a new account, once with a signed payee approval.
 - **Someone will ask "prove it" months later.** Mandate + payment + signed decision is a receipt anyone can verify offline, without the bank or us.
 
 ## How it works
@@ -31,7 +31,7 @@ Gleipnir does not move money and does not verify identities: the bank (KYB) or a
 
 | | |
 |---|---|
-| **Spec** | [spec/mandate.md](spec/mandate.md), v0.4 draft: enrollment, multi-signature, delegation, debtor accounts, accounts and rails worldwide, ISO 20022 pain.001, overrides, signed status, revocation and revocation lists, bank key sets, receipts, closed shapes and versioning, threat model, reason codes, conformance |
+| **Spec** | [spec/mandate.md](spec/mandate.md), v0.5 draft (0.4 objects still accepted): enrollment, new payees and payee approvals, multi-signature, delegation, debtor accounts, accounts and rails worldwide, ISO 20022 pain.001, overrides, signed status, revocation and revocation lists, bank key sets, receipts, closed shapes and versioning, threat model, reason codes, conformance |
 | **Reference checker** | Python `gleipnir_verify.mandate` |
 | **TypeScript port** | `@getgleipnir/verify/mandate` (Node and browsers), same results on every test vector |
 | **Test vectors** | [137 shared cases](typescript/packages/verify/test/fixtures/mandate-vectors.json): both implementations run them and verify each other's decisions; plus pinned problems, key sets and byte-identical pain.001 XML |
@@ -112,7 +112,7 @@ A bank plugs in its own authority source (`authority(company, person_id)`), acco
 
 Four tools and one resource: `mandate_scope` (what may I pay), `request_mandate` (an unsigned draft for a person to sign; the agent never signs one itself), `attach_mandate` (a payment signed with the agent key), `check_payment` (asks the bank's checker before paying: allow, block or escalate, with advice); `gleipnir://mandate/current` is the mandate itself.
 
-**Signatories.** [site/mandate](site/mandate/index.html) is a single static page: paste or open a draft, read what the agent may pay (payees, limits, validity, delegation), sign with a passkey, alone or as one of several co-signers. It makes no network requests. The passkey signs `SHA-256("gleipnir/mandate/v0.4\n" || mandate_hash)`, so the signature is valid for this mandate and nothing else.
+**Signatories.** [site/mandate](site/mandate/index.html) is a single static page: paste or open a draft, read what the agent may pay (payees, limits, validity, delegation), sign with a passkey, alone or as one of several co-signers. It makes no network requests. The passkey signs `SHA-256("gleipnir/mandate/v0.4\n" || mandate_hash)` (`v0.5` for a 0.5 mandate), so the signature is valid for this mandate and nothing else.
 
 **Banks.** A reference HTTP checker (JSON only, Origin allow-list, no auth: put it behind your own gateway):
 
@@ -125,7 +125,7 @@ g pain001 m.json p.json --check pain.xml                     # before executing:
 
 ## Status and security
 
-- **Draft 0.4.** The format may still change; feedback from payment, fraud and compliance people is very welcome.
+- **Draft 0.5.** The format may still change; feedback from payment, fraud and compliance people is very welcome. 0.5 is additive: 0.4 mandates are checked exactly as before.
 - **Audited four times** by independent reviewers who wrote every attack as a test: [first audit](docs/audit-2026-10-23.md), [second audit and re-verification](docs/audit-2026-10-23-evening.md) (23.10.2026), [third audit, spec 0.3](docs/audit-2026-10-24.md) (24.10.2026), [fourth audit, spec 0.4](docs/audit-2026-10-24-v04.md) (24.10.2026). Every finding is fixed or documented, with regression tests.
 - **Not solved by design:** a fake invoice from a real payee within the limits, collusion between real signatories, a compromised signer phone within the signed scope. They are bounded and visible in the receipt; see [residual risks](spec/mandate.md#11-threat-model).
 - **Open:** a standard revocation-list format, joint signing inside delegation links, ISO 20022 mapping, real vLEI (ACDC/KERI) credential verification (today vLEI is an authority source).
