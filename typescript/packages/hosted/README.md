@@ -54,14 +54,16 @@ Same contract as `gleipnir mandate serve`, under `/v1`, with a bearer key:
 
 | Method and path | Auth | Body → answer |
 |---|---|---|
-| `POST /v1/check` | check key | `{"mandate", "payment"}` → the signed decision |
-| `POST /v1/resolve` | check key | `{"mandate", "payment", "decision", "override"}` → the decision after a signed override |
-| `POST /v1/revoke` | check key | `{"revocation", "mandate"}` → `{"ok": true, "checker"}` |
+| `POST /v1/check` | check key | `{"mandate", "payment"[, "payee_approvals"]}` → the signed decision |
+| `POST /v1/resolve` | check key | `{"mandate", "payment", "decision", "override"[, "payee_approvals"]}` → the decision after a signed override |
+| `POST /v1/revoke` | check key | `{"revocation", "mandate"[, "payee_approval"]}` → `{"ok": true, "checker"}` |
+| `POST /v1/release` | check key | `{"mandate", "payment", "decision"}` → `{"released": true, ...}`: the bank did not execute this allowed payment |
 | `GET /v1/revocations` | check key | signed list of the stored revocations, current for an hour |
 | `GET /v1/keys` | check key | `{"checker", "keys"}` |
 | `GET /t/<tenant>/keys` | public | `{"checker", "keys"}` |
 | `GET /t/<tenant>/.well-known/gleipnir-checker.json` | public | the key set (spec 10.1) to verify decisions with |
 | `POST /v1/admin/tenants` | `ADMIN_TOKEN` | `{["id"][, "authority"]}` → `201` with `api_key` and `kyb_key` (once) |
+| `DELETE /v1/admin/tenants/<id>` | `ADMIN_TOKEN` | the tenant and **all** its data → `{"deleted": true, "keys": n}`; `404` if nothing is there |
 | `POST /v1/admin/tenants/<id>/api-key` | `ADMIN_TOKEN` | → a new check key; the old one stops working |
 | `POST /v1/admin/tenants/<id>/kyb-key` | `ADMIN_TOKEN` | → a new KYB key; the old one stops working |
 | `PUT /v1/admin/tenants/<id>/authority` | `ADMIN_TOKEN` or that tenant's KYB key | the authority table (replaces it) → `{"ok", "version", "hash"}` |
@@ -79,6 +81,29 @@ fields. Requests with an `Origin` header (browsers) are refused with `403` unles
 `ALLOW_ORIGINS`: keys belong on servers. Errors are `{"error": "..."}`: `400` bad input, `401` auth, `404`,
 `405`, `409` conflict, `415`, `429` rate limit, `503` store or configuration unavailable. Every response carries
 `Gleipnir-Environment: sandbox` and HSTS/CSP headers; decisions carry `checker.id = "sandbox:<tenant>"`.
+
+**Payee approvals** (spec 0.5, section 7.2) travel with a payment as `payee_approvals`, a list of at most 16; they
+count for 0.5 mandates only. Their revocations are stored per approval hash, and `/v1/revoke` needs the approval
+itself (`payee_approval`) to verify that the revocation is aimed at an approval of this mandate by someone who may
+revoke it.
+
+**Release** (`/v1/release`): when the bank does not execute a payment the checker allowed (the payment failed,
+was cancelled, or the bank's own controls stopped it), it hands back the mandate, the payment and the allow decision.
+The decision must be signed by this tenant's checker key, be an `allow` naming exactly this payment and mandate,
+and be the decision the payment log holds for that payment now. The checker then releases the period reservations
+the allow made (the mandate's and every delegation link's with a period limit, in the period it was checked in) and
+frees the payment id, so the same payment is checked afresh if it is sent again. It happens once: a release marker
+keyed by the decision hash is written first, a repeated call answers `{"released": true, "already": true}` and
+releases nothing, and a decision the checker does not hold (never allowed here, or superseded) is `409`. If the
+store fails half way, reservations stay in place: limits get stricter, never looser.
+
+**Deleting a tenant** (`DELETE /v1/admin/tenants/<id>`) removes the tenant record first, so its check and KYB keys
+stop working at once, then every key under `t/<id>/`: its public key, the authority table log, the payment log, the
+period ledger, stored revocations and release markers. If the store fails half way it answers `503`; calling it
+again finishes the job. A tenant id cannot be created again while any of its old data is still in the store. A
+check that was already running when the tenant was deleted can still write its payment log entry afterwards;
+delete once more after a minute to be sure. Decisions the tenant signed can no longer be verified against
+`/t/<id>/keys`: keep the key set with the receipts.
 
 ## Pilot partner quickstart (curl)
 

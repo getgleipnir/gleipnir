@@ -3,14 +3,19 @@
  *
  * The HTTP contract of `gleipnir mandate serve` (python/gleipnir/src/gleipnir/mandate_service.py), multi-tenant:
  *
- *   POST /v1/check        {"mandate", "payment"}                         -> the signed decision (200)
- *   POST /v1/resolve      {"mandate", "payment", "decision", "override"} -> the decision after a signed override
- *   POST /v1/revoke       {"revocation", "mandate"}                      -> {"ok": true, "checker"}
+ *   POST /v1/check        {"mandate", "payment"[, "payee_approvals"]}    -> the signed decision (200)
+ *   POST /v1/resolve      {"mandate", "payment", "decision", "override"[, "payee_approvals"]} -> the decision after
+ *                         a signed override
+ *   POST /v1/revoke       {"revocation", "mandate"[, "payee_approval"]}  -> {"ok": true, "checker"}
+ *   POST /v1/release      {"mandate", "payment", "decision"}             -> {"released": true, ...}: the bank did not
+ *                         execute this allowed payment; its period reservations and payment id are given back, once
  *   GET  /v1/revocations  -> the signed list of stored revocations, current for an hour
  *   GET  /v1/keys         -> {"checker", "keys"}
  *   GET  /t/<tenant>/keys, /t/<tenant>/.well-known/gleipnir-checker.json  (public, no auth)
  *
  *   POST /v1/admin/tenants                 (ADMIN_TOKEN) {["id"][, "authority"]} -> api_key and kyb_key, once
+ *   DELETE /v1/admin/tenants/<id>          (ADMIN_TOKEN) the tenant and ALL its data (keys, authority table and log,
+ *                                          payment log, ledger, revocations, release markers)
  *   POST /v1/admin/tenants/<id>/api-key    (ADMIN_TOKEN) -> a new check key, once; the old one stops working
  *   POST /v1/admin/tenants/<id>/kyb-key    (ADMIN_TOKEN) -> a new KYB key, once; the old one stops working
  *   PUT  /v1/admin/tenants/<id>/authority  (ADMIN_TOKEN or the tenant's KYB key) the authority table
@@ -27,11 +32,19 @@ import {
   fmtTs,
   keyset,
   mandateHash,
+  mandateProblem,
   newSeed,
+  objHash,
+  parseAmount,
   parseStrict,
+  payeeApprovalHash,
+  payeeApprovalProblem,
+  paymentKey,
+  paymentProblem,
   publicKeyOf,
   revocationList,
   revocationProblem,
+  verifyDecision,
 } from "@getgleipnir/verify/mandate";
 import { randomBytes } from "node:crypto";
 import { EMPTY_AUTHORITY, authorityOf, authorityProblem, holdsOf, type AuthorityDoc } from "./authority.js";
@@ -43,13 +56,16 @@ import {
   addRevocation,
   changeTenant,
   createTenant,
+  deleteTenant,
   h,
   listRevocations,
   loadPublic,
   loadRevocationsFor,
   loadTenant,
   logAuthority,
+  markReleased,
   savePublic,
+  wasReleased,
   type Tenant,
 } from "./state.js";
 
@@ -171,9 +187,9 @@ async function readBody(req: Request): Promise<unknown> {
   }
 }
 
-function exactly(body: unknown, keys: string[], what: string): J {
+function exactly(body: unknown, keys: string[], what: string, optional: string[] = []): J {
   if (!isDict(body)) throw new HttpError(400, `expected ${what}`);
-  const got = Object.keys(body).sort(), want = [...keys].sort();
+  const got = Object.keys(body).filter((k) => !optional.includes(k)).sort(), want = [...keys].sort();
   if (got.length !== want.length || got.some((k, i) => k !== want[i])) throw new HttpError(400, `expected ${what}`);
   return body;
 }
@@ -237,25 +253,33 @@ async function route(req: Request, deps: Deps): Promise<Response> {
     if (ctype !== "application/json") throw new HttpError(415, "Content-Type must be application/json");
   }
 
-  const admin = /^\/v1\/admin\/tenants(?:\/([^/]+)\/(authority|api-key|kyb-key))?$/.exec(path);
+  const admin = /^\/v1\/admin\/tenants(?:\/([^/]+)(?:\/(authority|api-key|kyb-key))?)?$/.exec(path);
   if (admin) return adminRoute(req, ctx, method, admin[1], admin[2]);
 
   const t = await authTenant(req, ctx);
   const hdr = { "Gleipnir-Checker": t.checker };
   const id = `${method} ${path}`;
   if (id === "POST /v1/check") {
-    const b = exactly(await readBody(req), ["mandate", "payment"], '{"mandate": ..., "payment": ...}');
-    return json(200, await (await checkerFor(t, ctx, b.mandate)).check(b.mandate, b.payment), hdr);
+    const b = exactly(await readBody(req), ["mandate", "payment"], '{"mandate": ..., "payment": ...[, "payee_approvals": [...]]}',
+      ["payee_approvals"]);
+    return json(200, await (await checkerFor(t, ctx, b.mandate, true, b.payee_approvals)).check(b.mandate, b.payment,
+      b.payee_approvals), hdr);
   }
   if (id === "POST /v1/resolve") {
     const b = exactly(await readBody(req), ["mandate", "payment", "decision", "override"],
-      '{"mandate", "payment", "decision", "override"}');
-    return json(200, await (await checkerFor(t, ctx, b.mandate)).resolve(b.mandate, b.payment, b.decision, b.override), hdr);
+      '{"mandate", "payment", "decision", "override"[, "payee_approvals"]}', ["payee_approvals"]);
+    return json(200, await (await checkerFor(t, ctx, b.mandate, true, b.payee_approvals)).resolve(b.mandate, b.payment,
+      b.decision, b.override, b.payee_approvals), hdr);
   }
   if (id === "POST /v1/revoke") {
-    const b = exactly(await readBody(req), ["revocation", "mandate"], '{"revocation": ..., "mandate": ...}');
-    await revokeFor(t, ctx, b.revocation, b.mandate);
+    const b = exactly(await readBody(req), ["revocation", "mandate"], '{"revocation": ..., "mandate": ...[, "payee_approval": ...]}',
+      ["payee_approval"]);
+    await revokeFor(t, ctx, b.revocation, b.mandate, b.payee_approval);
     return json(200, { ok: true, checker: t.checker }, hdr);
+  }
+  if (id === "POST /v1/release") {
+    const b = exactly(await readBody(req), ["mandate", "payment", "decision"], '{"mandate", "payment", "decision"}');
+    return json(200, await releaseFor(t, ctx, b.mandate, b.payment, b.decision), hdr);
   }
   if (id === "GET /v1/revocations") {
     const nowMs = ctx.now().getTime();
@@ -265,7 +289,7 @@ async function route(req: Request, deps: Deps): Promise<Response> {
       nextUpdate: fmtTs(now + 3600n * 1_000_000n) }), hdr);
   }
   if (id === "GET /v1/keys") return json(200, { checker: t.checker, keys: [t.public_key] }, hdr);
-  if (["/v1/check", "/v1/resolve", "/v1/revoke", "/v1/revocations", "/v1/keys"].includes(path)) {
+  if (["/v1/check", "/v1/resolve", "/v1/revoke", "/v1/release", "/v1/revocations", "/v1/keys"].includes(path)) {
     throw new HttpError(405, "method not allowed");
   }
   throw new HttpError(404, "not found");
@@ -337,15 +361,28 @@ function seedOf(t: Tenant, ctx: Ctx): Uint8Array {
   }
 }
 
-/** The objects whose revocations matter for this mandate: the mandate and each link of its chain. */
-function targetsOf(mandate: unknown): string[] {
+/** At most this many payee approvals per request (the checker refuses more, spec 7.2). */
+const MAX_APPROVALS = 16;
+
+/**
+ * The objects whose revocations matter for this payment: the mandate, each link of its chain, and each payee
+ * approval presented with it.
+ */
+function targetsOf(mandate: unknown, approvals?: unknown): string[] {
+  const out: string[] = [];
   try {
     if (!isDict(mandate)) return [];
     const chain = Array.isArray(mandate.delegation) ? (mandate.delegation as unknown[]).filter(isDict) : [];
-    return [mandateHash(mandate), ...chain.map((d) => delegationHash(d))];
+    out.push(mandateHash(mandate), ...chain.map((d) => delegationHash(d)));
   } catch {
     return []; // not hashable: the checker refuses it as malformed before revocations matter
   }
+  if (Array.isArray(approvals) && approvals.length <= MAX_APPROVALS) {
+    for (const a of approvals) {
+      if (payeeApprovalProblem(a) === null) out.push(payeeApprovalHash(a as J)); // malformed ones are refused anyway
+    }
+  }
+  return out;
 }
 
 /**
@@ -353,13 +390,13 @@ function targetsOf(mandate: unknown): string[] {
  * if that read fails, the checker is built with a `holds` that fails, so every payment gets a signed escalate
  * `checker_unavailable` (fail closed, as when the ledger or payment log is down).
  */
-async function checkerFor(t: Tenant, ctx: Ctx, mandate: unknown, withState = true): Promise<Checker> {
+async function checkerFor(t: Tenant, ctx: Ctx, mandate: unknown, withState = true, approvals?: unknown): Promise<Checker> {
   const seed = seedOf(t, ctx);
   let revocations: J[] = [];
   let down = false;
   if (withState) {
     try {
-      revocations = await loadRevocationsFor(ctx.deps.kv, t.id, targetsOf(mandate), ctx.now().getTime());
+      revocations = await loadRevocationsFor(ctx.deps.kv, t.id, targetsOf(mandate, approvals), ctx.now().getTime());
     } catch {
       down = true;
     }
@@ -381,7 +418,7 @@ async function checkerFor(t: Tenant, ctx: Ctx, mandate: unknown, withState = tru
   });
 }
 
-async function revokeFor(t: Tenant, ctx: Ctx, r: unknown, mandate: unknown): Promise<void> {
+async function revokeFor(t: Tenant, ctx: Ctx, r: unknown, mandate: unknown, approval?: unknown): Promise<void> {
   const problem = revocationProblem(r);
   if (problem) throw new HttpError(400, `revocation rejected: ${problem}`);
   const rd = r as J;
@@ -401,19 +438,91 @@ async function revokeFor(t: Tenant, ctx: Ctx, r: unknown, mandate: unknown): Pro
   }
   let counts: boolean;
   try {
-    counts = await (await checkerFor(t, ctx, mandate, false)).revocationCounts(mandate, r);
+    counts = await (await checkerFor(t, ctx, mandate, false)).revocationCounts(mandate, r, approval);
   } catch {
     counts = false;
   }
   if (!counts) {
     throw new HttpError(400, "revocation rejected: not a valid revocation of this mandate by someone who may revoke it");
   }
-  // revocationCounts matched the target: the mandate itself, or one link of its chain.
-  const target = typeof rd.mandate_hash === "string" ? rd.mandate_hash : rd.delegation_hash as string;
-  const obj = typeof rd.mandate_hash === "string" ? md
-    : (chain as J[]).find((d) => { try { return delegationHash(d) === target; } catch { return false; } });
-  const until = obj && typeof obj.valid_until === "string" ? obj.valid_until : null;
+  // revocationCounts matched the target: the mandate itself, one link of its chain, or the given payee approval.
+  let target: string, until: string | null;
+  if (typeof rd.payee_approval_hash === "string") {
+    target = rd.payee_approval_hash;
+    const a = approval as J; // revocationCounts verified it names this mandate and has this hash
+    // Moot once the approval or its mandate has expired, whichever comes first.
+    const mu = typeof md.valid_until === "string" ? md.valid_until : null;
+    until = typeof a.valid_until === "string" && (mu === null || Date.parse(a.valid_until) < Date.parse(mu)) ? a.valid_until : mu;
+  } else {
+    target = typeof rd.mandate_hash === "string" ? rd.mandate_hash : rd.delegation_hash as string;
+    const obj = typeof rd.mandate_hash === "string" ? md
+      : (chain as J[]).find((d) => { try { return delegationHash(d) === target; } catch { return false; } });
+    until = obj && typeof obj.valid_until === "string" ? obj.valid_until : null;
+  }
   await storeCall(() => addRevocation(ctx.deps.kv, t.id, target, rd, until, ctx.now().getTime(), canonicalText));
+}
+
+/**
+ * The bank did not execute an allowed payment: give back what the allow took, once. Bound to the decision by its
+ * hash, which must be one this tenant's checker signed, an allow naming exactly this payment and mandate, and the
+ * one the payment log holds for this payment now. The period reservations it made (the mandate's, and those of
+ * every delegation link with a period limit) are released at the period it was checked in, and the payment id is
+ * freed, so the payment can be checked afresh. A repeated call answers the same without releasing twice; a decision
+ * this checker does not hold (never allowed here, superseded, or released) is 409.
+ *
+ * The release marker is written first: if the store fails half way, the reservations stay (limits stricter, never
+ * looser) and a repeated call does not release twice.
+ */
+async function releaseFor(t: Tenant, ctx: Ctx, mandate: unknown, payment: unknown, decision: unknown): Promise<J> {
+  if (mandateProblem(mandate) || paymentProblem(payment)) throw new HttpError(400, "release rejected: malformed mandate or payment");
+  const m = mandate as J, p = payment as J;
+  if (!verifyDecision(decision, [t.public_key])) throw new HttpError(400, "release rejected: not a decision of this checker");
+  const d = decision as J;
+  const pHash = objHash(p, "agent_sig"), mh = mandateHash(m);
+  const ref = (v: unknown) => (isDict(v) ? v : {});
+  if (d.outcome !== "allow" || ref(d.payment).id !== p.id || ref(d.payment).hash !== pHash || ref(d.mandate).hash !== mh
+    || ref(p.mandate).hash !== mh) {
+    throw new HttpError(400, "release rejected: the decision is not an allow of this payment under this mandate");
+  }
+  const dh = objHash(d);
+  const done = { released: true, checker: t.checker, decision: { id: d.id, hash: dh } };
+  let customer: string | null;
+  try {
+    const c = await holdsOf(t.authority)(m.company as J, p.from_account as J);
+    customer = typeof c === "string" && c ? c : null;
+  } catch {
+    customer = null;
+  }
+  if (customer === null) throw new HttpError(400, "release rejected: this tenant does not hold the debtor account");
+  const key = paymentKey(customer, p.id as string);
+  const log = new KVPaymentLog(ctx.deps.kv, t.id);
+  const held = await storeCall(() => log.lookup(key, pHash));
+  if (!isDict(held) || held.id !== d.id || objHash(held) !== dh) {
+    if (await storeCall(() => wasReleased(ctx.deps.kv, t.id, dh)) !== null) return { ...done, already: true };
+    throw new HttpError(409, "release rejected: this checker does not hold this allow for this payment");
+  }
+  const first = await storeCall(() => markReleased(ctx.deps.kv, t.id, dh, { decision: { id: d.id, hash: dh },
+    payment: { id: p.id, hash: pHash }, at: ctx.now().toISOString() }));
+  if (!first) return { ...done, already: true };
+  // What step 23 reserved: only when the allow went through it (within_period_limit, or approved over the limit).
+  const checks = Array.isArray(d.checks) ? d.checks : [];
+  const reserved = checks.includes("within_period_limit") || checks.includes("over_period_limit_approved");
+  const released: string[] = [];
+  if (reserved) {
+    const ledger = new KVLedger(ctx.deps.kv, t.id);
+    const amount = parseAmount(p.amount, p.currency);
+    const at = BigInt(Date.parse(String(d.checked_at))) * 1000n;
+    const chain = Array.isArray(m.delegation) ? (m.delegation as J[]) : [];
+    const wanted: [string, J][] = [];
+    if (isDict((m.scope as J).max_per_period)) wanted.push([`mandate:${mh}`, m.scope as J]);
+    for (const link of chain) if (isDict((link.scope as J).max_per_period)) wanted.push([`delegation:${delegationHash(link)}`, link.scope as J]);
+    for (const [k, sc] of wanted) {
+      await storeCall(() => ledger.release(k, (sc.max_per_period as J).period as string, amount, at));
+      released.push(k);
+    }
+  }
+  await storeCall(() => log.forget(key));
+  return { ...done, reservations: released, payment_id_freed: true };
 }
 
 /** Key-sorted JSON, to tell two stored revocations apart. */
@@ -460,6 +569,16 @@ async function adminRoute(req: Request, ctx: Ctx, method: string, tid: string | 
   }
 
   if (!tenantIdOk(tid)) throw new HttpError(404, "not found");
+
+  if (what === undefined) { // DELETE /v1/admin/tenants/<id>: the tenant and all its data, admin only
+    if (method !== "DELETE") throw new HttpError(405, "method not allowed");
+    if (!admin) failedAuth(ctx);
+    const n = await storeCall(() => deleteTenant(kv, tid));
+    if (n === 0) throw new HttpError(404, "not found");
+    return json(200, { deleted: true, id: tid, keys: n,
+      note: "The tenant, its keys, authority table and log, payment log, ledger, revocations and release markers "
+        + "are deleted. Decisions it signed can no longer be verified against /t/<id>/keys." });
+  }
 
   if (what === "api-key" || what === "kyb-key") { // admin only
     if (method !== "POST") throw new HttpError(405, "method not allowed");

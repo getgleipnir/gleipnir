@@ -227,8 +227,9 @@ export async function savePublic(kv: KV, id: string, p: PublicInfo): Promise<voi
   await kv.put(`t/${id}/public`, JSON.stringify({ ...p, ops: [newOp()] }), null);
 }
 
-/** false if the tenant exists. */
+/** false if the tenant exists, or data of a deleted tenant with this id is still in the store. */
 export async function createTenant(kv: KV, t: Tenant): Promise<boolean> {
+  if ((await kv.list(`t/${t.id}/`, 1)).length) return false;
   if (!(await createOnce(kv, tenantKey(t.id), t as unknown as J))) return false;
   await savePublic(kv, t.id, { checker: t.checker, public_key: t.public_key });
   return true;
@@ -247,4 +248,52 @@ export async function changeTenant(kv: KV, id: string, f: (t: Tenant) => Tenant 
 export async function logAuthority(kv: KV, id: string, version: number, entry: J): Promise<void> {
   const key = `t/${id}/authority-log/${String(version).padStart(8, "0")}-${newOp()}`;
   if (!(await createOnce(kv, key, entry))) throw new Error("authority log entry exists");
+}
+
+// ---------- deleting a tenant ----------
+
+/** Keys deleted per listing round, and the most rounds before giving up (the caller retries). */
+const DELETE_PAGE = 1000;
+const DELETE_ROUNDS = 1000;
+
+/**
+ * Delete a tenant and everything stored under it: the tenant record (with its sealed checker key and key hashes)
+ * first, so its check and KYB keys stop working at once, then every other key under `t/<id>/`: the public key
+ * blob, the authority log, the payment log, the period ledger, revocations and release markers. Returns how many
+ * keys it deleted (0: nothing was there). Throws if the store fails; deleting again finishes the job.
+ */
+export async function deleteTenant(kv: KV, id: string): Promise<number> {
+  let n = 0;
+  if ((await kv.get(tenantKey(id))) !== null) {
+    await kv.del(tenantKey(id));
+    n += 1;
+  }
+  for (let round = 0; round < DELETE_ROUNDS; round++) {
+    const keys = await kv.list(`t/${id}/`, DELETE_PAGE);
+    if (!keys.length) return n;
+    for (const k of keys) {
+      await kv.del(k);
+      n += 1;
+    }
+  }
+  throw new Error(`tenant ${id}: data not fully deleted, delete again`);
+}
+
+// ---------- releasing an allowed payment that was not executed ----------
+
+/**
+ * Mark one allow decision as released, once: true for exactly one caller (also when the store's answer was lost),
+ * false if it was released before. The marker is keyed by the decision's hash.
+ */
+export async function markReleased(kv: KV, tenant: string, decisionHash: string, value: J): Promise<boolean> {
+  return createOnce(kv, releasedKey(tenant, decisionHash), value);
+}
+
+export async function wasReleased(kv: KV, tenant: string, decisionHash: string): Promise<J | null> {
+  const e = await kv.get(releasedKey(tenant, decisionHash));
+  return e === null ? null : (JSON.parse(e.data) as J);
+}
+
+function releasedKey(tenant: string, decisionHash: string): string {
+  return `t/${tenant}/released/${h(decisionHash)}`;
 }

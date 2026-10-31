@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   Checker,
+  approvePayee,
   attach,
   iban,
   issue,
@@ -14,6 +15,7 @@ import {
   seedFromHex,
   signMandate,
   signOverride,
+  signPayeeApproval,
   verifyDecision,
 } from "@getgleipnir/verify/mandate";
 import { MAX_BODY, RateLimiter, handle, type Env } from "../src/app.js";
@@ -69,7 +71,7 @@ async function setup(tenant = "acme-psp") {
   }), signerSeed);
   const pay = (id: string, amount: string, payee: J = BRENNER) =>
     attach(mandate, { id, rail: "sepa", amount, currency: "EUR", payee, agentSeed });
-  return { apiKey, kybKey, mandate, pay, signer, signerSeed, checkerId: created.checker as string, publicKey: created.public_key as string };
+  return { apiKey, kybKey, mandate, pay, signer, signerSeed, agentSeed, checkerId: created.checker as string, publicKey: created.public_key as string };
 }
 
 beforeEach(() => {
@@ -344,6 +346,160 @@ describe("hosted sandbox checker", () => {
     kv.failOn = null;
     const [, d] = await call("POST", "/v1/check", { mandate: s.mandate, payment: s.pay("F-ok", "10.00") }, s.apiKey);
     expect(d.outcome).toBe("allow");
+  });
+});
+
+// ---------- tenant deletion (admin) ----------
+
+describe("deleting a tenant", () => {
+  it("deletes the tenant and all its data, and nothing of other tenants", async () => {
+    const a = await setup("acme");
+    const b = await setup("acme-psp");
+    for (const s of [a, b]) {
+      expect((await call("POST", "/v1/check", { mandate: s.mandate, payment: s.pay("p_1", "100.00") }, s.apiKey))[1].outcome).toBe("allow");
+      const r = revoke(s.mandate, { signer: s.signer, seed: s.signerSeed, id: "r_1", revokedAt: new Date(Date.now() + 3_600_000).toISOString() });
+      expect((await call("POST", "/v1/revoke", { revocation: r, mandate: s.mandate }, s.apiKey))[0]).toBe(200);
+    }
+    const before = [...kv.items.keys()];
+    const kinds = (id: string) => new Set(before.filter((k) => k.startsWith(`t/${id}/`)).map((k) => k.split("/")[2]));
+    expect(kinds("acme")).toEqual(new Set(["tenant", "public", "authority-log", "payments", "ledger", "rev"]));
+
+    // Only the admin: not the tenant's own keys, not without a token.
+    expect((await call("DELETE", "/v1/admin/tenants/acme", undefined, a.apiKey))[0]).toBe(401);
+    expect((await call("DELETE", "/v1/admin/tenants/acme", undefined, a.kybKey))[0]).toBe(401);
+    expect((await call("DELETE", "/v1/admin/tenants/acme"))[0]).toBe(401);
+    expect((await call("GET", "/v1/admin/tenants/acme", undefined, ENV.ADMIN_TOKEN))[0]).toBe(405);
+
+    const [st, out] = await call("DELETE", "/v1/admin/tenants/acme", undefined, ENV.ADMIN_TOKEN);
+    expect([st, out.deleted, out.id]).toEqual([200, true, "acme"]);
+    expect(out.keys).toBe(before.filter((k) => k.startsWith("t/acme/")).length);
+    expect([...kv.items.keys()].filter((k) => k.startsWith("t/acme/"))).toEqual([]);
+    expect([...kv.items.keys()].filter((k) => k.startsWith("t/acme-psp/"))).toEqual(before.filter((k) => k.startsWith("t/acme-psp/")));
+
+    // Its keys stop working; its public key set is gone; the other tenant is untouched.
+    expect((await call("POST", "/v1/check", { mandate: a.mandate, payment: a.pay("p_2", "1.00") }, a.apiKey))[0]).toBe(401);
+    expect((await call("GET", "/t/acme/keys"))[0]).toBe(404);
+    expect((await call("POST", "/v1/check", { mandate: b.mandate, payment: b.pay("p_9", "100.00") }, b.apiKey))[1].outcome).toBe("allow");
+
+    // Deleting again: nothing there. The id can be used again, with nothing of the old tenant in it.
+    expect((await call("DELETE", "/v1/admin/tenants/acme", undefined, ENV.ADMIN_TOKEN))[0]).toBe(404);
+    const again = await setup("acme");
+    const [, d] = await call("POST", "/v1/check", { mandate: a.mandate, payment: a.pay("p_1", "100.00") }, again.apiKey);
+    // A fresh authority table: the old tenant's enrolled key for this signer is gone too.
+    expect(d.reasons).toEqual(["signer_not_authorized"]);
+  });
+
+  it("finishes a deletion that was interrupted, and refuses to reuse an id whose data is still there", async () => {
+    const a = await setup("acme");
+    await call("POST", "/v1/check", { mandate: a.mandate, payment: a.pay("p_1", "100.00") }, a.apiKey);
+    let dels = 0;
+    kv.failOn = (op) => op === "del" && ++dels > 2;
+    expect((await call("DELETE", "/v1/admin/tenants/acme", undefined, ENV.ADMIN_TOKEN))[0]).toBe(503);
+    kv.failOn = null;
+    expect(kv.items.has("t/acme/tenant")).toBe(false); // the record goes first: the keys stopped working at once
+    expect((await call("POST", "/v1/check", { mandate: a.mandate, payment: a.pay("p_2", "1.00") }, a.apiKey))[0]).toBe(401);
+    expect((await call("POST", "/v1/admin/tenants", { id: "acme" }, ENV.ADMIN_TOKEN))[0]).toBe(409);
+    const [st, out] = await call("DELETE", "/v1/admin/tenants/acme", undefined, ENV.ADMIN_TOKEN);
+    expect([st, out.deleted]).toEqual([200, true]);
+    expect([...kv.items.keys()].filter((k) => k.startsWith("t/acme/"))).toEqual([]);
+    expect((await call("POST", "/v1/admin/tenants", { id: "acme" }, ENV.ADMIN_TOKEN))[0]).toBe(201);
+  });
+
+  it("deletes more keys than one listing page", async () => {
+    await setup("acme");
+    for (let i = 0; i < 2500; i++) kv.items.set(`t/acme/payments/${String(i).padStart(5, "0")}`, { data: "{}", etag: `"x${i}"` });
+    const [st, out] = await call("DELETE", "/v1/admin/tenants/acme", undefined, ENV.ADMIN_TOKEN);
+    expect([st, (out.keys as number) > 2500]).toEqual([200, true]);
+    expect([...kv.items.keys()].filter((k) => k.startsWith("t/acme/"))).toEqual([]);
+  });
+});
+
+// ---------- releasing an allowed payment that was not executed ----------
+
+describe("releasing a reservation", () => {
+  it("gives back the period reservation and the payment id once, bound to the allow decision", async () => {
+    const s = await setup();
+    const p1 = s.pay("p_1", "20000.00"), p2 = s.pay("p_2", "20000.00");
+    const [, d1] = await call("POST", "/v1/check", { mandate: s.mandate, payment: p1 }, s.apiKey);
+    const [, d2] = await call("POST", "/v1/check", { mandate: s.mandate, payment: p2 }, s.apiKey);
+    expect([d1.outcome, d2.outcome]).toEqual(["allow", "allow"]);
+    expect((await call("POST", "/v1/check", { mandate: s.mandate, payment: s.pay("p_3", "1.00") }, s.apiKey))[1].reasons)
+      .toEqual(["over_period_limit"]);
+
+    const [st, r] = await call("POST", "/v1/release", { mandate: s.mandate, payment: p2, decision: d2 }, s.apiKey);
+    expect([st, r.released, r.payment_id_freed, (r.reservations as string[]).length]).toEqual([200, true, true, 1]);
+    // Idempotent: the same release again changes nothing.
+    const [st2, r2] = await call("POST", "/v1/release", { mandate: s.mandate, payment: p2, decision: d2 }, s.apiKey);
+    expect([st2, r2.released, r2.already]).toEqual([200, true, true]);
+    // 20 000 is free again, exactly once.
+    expect((await call("POST", "/v1/check", { mandate: s.mandate, payment: s.pay("p_3", "1.00") }, s.apiKey))[1].outcome).toBe("allow");
+    expect((await call("POST", "/v1/check", { mandate: s.mandate, payment: s.pay("p_4", "19999.00") }, s.apiKey))[1].outcome).toBe("allow");
+    expect((await call("POST", "/v1/check", { mandate: s.mandate, payment: s.pay("p_5", "0.01") }, s.apiKey))[1].reasons)
+      .toEqual(["over_period_limit"]);
+    // p_2's id is free: the same payment is checked afresh (a new decision), not answered from the log.
+    const [, again] = await call("POST", "/v1/check", { mandate: s.mandate, payment: p2 }, s.apiKey);
+    expect(again.id).not.toBe(d2.id);
+    expect(again.reasons).toEqual(["over_period_limit"]);
+  });
+
+  it("refuses what it must not release", async () => {
+    const s = await setup();
+    const p1 = s.pay("p_1", "100.00");
+    const [, d1] = await call("POST", "/v1/check", { mandate: s.mandate, payment: p1 }, s.apiKey);
+    const big = s.pay("p_big", "30000.00");
+    const [, esc] = await call("POST", "/v1/check", { mandate: s.mandate, payment: big }, s.apiKey);
+    const rel = (body: J, key = s.apiKey) => call("POST", "/v1/release", body, key);
+    expect((await rel({ mandate: s.mandate, payment: big, decision: esc }))[0]).toBe(400); // not an allow
+    expect((await rel({ mandate: s.mandate, payment: s.pay("p_1", "100.01"), decision: d1 }))[0]).toBe(400); // other payment
+    expect((await rel({ mandate: s.mandate, payment: p1, decision: { ...d1, checks: [] } }))[0]).toBe(400); // edited
+    expect((await rel({ mandate: s.mandate, payment: p1 }))[0]).toBe(400);
+    expect((await rel({ mandate: s.mandate, payment: p1, decision: d1 }, "gks_nope"))[0]).toBe(401);
+    // Another tenant cannot release this tenant's decision: it is not signed by its checker.
+    const o = await setup("other-psp");
+    expect((await rel({ mandate: s.mandate, payment: p1, decision: d1 }, o.apiKey))[0]).toBe(400);
+    // A decision this checker does not hold (here: released, then the payment allowed again) is not released twice.
+    expect((await rel({ mandate: s.mandate, payment: p1, decision: d1 }))[1].released).toBe(true);
+    const [, d1b] = await call("POST", "/v1/check", { mandate: s.mandate, payment: p1 }, s.apiKey);
+    expect((await rel({ mandate: s.mandate, payment: p1, decision: d1 }))[1].already).toBe(true);
+    expect((await rel({ mandate: s.mandate, payment: p1, decision: d1b }))[1].already).toBeUndefined();
+    // A real allow of this checker that the log does not hold for the payment: 409.
+    const p9 = s.pay("p_9", "1.00");
+    const [, d9] = await call("POST", "/v1/check", { mandate: s.mandate, payment: p9 }, s.apiKey);
+    for (const k of [...kv.items.keys()]) if (k.includes("/payments/")) kv.items.delete(k);
+    expect((await rel({ mandate: s.mandate, payment: p9, decision: d9 }))[0]).toBe(409);
+    expect((await call("GET", "/v1/release", undefined, s.apiKey))[0]).toBe(405);
+  });
+});
+
+// ---------- 0.5: payee approvals on /check ----------
+
+describe("payee approvals on the hosted checker", () => {
+  it("escalates a new payee, accepts a signatory's approval, and honours its revocation", async () => {
+    const s = await setup();
+    const m5 = signMandate(issue({
+      id: "m_ap5", company: COMPANY, agent: s.mandate.agent as J, signer: { ...s.signer, name: "K. Berger" },
+      scope: { rails: ["sepa"], currency: "EUR", max_per_payment: "25000.00", payees: [BRENNER], from_accounts: [FROM],
+        unlisted_payees: "escalate", max_per_unlisted_payee: "5000.00" },
+      validUntil: "2099-12-31T23:59:59.000Z",
+    }), s.signerSeed);
+    const kranbau = { name: "Kranbau Wels GmbH", account: iban("AT131100000622300000") };
+    const a = signPayeeApproval(approvePayee(m5, { payee: kranbau, id: "pa_1" }), s.signerSeed, s.signer);
+    const pay5 = (id: string, payee: J) => attach(m5, { id, rail: "sepa", amount: "100.00", currency: "EUR", payee,
+      agentSeed: s.agentSeed });
+    const check = (p: J, approvals?: unknown[]) => call("POST", "/v1/check",
+      approvals ? { mandate: m5, payment: p, payee_approvals: approvals } : { mandate: m5, payment: p }, s.apiKey);
+    expect((await check(pay5("p_1", kranbau)))[1].reasons).toEqual(["new_payee"]);
+    expect((await check(pay5("p_2", MALLORY)))[1].reasons).toEqual(["payee_account_changed"]);
+    const [, ok] = await check(pay5("p_3", kranbau), [a]);
+    expect([ok.v, ok.outcome, (ok.payee_approval as J).id]).toEqual(["gleipnir/decision/0.5", "allow", "pa_1"]);
+    expect((await call("POST", "/v1/check", { mandate: m5, payment: pay5("p_4", kranbau), payee_approvals: [a], x: 1 },
+      s.apiKey))[0]).toBe(400);
+
+    const r = revoke(a, { signer: s.signer, seed: s.signerSeed, id: "r_pa", revokedAt: new Date(Date.now() - 1000).toISOString() });
+    expect((await call("POST", "/v1/revoke", { revocation: r, mandate: m5 }, s.apiKey))[0]).toBe(400); // needs the approval
+    expect((await call("POST", "/v1/revoke", { revocation: r, mandate: m5, payee_approval: a }, s.apiKey))[0]).toBe(200);
+    const [, after] = await check(pay5("p_5", kranbau), [a]);
+    expect([after.reasons, (after.checks as string[]).includes("payee_approval_revoked")]).toEqual([["new_payee"], true]);
   });
 });
 
