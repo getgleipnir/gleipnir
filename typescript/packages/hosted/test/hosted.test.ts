@@ -353,12 +353,35 @@ interface Vector {
   name: string; mandate: unknown; payments: unknown[]; now: string[];
   authority: { company: string; signer: string; source: string; keys: string[]; may_sign: boolean; joint?: number;
     retired?: Record<string, string>; person?: string }[];
-  revocations: unknown[]; status: unknown; ledger: boolean;
+  revocations: unknown[]; status: unknown;
   holds: { company: string; account: J; customer?: string }[];
   policy: { require_payees?: boolean }; officers: string[]; feed?: unknown;
   ops?: ("check" | { resolve: { of: number; id: string; outcome: "allow" | "block"; decided_at: string; reason?: string;
     decision_hash?: string; signers: { seed: string; id: string }[] } })[];
   expect: J[]; webauthn: { rp_id?: string; origins?: string[] }; mandates?: unknown[]; which?: number[];
+  ledger: boolean | "error" | "junk"; payment_log?: "error" | "junk";
+}
+
+/** The KV ledger, failing as a vector asks (spec 0.4.1: "error" throws, "junk" answers a non-boolean). */
+class BrokenKVLedger extends KVLedger {
+  constructor(kv: MemoryKV, private readonly mode: "error" | "junk") { super(kv, "vectors"); }
+  override async reserve(): Promise<boolean> {
+    if (this.mode === "error") throw new Error("ledger down");
+    return "ok" as unknown as boolean;
+  }
+}
+
+/** The KV payment log, failing as a vector asks: "error" throws on lookup, "junk" claims with a non-boolean. */
+class BrokenKVPaymentLog extends KVPaymentLog {
+  constructor(kv: MemoryKV, private readonly mode: "error" | "junk") { super(kv, "vectors"); }
+  override async lookup(key: string, paymentHash: string): Promise<J | null> {
+    if (this.mode === "error") throw new Error("payment log down");
+    return super.lookup(key, paymentHash);
+  }
+  override async register(key: string, paymentHash: string): Promise<boolean> {
+    await super.register(key, paymentHash);
+    return 1 as unknown as boolean;
+  }
 }
 
 const VECTORS = JSON.parse(readFileSync(fileURLToPath(
@@ -406,8 +429,8 @@ describe("conformance vectors on the KV-backed payment log and ledger", () => {
         return revocationsFromList(f.doc, f.keys, new Date(now));
       },
       officers: c.officers,
-      ledger: c.ledger ? new KVLedger(store, "vectors") : null,
-      payments: new KVPaymentLog(store, "vectors"),
+      ledger: c.ledger === true ? new KVLedger(store, "vectors") : c.ledger ? new BrokenKVLedger(store, c.ledger) : null,
+      payments: c.payment_log ? new BrokenKVPaymentLog(store, c.payment_log) : new KVPaymentLog(store, "vectors"),
       revocations: c.revocations,
       status: c.status === null ? null : async () => {
         if (c.status === "error") throw new Error("unreachable");
