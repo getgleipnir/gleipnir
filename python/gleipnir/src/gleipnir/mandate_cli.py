@@ -8,7 +8,8 @@
         --agent-id ap-agent --agent-key agent.pem --rail sepa --currency EUR \\
         --max-per-payment 25000.00 --max-per-period 100000.00/P1M \\
         --from-account AT483200000012345864 \\
-        --payee "Brenner Stahl AG=AT611904300234573201" -o mandate.json
+        --payee "Brenner Stahl AG=AT611904300234573201" \\
+        --unlisted-payees escalate --max-per-unlisted-payee 5000.00 -o mandate.json   # 0.5: new payees escalate
     gleipnir mandate sign mandate.json --key berger.pem
     gleipnir mandate pay mandate.json --id p_1 --amount 18400.00 \\
         --payee "Brenner Stahl AG=AT611904300234573201" --agent-key agent.pem -o payment.json
@@ -18,6 +19,11 @@
     gleipnir mandate resolve mandate.json payment.json decision.json override.json --authority kyb.json \\
         --bank-key bank.pem
     gleipnir mandate revoke mandate.json --key berger.pem --id r_1 -o revocation.json
+    gleipnir mandate approve-payee mandate.json --payee "Kranbau Wels GmbH=AT131100000622300000" \\
+        --key berger.pem --signer-id kberger@nordhafen.at -o approval.json       # 0.5 mandates
+    gleipnir mandate check mandate.json payment.json --payee-approval approval.json --authority kyb.json \\
+        --bank-key bank.pem
+    gleipnir mandate revoke approval.json --key berger.pem --signer-id kberger@nordhafen.at --id r_2
     gleipnir mandate verify decision.json --bank-pub ed25519:...
 
 Accounts are an IBAN (spaces allowed), or SCHEME:FIELD/FIELD/... in the scheme's field order:
@@ -392,6 +398,12 @@ def parse_person(text: str) -> dict[str, Any]:
 
 def cmd_issue(args: argparse.Namespace) -> int:
     scope = build_scope(args)
+    if args.unlisted_payees:
+        scope["unlisted_payees"] = args.unlisted_payees
+    if args.max_per_unlisted_payee:
+        if args.unlisted_payees != "escalate":
+            raise CliError("--max-per-unlisted-payee needs --unlisted-payees escalate")
+        scope["max_per_unlisted_payee"] = args.max_per_unlisted_payee
     signer = {"id": args.signer_id, "name": args.signer_name or args.signer_id,
               "public_key": public_key(args.signer_key)}
     if args.signer_role:
@@ -479,6 +491,36 @@ def cmd_revoke(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_approve_payee(args: argparse.Namespace) -> int:
+    """A signatory approves one payee account for a 0.5 mandate (spec 7.2); with --add, co-signs an approval."""
+    sk = load_key(args.key)
+    me = {"id": args.signer_id, "public_key": m.public_key_of(sk)}
+    if args.add:
+        a = read_json(args.add)
+        problem = m.payee_approval_problem(a)
+        if problem:
+            raise CliError(f"payee approval rejected: {problem}")
+    else:
+        if not args.mandate or not args.payee:
+            raise CliError("give the mandate and --payee NAME=ACCOUNT (or --add APPROVAL to co-sign one)")
+        mandate = read_json(args.mandate)
+        if m.mandate_problem(mandate):
+            raise CliError(f"mandate rejected: {m.mandate_problem(mandate)}")
+        try:
+            a = m.approve_payee(mandate, payee=parse_payee(args.payee), id=args.id or "pa_" + secrets.token_hex(8),
+                                valid_until=args.valid_until, reason=args.reason or "")
+        except ValueError as exc:
+            raise CliError(f"payee approval rejected: {exc}") from exc
+    write_json(m.sign_payee_approval(a, sk, me), args.output)
+    return 0
+
+
+def approvals_of(args: argparse.Namespace) -> list[Any] | None:
+    """--payee-approval FILE (repeatable): approvals that travel with the payment (0.5 mandates)."""
+    files = getattr(args, "payee_approval", None)
+    return [read_json(f) for f in files] if files else None
+
+
 def cmd_pay(args: argparse.Namespace) -> int:
     mandate = read_json(args.mandate)
     agent_sk = load_key(args.agent_key) if args.agent_key else None
@@ -560,7 +602,7 @@ def state_of(args: argparse.Namespace) -> Path:
 def cmd_check(args: argparse.Namespace) -> int:
     mandate, payment = read_json(args.mandate), read_json(args.payment)
     with FileState(state_of(args)) as state:
-        decision = checker_of(args, state).check(mandate, payment)
+        decision = checker_of(args, state).check(mandate, payment, approvals_of(args))
     return _decided(decision, args.output)
 
 
@@ -569,7 +611,7 @@ def cmd_resolve(args: argparse.Namespace) -> int:
     mandate, payment = read_json(args.mandate), read_json(args.payment)
     decision, override = read_json(args.decision), read_json(args.override)
     with FileState(state_of(args)) as state:
-        final = checker_of(args, state).resolve(mandate, payment, decision, override)
+        final = checker_of(args, state).resolve(mandate, payment, decision, override, approvals_of(args))
     return _decided(final, args.output)
 
 
@@ -692,6 +734,12 @@ def add_checker_arguments(c: argparse.ArgumentParser) -> None:
                    help="the list issuer's public key or PEM (repeatable), or key set (.json)")
 
 
+
+def add_approval_argument(c: argparse.ArgumentParser) -> None:
+    c.add_argument("--payee-approval", action="append", metavar="FILE",
+                   help="0.5: a signed payee approval presented with the payment (repeatable)")
+
+
 def add_subcommands(p: argparse.ArgumentParser) -> None:
     sub = p.add_subparsers(dest="mandate_cmd", required=True)
 
@@ -716,6 +764,11 @@ def add_subcommands(p: argparse.ArgumentParser) -> None:
     i.add_argument("--max-per-payment", required=True, help="e.g. 25000.00")
     i.add_argument("--max-per-period", help="AMOUNT/PERIOD, period one of P1D, P7D, P1M")
     i.add_argument("--payee", action="append", help="NAME=ACCOUNT (repeatable); recommended")
+    i.add_argument("--unlisted-payees", choices=["block", "escalate"],
+                   help="0.5: what happens to a payee not on the list (default block); escalate asks a person")
+    i.add_argument("--max-per-unlisted-payee", metavar="AMOUNT",
+                   help="0.5, with --unlisted-payees escalate: block (not escalate) a payment to an unlisted payee "
+                        "above this")
     i.add_argument("--from-account", action="append", required=True, metavar="ACCOUNT",
                    help="the company's account the agent may pay from (repeatable)")
     i.add_argument("--purpose")
@@ -768,6 +821,19 @@ def add_subcommands(p: argparse.ArgumentParser) -> None:
     r.add_argument("-o", "--output")
     r.set_defaults(mandate_fn=cmd_revoke)
 
+    ap = sub.add_parser("approve-payee", help="0.5: approve (sign) one payee account for a mandate, so it counts "
+                                              "as listed; --add co-signs an existing approval")
+    ap.add_argument("mandate", nargs="?", help="the 0.5 mandate (not needed with --add)")
+    ap.add_argument("--payee", help="NAME=ACCOUNT exactly as confirmed with the payee")
+    ap.add_argument("--key", required=True, help="your private key PEM (a signatory of the company)")
+    ap.add_argument("--signer-id", required=True, help="you, as the bank knows you")
+    ap.add_argument("--id")
+    ap.add_argument("--valid-until", help="RFC 3339 UTC; default: as long as the mandate")
+    ap.add_argument("--reason")
+    ap.add_argument("--add", metavar="APPROVAL", help="co-sign this existing payee approval instead")
+    ap.add_argument("-o", "--output")
+    ap.set_defaults(mandate_fn=cmd_approve_payee)
+
     y = sub.add_parser("pay", help="write a payment that relies on a mandate, signed by the agent")
     y.add_argument("mandate")
     y.add_argument("--id", required=True, help="payment id, unique per payer")
@@ -790,6 +856,7 @@ def add_subcommands(p: argparse.ArgumentParser) -> None:
     c.add_argument("mandate")
     c.add_argument("payment")
     add_checker_arguments(c)
+    add_approval_argument(c)
     c.add_argument("-o", "--output")
     c.set_defaults(mandate_fn=cmd_check)
 
@@ -797,6 +864,7 @@ def add_subcommands(p: argparse.ArgumentParser) -> None:
     for name in ("mandate", "payment", "decision", "override"):
         rs.add_argument(name)
     add_checker_arguments(rs)
+    add_approval_argument(rs)
     rs.add_argument("-o", "--output")
     rs.set_defaults(mandate_fn=cmd_resolve)
 

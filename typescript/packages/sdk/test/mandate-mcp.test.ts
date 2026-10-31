@@ -6,8 +6,8 @@ import { join } from "node:path";
 import { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { beforeAll, describe, expect, it } from "vitest";
-import { issue, mandateHash, publicKeyOf, signMandate, verifyDecision } from "@getgleipnir/verify/mandate";
-import { MandateTools, TOOLS, handle, parseArgs, seedFromPem, serveLines } from "../src/mandate-mcp.js";
+import { approvePayee, issue, mandateHash, publicKeyOf, signMandate, signPayeeApproval, verifyDecision } from "@getgleipnir/verify/mandate";
+import { MandateTools, TOOLS, adviceFor, handle, parseArgs, seedFromPem, serveLines } from "../src/mandate-mcp.js";
 
 type J = Record<string, unknown>;
 const IBAN = "AT611904300234573201";
@@ -151,6 +151,48 @@ describe("gleipnir-mandate-mcp (TypeScript)", () => {
   });
 });
 
+
+describe("0.5: the agent sees a new-payee escalation, and gets no new power", () => {
+  it("escalates a new payee, blocks a changed account, and pays an approved payee only with the operator's approval", async () => {
+    const signer = seedFromPem(readFileSync(join(dir, "signer.pem"), "utf8"));
+    const agent = seedFromPem(readFileSync(join(dir, "agent.pem"), "utf8"));
+    const m = signMandate(issue({
+      id: "m_ap5", company: { name: "Nordhafen Logistik GmbH", country: "AT" },
+      agent: { id: "ap-agent", public_key: publicKeyOf(agent) },
+      signer: { id: "kberger@nordhafen.at", public_key: publicKeyOf(signer) },
+      scope: { rails: ["sepa"], currency: "EUR", max_per_payment: "25000.00", unlisted_payees: "escalate",
+        payees: [{ name: "Brenner Stahl AG", account: { scheme: "iban", iban: IBAN } }], from_accounts: [DEBTOR] },
+      validUntil: "2099-01-01T00:00:00.000Z",
+    }), signer);
+    expect(m.v).toBe("gleipnir/mandate/0.5");
+    writeFileSync(join(dir, "mandate5.json"), JSON.stringify(m));
+    const kranbau = { name: "Kranbau Wels GmbH", account: { scheme: "iban", iban: "AT131100000622300000" } };
+    const a = signPayeeApproval(approvePayee(m, { payee: kranbau, id: "pa_1" }), signer,
+      { id: "kberger@nordhafen.at", public_key: publicKeyOf(signer) });
+    writeFileSync(join(dir, "pa.json"), JSON.stringify(a));
+    const t = tools({ mandate: join(dir, "mandate5.json") });
+    const scope = (await call(t, "mandate_scope", {})).structuredContent as J;
+    expect([scope.unlisted_payee, scope.approved_payees]).toEqual(["waits for a person to approve it (new_payee)", []]);
+    const results: J[] = [];
+    for (const [pid, payee] of [["INV-1", "Kranbau Wels GmbH=AT131100000622300000"], ["INV-2", "Brenner-Stahl AG=LT121000011101001000"]]) {
+      const p = (await call(t, "attach_mandate", { payment_id: pid, amount: "100.00", payee })).structuredContent as J;
+      results.push((await call(t, "check_payment", p)).structuredContent as J);
+    }
+    expect(results.map((r) => [r.outcome, r.reasons, r.new_payee])).toEqual([
+      ["escalate", ["new_payee"], true], ["block", ["payee_account_changed"], false]]);
+    expect(results[0]!.advice).toContain("waits for a person");
+    expect(results[1]!.advice).toContain("changed bank details");
+    const withApproval = tools({ mandate: join(dir, "mandate5.json"), payeeApprovals: [join(dir, "pa.json")] });
+    expect(((await call(withApproval, "mandate_scope", {})).structuredContent as J).approved_payees).toEqual([kranbau]);
+    const p = (await call(withApproval, "attach_mandate", { payment_id: "INV-3", amount: "100.00",
+      payee: "Kranbau Wels GmbH=AT131100000622300000" })).structuredContent as J;
+    const r = (await call(withApproval, "check_payment", p)).structuredContent as J;
+    expect([r.outcome, ((r.decision as J).payee_approval as J).id]).toEqual(["allow", "pa_1"]);
+    expect(TOOLS.map((x) => x.name)).toEqual(["mandate_scope", "request_mandate", "attach_mandate", "check_payment"]);
+    expect(parseArgs(["--payee-approval", "a.json", "--payee-approval", "b.json"]).payeeApprovals).toEqual(["a.json", "b.json"]);
+    expect(adviceFor("allow", ["new_payee"])).toBe("Covered. Submit this exact payment with the mandate.");
+  });
+});
 
 describe("second audit: the MCP KYB loader fails closed (F10)", () => {
   it.each([{ may_sign: null }, { joint: "2" }])("%j", async (bad) => {

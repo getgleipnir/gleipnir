@@ -376,3 +376,84 @@ def test_pain001_via_cli(setup: Path, capsys: pytest.CaptureFixture[str]) -> Non
     Path("bad.xml").write_text(Path("p_1.xml").read_text().replace(">100.00</InstdAmt>", ">999.00</InstdAmt>"))
     assert main(["mandate", "pain001", "mandate.json", "p_1.json", "--check", "bad.xml"]) == 1
     assert "MISMATCH amount_mismatch" in capsys.readouterr().out
+
+
+# ---------- 0.5: payees that are not on the mandate ----------
+
+NEW = "Kranbau Wels GmbH=AT131100000622300000"
+CHANGED = "Brenner-Stahl A.G.=LT121000011101001000"
+
+
+@pytest.fixture()
+def esc(setup: Path) -> Path:
+    """The setup's company, with a 0.5 mandate whose unlisted payees escalate, capped at 5 000."""
+    assert main([*ISSUE, "--id", "m_ap5", "--company", "Nordhafen Logistik GmbH", "--country", "AT",
+                 "--signer-id", "kberger@nordhafen.at", "--signer-key", "berger.pem",
+                 "--agent-id", "ap-agent", "--agent-key", "agent.pem", "--currency", "EUR",
+                 "--max-per-payment", "25000.00", "--payee", PAYEE, "--unlisted-payees", "escalate",
+                 "--max-per-unlisted-payee", "5000.00", "-o", "mandate.json"]) == 0
+    assert main(["mandate", "sign", "mandate.json", "--key", "berger.pem"]) == 0
+    assert json.loads(Path("mandate.json").read_text())["v"] == "gleipnir/mandate/0.5"
+    return setup
+
+
+def test_unlisted_payees_via_cli(esc: Path) -> None:
+    code, d = check(pay("p_new", "1200.00", NEW))
+    assert (code, d["v"], d["reasons"]) == (3, "gleipnir/decision/0.5", ["new_payee"])
+    assert check("p_new.json")[1] == d  # the escalation holds the id: a resend gets the same answer
+    code, d = check(pay("p_chg", "1200.00", CHANGED))
+    assert (code, d["reasons"]) == (1, ["payee_account_changed"])
+    code, d = check(pay("p_cap", "5000.01", NEW))
+    assert (code, d["reasons"]) == (1, ["over_unlisted_payee_limit"])
+    assert check(pay("p_ok", "18400.00"))[0] == 0
+
+
+def test_approve_payee_and_revoke_via_cli(esc: Path) -> None:
+    assert main(["mandate", "approve-payee", "mandate.json", "--payee", CHANGED, "--key", "berger.pem",
+                 "--signer-id", "kberger@nordhafen.at", "--id", "pa_1", "--reason", "Confirmed by phone",
+                 "-o", "pa.json"]) == 0
+    code, d = check(pay("p_1", "1200.00", CHANGED), "--payee-approval", "pa.json")
+    assert (code, d["checks"][-3:]) == (0, ["not_revoked", "payee_approved:1/1", "within_payment_limit"])
+    assert d["payee_approval"]["id"] == "pa_1"
+    # An approval signed with a key the bank does not know for that person blocks.
+    assert main(["mandate", "approve-payee", "mandate.json", "--payee", CHANGED, "--key", "agent.pem",
+                 "--signer-id", "kberger@nordhafen.at", "-o", "bad.json"]) == 0
+    code, d = check(pay("p_2", "1200.00", CHANGED), "--payee-approval", "bad.json")
+    assert (code, d["reasons"]) == (1, ["payee_approval_invalid"])
+    # Revoked: the approval no longer counts; the changed account is blocked again.
+    assert main(["mandate", "revoke", "pa.json", "--key", "berger.pem", "--signer-id", "kberger@nordhafen.at",
+                 "--id", "r_pa", "-o", "r_pa.json"]) == 0
+    assert json.loads(Path("r_pa.json").read_text())["v"] == "gleipnir/revocation/0.5"
+    code, d = check(pay("p_3", "1200.00", CHANGED), "--payee-approval", "pa.json", "--revocation", "r_pa.json")
+    assert (code, d["reasons"]) == (1, ["payee_account_changed"]) and "payee_approval_revoked" in d["checks"]
+
+
+def test_approve_payee_cosign_and_usage_errors(esc: Path, setup: Path) -> None:
+    assert main(["mandate", "keygen", "-o", "hofer.pem"]) == 0
+    assert main(["mandate", "approve-payee", "mandate.json", "--payee", NEW, "--key", "berger.pem",
+                 "--signer-id", "a", "-o", "pa.json"]) == 0
+    assert main(["mandate", "approve-payee", "--add", "pa.json", "--key", "hofer.pem", "--signer-id", "b",
+                 "-o", "pa.json"]) == 0
+    assert [s["signer"]["id"] for s in json.loads(Path("pa.json").read_text())["sigs"]] == ["a", "b"]
+    assert main(["mandate", "approve-payee", "mandate.json", "--key", "berger.pem", "--signer-id", "a"]) == 2
+    assert main(["mandate", "approve-payee", "--add", "mandate.json", "--key", "berger.pem", "--signer-id", "a"]) == 2
+    assert main([*ISSUE, "--id", "m_x", "--company", "X", "--country", "AT", "--signer-id", "a", "--signer-key",
+                 "berger.pem", "--agent-id", "x", "--currency", "EUR", "--max-per-payment", "1.00",
+                 "--max-per-unlisted-payee", "1.00"]) == 2
+
+
+def test_approve_payee_needs_05_mandate(setup: Path) -> None:
+    assert main(["mandate", "approve-payee", "mandate.json", "--payee", NEW, "--key", "berger.pem",
+                 "--signer-id", "a"]) == 2
+
+
+def test_override_new_payee_via_cli(esc: Path) -> None:
+    code, d = check(pay("p_new", "1200.00", NEW))
+    assert d["reasons"] == ["new_payee"]
+    assert main(["mandate", "override", "p_new.decision.json", "--key", "berger.pem", "--signer-id",
+                 "kberger@nordhafen.at", "--reason", "New crane supplier", "-o", "o.json"]) == 0
+    assert main(["mandate", "resolve", "mandate.json", "p_new.json", "p_new.decision.json", "o.json",
+                 "--authority", "kyb.json", "--bank-key", "bank.pem", "-o", "final.json"]) == 0
+    final = json.loads(Path("final.json").read_text())
+    assert final["waived"] == ["new_payee"] and "new_payee_approved" in final["checks"]
+    assert check(pay("p_new2", "1200.00", NEW))[1]["reasons"] == ["new_payee"]  # one payment, not the payee

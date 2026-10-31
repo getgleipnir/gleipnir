@@ -2,13 +2,15 @@
 
 ``gleipnir mandate serve`` (bank side, reference only):
 
-    POST /check    {"mandate": {...}, "payment": {...}}  -> the signed decision (200), or {"error": ...} (400)
-    POST /resolve  {"mandate", "payment", "decision", "override"} -> the decision after a signed override
+    POST /check    {"mandate": {...}, "payment": {...}[, "payee_approvals": [...]]}  -> the signed decision (200), or
+                   {"error": ...} (400). Payee approvals (spec 7.2) count for 0.5 mandates only.
+    POST /resolve  {"mandate", "payment", "decision", "override"[, "payee_approvals"]} -> the decision after an override
     GET  /keys     -> {"checker": id, "keys": [public key]}: what companies and auditors verify decisions with
     GET  /.well-known/gleipnir-checker.json -> the bank's key set with validity windows (spec 10.1)
     GET  /revocations -> a signed list of the revocations this checker holds, current for an hour (spec 9.2)
-    POST /revoke   {"revocation": {...}, "mandate": {...}}: stored only if it counts for that mandate now (signed,
-                   aimed at it or a link of its chain, by someone who may revoke it); verified again per payment
+    POST /revoke   {"revocation": {...}, "mandate": {...}[, "payee_approval": {...}]}: stored only if it counts for that
+                   mandate now (signed, aimed at it, a link of its chain or the given payee approval, by someone who
+                   may revoke it); verified again per payment
 
 Binds to 127.0.0.1 by default. Bodies are strict JSON (no duplicate keys, no NaN), at most 1 MiB. There is
 no authentication: put it behind the bank's own API gateway. State (period ledger, payment log) is the dev
@@ -22,7 +24,10 @@ tools and the current mandate as a resource (``gleipnir://mandate/current``).
   ``gleipnir mandate sign``). The agent never signs a mandate itself.
 - ``attach_mandate``: build a payment under the loaded mandate, from one of its accounts, signed with the agent's key.
 - ``check_payment``: ask the bank's checker (``--bank-url``) whether a payment would pass, before submitting it;
-  with ``--bank-key`` and ``--authority`` instead, a local demo checker answers.
+  with ``--bank-key`` and ``--authority`` instead, a local demo checker answers. Payee approvals the operator
+  configured (``--payee-approval``) for that payee account go with it. The answer says when a payment waits for a
+  person because the payee is new (``new_payee``), and when it is blocked as changed bank details. The agent gets
+  no new power: it cannot approve a payee or resolve an escalation.
 """
 
 from __future__ import annotations
@@ -109,15 +114,16 @@ class Bank:
             return answer
         return status
 
-    def check(self, mandate: Any, payment: Any) -> dict[str, Any]:
+    def check(self, mandate: Any, payment: Any, payee_approvals: Any = None) -> dict[str, Any]:
         status = self._prefetch(mandate)
         with self._lock, FileState(self.state) as st:
-            return self._checker(st, status).check(mandate, payment)
+            return self._checker(st, status).check(mandate, payment, payee_approvals)
 
-    def resolve(self, mandate: Any, payment: Any, decision: Any, override: Any) -> dict[str, Any]:
+    def resolve(self, mandate: Any, payment: Any, decision: Any, override: Any,
+                payee_approvals: Any = None) -> dict[str, Any]:
         status = self._prefetch(mandate)
         with self._lock, FileState(self.state) as st:
-            return self._checker(st, status).resolve(mandate, payment, decision, override)
+            return self._checker(st, status).resolve(mandate, payment, decision, override, payee_approvals)
 
     def keyset(self) -> dict[str, Any]:
         """The published key set: the configured one (with key history), or just the current key."""
@@ -131,7 +137,7 @@ class Bank:
         return m.revocation_list(revs, issuer=self.id, sk=self.sk,
                                  next_update=m.fmt_ts(m.utcnow() + timedelta(hours=1)))
 
-    def add_revocation(self, r: Any, mandate: Any) -> None:
+    def add_revocation(self, r: Any, mandate: Any, payee_approval: Any = None) -> None:
         """Store a revocation that counts for this mandate now; the checker verifies it again on every payment.
         Junk, and revocations by people who may not revoke, are refused, so the store holds only real ones."""
         problem = m.revocation_problem(r)
@@ -139,7 +145,7 @@ class Bank:
             raise CliError(f"revocation rejected: {problem}")
         if len(m.canonicalize(r)) > MAX_REVOCATION:
             raise CliError(f"revocation rejected: larger than {MAX_REVOCATION} bytes")
-        if not self._checker(None).revocation_counts(mandate, r):
+        if not self._checker(None).revocation_counts(mandate, r, payee_approval):
             raise CliError("revocation rejected: not a valid revocation of this mandate by someone who may revoke it")
         with self._lock, FileState(self.state) as st:
             if r in st.revocations:
@@ -200,20 +206,21 @@ def make_handler(bank: Bank, allow_origins: frozenset[str] = frozenset()) -> typ
             try:
                 if self.path == "/check":
                     body = self._body()
-                    if not isinstance(body, dict) or set(body) != {"mandate", "payment"}:
-                        raise CliError('expected {"mandate": ..., "payment": ...}')
-                    self._send(200, bank.check(body["mandate"], body["payment"]))
+                    if not isinstance(body, dict) or set(body) - {"payee_approvals"} != {"mandate", "payment"}:
+                        raise CliError('expected {"mandate": ..., "payment": ...[, "payee_approvals": [...]]}')
+                    self._send(200, bank.check(body["mandate"], body["payment"], body.get("payee_approvals")))
                 elif self.path == "/resolve":
                     body = self._body()
-                    if not isinstance(body, dict) or set(body) != {"mandate", "payment", "decision", "override"}:
-                        raise CliError('expected {"mandate", "payment", "decision", "override"}')
+                    if not isinstance(body, dict) \
+                            or set(body) - {"payee_approvals"} != {"mandate", "payment", "decision", "override"}:
+                        raise CliError('expected {"mandate", "payment", "decision", "override"[, "payee_approvals"]}')
                     self._send(200, bank.resolve(body["mandate"], body["payment"], body["decision"],
-                                                 body["override"]))
+                                                 body["override"], body.get("payee_approvals")))
                 elif self.path == "/revoke":
                     body = self._body()
-                    if not isinstance(body, dict) or set(body) != {"revocation", "mandate"}:
-                        raise CliError('expected {"revocation": ..., "mandate": ...}')
-                    bank.add_revocation(body["revocation"], body["mandate"])
+                    if not isinstance(body, dict) or set(body) - {"payee_approval"} != {"revocation", "mandate"}:
+                        raise CliError('expected {"revocation": ..., "mandate": ...[, "payee_approval": ...]}')
+                    bank.add_revocation(body["revocation"], body["mandate"], body.get("payee_approval"))
                     self._send(200, {"ok": True})
                 else:
                     self._send(404, {"error": "not found"})
@@ -264,8 +271,10 @@ def _schema(props: dict[str, Any], required: list[str]) -> dict[str, Any]:
 
 TOOLS = [
     {"name": "mandate_scope",
-     "description": "What you may pay under the loaded mandate: company, payees (name and account), limits, rails, "
-                    "validity, who signed. Read this before paying; anything outside it will be refused.",
+     "description": "What you may pay under the loaded mandate: company, payees (name and account) and payees "
+                    "approved since, what happens to a payee that is not listed (blocked, or it waits for a person), "
+                    "limits, rails, validity, who signed. Read this before paying; anything outside it will be "
+                    "refused.",
      "inputSchema": _schema({}, []),
      "annotations": {"title": "What may I pay?", "readOnlyHint": True, "openWorldHint": False}},
     {"name": "request_mandate",
@@ -304,7 +313,10 @@ TOOLS = [
                     "dry run: an allowed payment is recorded under its id and counts against the limits, so "
                     "call it only for a payment you intend to make. Returns allow, block or escalate with a "
                     "reason. Never pay on block; on escalate, ask a person (they sign an override at the bank). "
-                    "To retry, resubmit the same payment; after a block you may correct it and reuse the id.",
+                    "new_payee means the payee is not on the mandate and waits for a person; "
+                    "payee_account_changed means a listed payee's name with another account (changed bank details): "
+                    "never pay, tell a person. To retry, resubmit the same payment; after a block you may correct it "
+                    "and reuse the id.",
      "inputSchema": _schema({"payment": {"type": "object"}}, ["payment"]),
      "annotations": {"title": "Ask the bank", "readOnlyHint": False, "destructiveHint": False,
                      "idempotentHint": True, "openWorldHint": True}},
@@ -338,6 +350,7 @@ def arguments_problem(spec: dict, args: Any) -> str | None:
 class MandateTools:
     def __init__(self, args: argparse.Namespace) -> None:
         self.mandate_path = args.mandate
+        self.approval_paths: list[str] = list(getattr(args, "payee_approval", None) or [])
         self.agent_sk = load_key(args.agent_key) if args.agent_key else None
         self.drafts = Path(args.drafts)
         self.bank_url = args.bank_url
@@ -352,14 +365,31 @@ class MandateTools:
             raise CliError("no mandate loaded: start the server with --mandate, or use request_mandate first")
         return read_json(self.mandate_path)
 
+    def _approvals(self, md: dict) -> list[dict]:
+        """The payee approvals the operator configured that name this mandate (signed by people, never by the
+        agent; the bank verifies them on every payment)."""
+        out = []
+        for path in self.approval_paths:
+            a = read_json(path)
+            if m.payee_approval_problem(a) is None and a["mandate"] == {"id": md.get("id"), "hash": m.mandate_hash(md)}:
+                out.append(a)
+        return out
+
     def mandate_scope(self, a: dict) -> dict:
         md = self._mandate()
         sc = md.get("scope", {})
         signed_by = [md["signer"]["id"]] if "signer" in md else [s.get("signer") for s in md.get("sigs", [])]
+        controlled = "payees" in sc or "unlisted_payees" in sc
+        unlisted = {"block": "blocked: only listed and approved payees can be paid",
+                    "escalate": "waits for a person to approve it (new_payee)"}.get(
+            sc.get("unlisted_payees", "block") if controlled else "", "allowed (no payee list)")
+        approved = [ap["payee"] for ap in self._approvals(md)] if m.version_of(md, "mandate") == m.V5 else []
         return {"mandate": md.get("id"), "company": md.get("company", {}).get("name"),
                 "agent": md.get("agent", {}).get("id"), "currency": sc.get("currency"),
                 "max_per_payment": sc.get("max_per_payment"), "max_per_period": sc.get("max_per_period"),
-                "rails": sc.get("rails", "any"), "payees": sc.get("payees", "any payee"),
+                "rails": sc.get("rails", "any"), "payees": sc.get("payees", [] if controlled else "any payee"),
+                "approved_payees": approved, "unlisted_payee": unlisted,
+                "max_per_unlisted_payee": sc.get("max_per_unlisted_payee"),
                 "from_accounts": sc.get("from_accounts"),
                 "valid_from": md.get("valid_from"), "valid_until": md.get("valid_until"), "signed_by": signed_by,
                 "delegation": [f"{d['from']['id']} -> {d['to']['id']}" for d in md.get("delegation", [])],
@@ -410,8 +440,15 @@ class MandateTools:
 
     def check_payment(self, a: dict) -> dict:
         mandate, payment = self._mandate(), a["payment"]
+        approvals = None
+        if self.approval_paths and m.version_of(mandate, "mandate") == m.V5 and isinstance(payment, dict):
+            acc = payment.get("payee", {}).get("account") if isinstance(payment.get("payee"), dict) else None
+            approvals = [ap for ap in self._approvals(mandate) if ap["payee"]["account"] == acc][:m.MAX_APPROVALS]
         if self.bank_url:
-            body = json.dumps({"mandate": mandate, "payment": payment}).encode()
+            req_body: dict[str, Any] = {"mandate": mandate, "payment": payment}
+            if approvals:
+                req_body["payee_approvals"] = approvals
+            body = json.dumps(req_body).encode()
             req = urllib.request.Request(self.bank_url.rstrip("/") + "/check", data=body, method="POST",
                                          headers={"Content-Type": "application/json"})
             try:
@@ -420,15 +457,36 @@ class MandateTools:
             except (urllib.error.URLError, TimeoutError, UnicodeDecodeError) as exc:
                 raise CliError(f"bank checker unreachable: {exc}") from exc
         elif self.local is not None:
-            decision = self.local.check(mandate, payment)
+            decision = self.local.check(mandate, payment, approvals)
         else:
             raise CliError("no checker configured: start the server with --bank-url (or --bank-key and --authority)")
         reasons = decision.get("reasons") or []
-        advice = {"allow": "Covered. Submit this exact payment with the mandate.",
-                  "block": "Not covered. Do not pay. Tell the person why.",
-                  "escalate": "Needs a person before it can be paid. Do not retry with a new id."}
-        return {"outcome": decision.get("outcome"), "reasons": reasons,
-                "advice": advice.get(decision.get("outcome"), "Unknown answer. Do not pay."), "decision": decision}
+        return {"outcome": decision.get("outcome"), "reasons": reasons, "new_payee": reasons == ["new_payee"],
+                "advice": advice_for(decision.get("outcome"), reasons), "decision": decision}
+
+
+ADVICE = {"allow": "Covered. Submit this exact payment with the mandate.",
+          "block": "Not covered. Do not pay. Tell the person why.",
+          "escalate": "Needs a person before it can be paid. Do not retry with a new id."}
+REASON_ADVICE = {
+    "new_payee": "This payee is not on the mandate. The payment waits for a person: a signatory approves it at the "
+                 "bank (an override), or approves the payee for later payments. Do not change the payee, the "
+                 "account or the payment id to get around this; ask the person and wait.",
+    "payee_account_changed": "The payee's name is on the mandate, but this account is not: this looks like changed "
+                             "bank details, the most common invoice fraud. Do not pay and do not retry with "
+                             "another name. Tell a person; only a signatory can approve the new account, after "
+                             "confirming it with the payee by phone.",
+    "over_unlisted_payee_limit": "Too large for a payee that is not on the mandate. Do not pay and do not split it. "
+                                 "Tell a person.",
+    "payee_approval_invalid": "A payee approval presented with this payment is not valid. Do not pay. Tell a person.",
+}
+
+
+def advice_for(outcome: Any, reasons: list) -> str:
+    """What the agent should do with a decision; never more than the decision allows."""
+    if outcome in ("block", "escalate") and len(reasons) == 1 and reasons[0] in REASON_ADVICE:
+        return REASON_ADVICE[reasons[0]]
+    return ADVICE.get(outcome, "Unknown answer. Do not pay.")
 
 
 def _result(rid: Any, result: Any) -> dict:
@@ -629,6 +687,8 @@ def add_arguments(sub: argparse._SubParsersAction) -> None:
     c.add_argument("--bank-key", help="demo only: run a local checker with this bank key")
     c.add_argument("--authority", help="demo only: KYB file for the local checker")
     c.add_argument("--revocation", action="append")
+    c.add_argument("--payee-approval", action="append", metavar="FILE",
+                   help="signed payee approvals to present with payments to those payees (0.5 mandates)")
     c.add_argument("--state")
     c.add_argument("--drafts", default="mandate-drafts", help="where request_mandate writes drafts")
     c.add_argument("--http", type=int, metavar="PORT", help="serve MCP over HTTP on this port instead of stdio")

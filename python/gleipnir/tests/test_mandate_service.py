@@ -440,3 +440,63 @@ def test_http_keyset_and_revocation_list(server, world):
 
     revs = M.revocations_from_list(doc, ks, datetime.now(timezone.utc))
     assert [r["id"] for r in revs] == ["r_k"]
+
+
+# ---------- 0.5: new payees over HTTP and MCP ----------
+
+NEW = "Kranbau Wels GmbH=AT131100000622300000"
+
+
+@pytest.fixture()
+def world05(world: Path) -> Path:
+    """The world's company with a 0.5 mandate: unlisted payees escalate."""
+    assert main([*ISSUE, "--id", "m_ap5", "--company", "Nordhafen Logistik GmbH", "--country", "AT",
+                 "--signer-id", "kberger@nordhafen.at", "--signer-key", "signer.pem", "--agent-id", "ap-agent",
+                 "--agent-key", "agent.pem", "--currency", "EUR", "--max-per-payment", "25000.00",
+                 "--payee", PAYEE, "--unlisted-payees", "escalate", "-o", "mandate.json"]) == 0
+    assert main(["mandate", "sign", "mandate.json", "--key", "signer.pem"]) == 0
+    assert main(["mandate", "approve-payee", "mandate.json", "--payee", NEW, "--key", "signer.pem",
+                 "--signer-id", "kberger@nordhafen.at", "--id", "pa_1", "-o", "pa.json"]) == 0
+    return world
+
+
+def test_http_payee_approvals_and_their_revocation(server, world05):
+    url, _ = server
+    mandate = json.loads(Path("mandate.json").read_text())
+    approval = json.loads(Path("pa.json").read_text())
+    t = tools(world05)
+    p = call(t, "attach_mandate", {"payment_id": "INV-1", "amount": "100.00", "payee": NEW})["structuredContent"]
+    assert post(url, {"mandate": mandate, "payment": p["payment"]})[1]["reasons"] == ["new_payee"]
+    p2 = call(t, "attach_mandate", {"payment_id": "INV-2", "amount": "100.00", "payee": NEW})["structuredContent"]
+    code, d = post(url, {"mandate": mandate, "payment": p2["payment"], "payee_approvals": [approval]})
+    assert (code, d["outcome"], d["payee_approval"]["id"]) == (200, "allow", "pa_1")
+    assert post(url, {"mandate": mandate, "payment": p2["payment"], "payee_approvals": [approval], "x": 1})[0] == 400
+    assert main(["mandate", "revoke", "pa.json", "--key", "signer.pem", "--signer-id", "kberger@nordhafen.at",
+                 "--id", "r_pa", "-o", "rev.json"]) == 0
+    rev = json.loads(Path("rev.json").read_text())
+    assert post(url, {"revocation": rev, "mandate": mandate}, "/revoke")[0] == 400  # without the approval
+    assert post(url, {"revocation": rev, "mandate": mandate, "payee_approval": approval}, "/revoke") == (
+        200, {"ok": True})
+    p3 = call(t, "attach_mandate", {"payment_id": "INV-3", "amount": "100.00", "payee": NEW})["structuredContent"]
+    code, d = post(url, {"mandate": mandate, "payment": p3["payment"], "payee_approvals": [approval]})
+    assert d["reasons"] == ["new_payee"] and "payee_approval_revoked" in d["checks"]
+
+
+def test_mcp_shows_new_payee_escalation_without_new_powers(server, world05):
+    url, _ = server
+    t = tools(world05, bank_url=url)
+    scope = call(t, "mandate_scope", {})["structuredContent"]
+    assert scope["unlisted_payee"].startswith("waits for a person") and scope["approved_payees"] == []
+    for pid, payee, want in [("INV-1", NEW, ["new_payee"]),
+                             ("INV-2", "Brenner-Stahl AG=LT121000011101001000", ["payee_account_changed"])]:
+        p = call(t, "attach_mandate", {"payment_id": pid, "amount": "100.00", "payee": payee})["structuredContent"]
+        r = call(t, "check_payment", p)["structuredContent"]
+        assert r["reasons"] == want and r["new_payee"] is (want == ["new_payee"])
+        assert "Do not" in r["advice"]
+    assert {x["name"] for x in json.loads(json.dumps(handle(t, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})[
+        "result"]["tools"]))} == {"mandate_scope", "request_mandate", "attach_mandate", "check_payment"}
+    # With the operator's approval configured, the same payee is paid; the agent itself cannot add one.
+    t2 = tools(world05, bank_url=url, payee_approval=["pa.json"])
+    assert call(t2, "mandate_scope", {})["structuredContent"]["approved_payees"][0]["name"] == "Kranbau Wels GmbH"
+    p = call(t2, "attach_mandate", {"payment_id": "INV-3", "amount": "100.00", "payee": NEW})["structuredContent"]
+    assert call(t2, "check_payment", p)["structuredContent"]["outcome"] == "allow"

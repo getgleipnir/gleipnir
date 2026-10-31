@@ -7,7 +7,9 @@
  * - request_mandate: an unsigned draft for a person to review and sign (the agent never signs a mandate).
  * - attach_mandate: a payment under the mandate, signed with the agent key.
  * - check_payment: ask the bank's checker (--bank-url) whether a payment is covered; a local demo checker
- *   answers with --bank-key and --authority instead.
+ *   answers with --bank-key and --authority instead. Payee approvals the operator configured (--payee-approval,
+ *   0.5 mandates) for that payee account go with it. The answer says when a payment waits for a person because the
+ *   payee is new (new_payee) and when it is blocked as changed bank details; the agent gets no new power.
  *
  *   npx -p @getgleipnir/sdk gleipnir-mandate-mcp --mandate mandate.json --agent-key agent.pem --bank-url http://127.0.0.1:8787
  */
@@ -21,6 +23,8 @@ import {
   Checker,
   InMemoryLedger,
   MANDATE_VERSION,
+  MANDATE_VERSION_05,
+  MAX_APPROVALS,
   SCHEMES,
   account,
   attach,
@@ -28,8 +32,10 @@ import {
   mandateHash,
   mandateProblem,
   parseStrict,
+  payeeApprovalProblem,
   paymentProblem,
   publicKeyOf,
+  versionOf,
   type AuthorityResult,
   type Seed,
 } from "@getgleipnir/verify/mandate";
@@ -48,8 +54,10 @@ const schema = (props: Record<string, J>, required: string[]): J => ({
 export const TOOLS: J[] = [
   {
     name: "mandate_scope",
-    description: "What you may pay under the loaded mandate: company, payees (name and account), limits, rails, "
-      + "validity, who signed. Read this before paying; anything outside it will be refused.",
+    description: "What you may pay under the loaded mandate: company, payees (name and account) and payees "
+      + "approved since, what happens to a payee that is not listed (blocked, or it waits for a person), "
+      + "limits, rails, validity, who signed. Read this before paying; anything outside it will be "
+      + "refused.",
     inputSchema: schema({}, []),
     annotations: { title: "What may I pay?", readOnlyHint: true, openWorldHint: false },
   },
@@ -91,7 +99,10 @@ export const TOOLS: J[] = [
       + "dry run: an allowed payment is recorded under its id and counts against the limits, so "
       + "call it only for a payment you intend to make. Returns allow, block or escalate with a "
       + "reason. Never pay on block; on escalate, ask a person (they sign an override at the bank). "
-      + "To retry, resubmit the same payment; after a block you may correct it and reuse the id.",
+      + "new_payee means the payee is not on the mandate and waits for a person; "
+      + "payee_account_changed means a listed payee's name with another account (changed bank details): "
+      + "never pay, tell a person. To retry, resubmit the same payment; after a block you may correct it "
+      + "and reuse the id.",
     inputSchema: schema({ payment: { type: "object" } }, ["payment"]),
     annotations: { title: "Ask the bank", readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   },
@@ -173,6 +184,35 @@ export interface Options {
   bankKey?: string;
   authority?: string;
   drafts?: string;
+  /** Signed payee approvals to present with payments to those payees (0.5 mandates); set by the operator. */
+  payeeApprovals?: string[];
+}
+
+const ADVICE: Record<string, string> = {
+  allow: "Covered. Submit this exact payment with the mandate.",
+  block: "Not covered. Do not pay. Tell the person why.",
+  escalate: "Needs a person before it can be paid. Do not retry with a new id.",
+};
+const REASON_ADVICE: Record<string, string> = {
+  new_payee: "This payee is not on the mandate. The payment waits for a person: a signatory approves it at the "
+    + "bank (an override), or approves the payee for later payments. Do not change the payee, the "
+    + "account or the payment id to get around this; ask the person and wait.",
+  payee_account_changed: "The payee's name is on the mandate, but this account is not: this looks like changed "
+    + "bank details, the most common invoice fraud. Do not pay and do not retry with "
+    + "another name. Tell a person; only a signatory can approve the new account, after "
+    + "confirming it with the payee by phone.",
+  over_unlisted_payee_limit: "Too large for a payee that is not on the mandate. Do not pay and do not split it. "
+    + "Tell a person.",
+  payee_approval_invalid: "A payee approval presented with this payment is not valid. Do not pay. Tell a person.",
+};
+
+/** What the agent should do with a decision; never more than the decision allows. */
+export function adviceFor(outcome: unknown, reasons: unknown): string {
+  const r = Array.isArray(reasons) ? reasons : [];
+  if ((outcome === "block" || outcome === "escalate") && r.length === 1 && typeof r[0] === "string"
+    && Object.prototype.hasOwnProperty.call(REASON_ADVICE, r[0])) return REASON_ADVICE[r[0]]!;
+  return typeof outcome === "string" && Object.prototype.hasOwnProperty.call(ADVICE, outcome) ? ADVICE[outcome]!
+    : "Unknown answer. Do not pay.";
 }
 
 function loadHolds(path: string) {
@@ -219,14 +259,37 @@ export class MandateTools {
     return readJson(this.o.mandate) as J;
   }
 
+  /** The operator's payee approvals that name this mandate (signed by people; the bank verifies them per payment). */
+  approvals(m: J): J[] {
+    const out: J[] = [];
+    let mh: string;
+    try {
+      mh = mandateHash(m);
+    } catch {
+      return out;
+    }
+    for (const path of this.o.payeeApprovals ?? []) {
+      const a = readJson(path);
+      if (payeeApprovalProblem(a) === null && JSON.stringify((a as J).mandate) === JSON.stringify({ id: m.id, hash: mh })) out.push(a as J);
+    }
+    return out;
+  }
+
   mandate_scope(): J {
     const m = this.mandate();
     const sc = (m.scope ?? {}) as J;
     const signedBy = isObj(m.signer) ? [m.signer.id] : ((m.sigs ?? []) as J[]).map((s) => s.signer);
+    const controlled = "payees" in sc || "unlisted_payees" in sc;
+    const policy = controlled ? (sc.unlisted_payees ?? "block") : "";
+    const unlisted = policy === "block" ? "blocked: only listed and approved payees can be paid"
+      : policy === "escalate" ? "waits for a person to approve it (new_payee)" : "allowed (no payee list)";
+    const approved = versionOf(m, "mandate") === MANDATE_VERSION_05 ? this.approvals(m).map((a) => a.payee) : [];
     return {
       mandate: m.id, company: (m.company as J | undefined)?.name, agent: (m.agent as J | undefined)?.id,
       currency: sc.currency, max_per_payment: sc.max_per_payment, max_per_period: sc.max_per_period ?? null,
-      rails: sc.rails ?? "any", payees: sc.payees ?? "any payee", from_accounts: sc.from_accounts ?? null,
+      rails: sc.rails ?? "any", payees: sc.payees ?? (controlled ? [] : "any payee"), approved_payees: approved,
+      unlisted_payee: unlisted, max_per_unlisted_payee: sc.max_per_unlisted_payee ?? null,
+      from_accounts: sc.from_accounts ?? null,
       valid_from: m.valid_from ?? null,
       valid_until: m.valid_until, signed_by: signedBy,
       delegation: ((m.delegation ?? []) as J[]).map((d) => `${(d.from as J).id} -> ${(d.to as J).id}`),
@@ -281,13 +344,24 @@ export class MandateTools {
 
   async check_payment(a: J): Promise<J> {
     const m = this.mandate();
+    let approvals: J[] | undefined;
+    if ((this.o.payeeApprovals ?? []).length && versionOf(m, "mandate") === MANDATE_VERSION_05 && isObj(a.payment)) {
+      const payee = a.payment.payee;
+      const acc = isObj(payee) ? JSON.stringify(payee.account, Object.keys((payee.account ?? {}) as J).sort()) : null;
+      approvals = this.approvals(m).filter((x) => {
+        const xa = (x.payee as J).account as J;
+        return JSON.stringify(xa, Object.keys(xa).sort()) === acc;
+      }).slice(0, MAX_APPROVALS);
+    }
     let decision: J;
     if (this.o.bankUrl) {
       let resp: Response;
+      const body: J = { mandate: m, payment: a.payment };
+      if (approvals && approvals.length) body.payee_approvals = approvals;
       try {
         resp = await fetch(this.o.bankUrl.replace(/\/+$/, "") + "/check", {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ mandate: m, payment: a.payment }), signal: AbortSignal.timeout(10000),
+          body: JSON.stringify(body), signal: AbortSignal.timeout(10000),
         });
       } catch (e) {
         throw new ToolError(`bank checker unreachable: ${(e as Error).message}`);
@@ -298,17 +372,14 @@ export class MandateTools {
         throw new ToolError(`bank response is not valid JSON: ${(e as Error).message}`);
       }
     } else if (this.local) {
-      decision = await this.local.check(m, a.payment);
+      decision = await this.local.check(m, a.payment, approvals);
     } else {
       throw new ToolError("no checker configured: start the server with --bank-url (or --bank-key and --authority)");
     }
-    const advice: Record<string, string> = {
-      allow: "Covered. Submit this exact payment with the mandate.",
-      block: "Not covered. Do not pay. Tell the person why.",
-      escalate: "Needs a person before it can be paid. Do not retry with a new id.",
-    };
     const outcome = decision.outcome as string;
-    return { outcome, reasons: decision.reasons ?? [], advice: advice[outcome] ?? "Unknown answer. Do not pay.", decision };
+    const reasons = Array.isArray(decision.reasons) ? decision.reasons : [];
+    return { outcome, reasons, new_payee: reasons.length === 1 && reasons[0] === "new_payee",
+      advice: adviceFor(outcome, reasons), decision };
   }
 }
 
@@ -394,9 +465,15 @@ export function parseArgs(argv: string[]): Options {
     "--authority": "authority", "--drafts": "drafts",
   };
   for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === "--payee-approval" && argv[i + 1] !== undefined) { // repeatable
+      (o.payeeApprovals ??= []).push(argv[++i]!);
+      continue;
+    }
     const k = keys[argv[i]!];
-    if (!k || argv[i + 1] === undefined) throw new Error(`usage: gleipnir-mandate-mcp [${Object.keys(keys).join(" X] [")} X]`);
-    o[k] = argv[++i]!;
+    if (!k || argv[i + 1] === undefined) {
+      throw new Error(`usage: gleipnir-mandate-mcp [${[...Object.keys(keys), "--payee-approval"].join(" X] [")} X]`);
+    }
+    (o as Record<string, unknown>)[k] = argv[++i]!;
   }
   return o;
 }
