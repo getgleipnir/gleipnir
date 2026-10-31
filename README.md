@@ -15,7 +15,7 @@ flowchart LR
 ## Why
 
 - **Cards have KYA, transfers don't.** Card networks are building agent checks for card payments. For bank transfers there are per-platform limits, but no shared check a bank can run on "was this agent authorized by the company?".
-- **The scam agents fall for first is "we changed our bank details".** A payee list on the mandate blocks it: a changed IBAN is a different payee, and from spec 0.5 a listed payee's name with another account is blocked outright (`payee_account_changed`), even on mandates where new payees may wait for a person instead (`unlisted_payees: escalate`, for AP, payroll and payouts). A signatory approves a new payee, or a new account, once with a signed payee approval.
+- **The scam agents fall for first is "we changed our bank details".** A payee list on the mandate blocks it: a changed IBAN is a different payee, and from spec 0.5 a listed payee's name with another account is blocked (`payee_account_changed`), also on mandates where new payees may wait for a person instead (`unlisted_payees: escalate`, for AP, payroll and payouts). The only way through is a signed payee approval: a signatory approves a new payee, or a payee's new account, once.
 - **Someone will ask "prove it" months later.** Mandate + payment + signed decision is a receipt anyone can verify offline, without the bank or us.
 
 ## How it works
@@ -31,16 +31,18 @@ Gleipnir does not move money and does not verify identities: the bank (KYB) or a
 
 | | |
 |---|---|
-| **Spec** | [spec/mandate.md](spec/mandate.md), v0.5 draft (0.4 objects still accepted): enrollment, new payees and payee approvals, multi-signature, delegation, debtor accounts, accounts and rails worldwide, ISO 20022 pain.001, overrides, signed status, revocation and revocation lists, bank key sets, receipts, closed shapes and versioning, threat model, reason codes, conformance |
-| **Reference checker** | Python `gleipnir_verify.mandate` |
-| **TypeScript port** | `@getgleipnir/verify/mandate` (Node and browsers), same results on every test vector |
-| **Test vectors** | [137 shared cases](typescript/packages/verify/test/fixtures/mandate-vectors.json): both implementations run them and verify each other's decisions; plus pinned problems, key sets and byte-identical pain.001 XML |
-| **CLI** | `gleipnir mandate keygen · issue · sign · delegate · pay · check · override · resolve · status · revoke · revocations · keyset · pain001 · verify · serve · mcp` |
-| **Bank side** | `gleipnir mandate serve`: reference `POST /check` and `POST /resolve` server, with `/.well-known/gleipnir-checker.json` and a signed `GET /revocations` list |
+| **Spec** | [spec/mandate.md](spec/mandate.md), version 0.5 (draft). 0.4 objects are still accepted and checked exactly as in 0.4. Covers enrollment, payees not on the mandate and payee approvals, multi-signature, delegation, debtor accounts, accounts and rails worldwide, ISO 20022 pain.001, overrides, signed status, revocation and revocation lists, bank key sets, receipts, closed shapes and versioning, threat model, reason codes (Appendix A), conformance (Appendix B) |
+| **Python checker** | `gleipnir_verify.mandate`, the reference |
+| **TypeScript checker** | `@getgleipnir/verify/mandate` (Node and browsers), same results on every shared vector |
+| **Test vectors** | [192 shared cases](typescript/packages/verify/test/fixtures/mandate-vectors.json) (37 of them `v05_*`): both implementations run them and verify each other's decisions; plus pinned problem messages, payee name keys, key sets and byte-identical pain.001 XML |
+| **CLI** | `gleipnir mandate keygen · issue · sign · delegate · approve-payee · pay · kyb · check · resolve · override · status · revoke · revocations · keyset · pain001 · verify · serve · mcp`. `issue --unlisted-payees block\|escalate [--max-per-unlisted-payee X]`; `check` and `resolve` take `--payee-approval FILE` |
+| **Bank side** | `gleipnir mandate serve`: reference `POST /check`, `POST /resolve` and `POST /revoke` server, with `/.well-known/gleipnir-checker.json` and a signed `GET /revocations` list |
+| **Hosted sandbox** | [typescript/packages/hosted](typescript/packages/hosted): the same checker as a multi-tenant Netlify service for pilot partners, with tenant delete (`DELETE /v1/admin/tenants/<id>`) and reservation release (`POST /v1/release`, off by default). Sandbox keys, not for real money |
 | **Agent side** | MCP server (Python, or `npx gleipnir-mandate-mcp`) for Claude, Cursor and any MCP client |
-| **Signatory side** | [site/mandate](site/mandate/index.html): review a mandate and sign it with a passkey; no network |
-| **Live demo** | [site/demo](site/demo/index.html) (getgleipnir.com/demo): CFO signs with a passkey, the agent pays, a fake IBAN and a revoked mandate are blocked; the TypeScript checker runs in the browser |
-| **Use cases** | all [21 scenarios](python/gleipnir-verify/tests/test_mandate_usecases.py) as named tests, from issuing to a dispute three months later |
+| **Signatory side** | [site/mandate](site/mandate/index.html): review a mandate, including what happens to payees not on the list, and sign it with a passkey; no network |
+| **Live demo** | [site/demo](site/demo/index.html) (getgleipnir.com/demo): the CFO signs with a passkey, the agent pays, a payment to a company not on the mandate and a payment under a revoked mandate are blocked; the TypeScript checker runs in the browser |
+| **Use cases** | [21 scenarios](python/gleipnir-verify/tests/test_mandate_usecases.py) as named tests, from issuing to a dispute three months later |
+| **Examples** | [examples/mandate_demo.py](examples/mandate_demo.py) in this branch. An AP agent paying through Stripe Treasury and one paying by ACH through Increase live on their own branches, `examples/stripe-treasury` and `examples/increase-ach` |
 
 ## Quickstart: from nothing to a signed decision
 
@@ -57,6 +59,20 @@ g check mandate.json p1.json --authority kyb.json --bank-key bank.pem -o decisio
 ```
 
 Change the IBAN in `pay` and `check` blocks it (`payee_not_on_mandate`, exit 1); correct it and the same payment id goes through. Go over 25 000.00 and it escalates (`over_payment_limit`, exit 3); `g override p_2.decision.json --key signer.pem --signer-id kberger@nordhafen.at -o o.json` and `g resolve mandate.json p_2.json p_2.decision.json o.json --authority kyb.json --bank-key bank.pem` approve it. Resend `p_1` and you get the same decision back, booked once. `g revoke mandate.json --key signer.pem --id r_1 -o rev.json`, then `check ... --revocation rev.json` blocks with `mandate_revoked`. `g verify decision.json --bank-pub bank.pem` checks the bank's signature; an edited decision is INVALID.
+
+## New payees (spec 0.5)
+
+By default a payee not on the mandate is blocked, as in 0.4. For accounts payable, payroll and payouts a mandate can let new payees wait for a person instead, with a cap above which they are blocked:
+
+```bash
+g issue ... --payee "Brenner Stahl AG=AT611904300234573201" --unlisted-payees escalate --max-per-unlisted-payee 5000.00 -o mandate.json
+g check mandate.json p_new.json --authority kyb.json --bank-key bank.pem     # new payee: escalate new_payee, exit 3
+g approve-payee mandate.json --payee "Kranbau Wels GmbH=AT131100000622300000" \
+  --key signer.pem --signer-id kberger@nordhafen.at -o approval.json          # a signatory approves the payee once
+g check mandate.json p_next.json --payee-approval approval.json --authority kyb.json --bank-key bank.pem   # allow
+```
+
+A payment to "Brenner Stahl AG" at another account is blocked (`payee_account_changed`) whatever the policy, unless a signatory approved that exact account. Names are compared by a fixed key that ignores case, spacing, punctuation, accents and common look-alike letters. A new-payee escalation can also be resolved for one payment with an override. New reason codes: `new_payee` (escalate), `payee_account_changed`, `over_unlisted_payee_limit`, `payee_approval_invalid` (block); see [spec Appendix A](spec/mandate.md#appendix-a-reason-codes).
 
 ## Two signers and delegation
 
@@ -125,10 +141,27 @@ g pain001 m.json p.json --check pain.xml                     # before executing:
 
 ## Status and security
 
-- **Draft 0.5.** The format may still change; feedback from payment, fraud and compliance people is very welcome. 0.5 is additive: 0.4 mandates are checked exactly as before.
-- **Audited four times** by independent reviewers who wrote every attack as a test: [first audit](docs/audit-2026-10-23.md), [second audit and re-verification](docs/audit-2026-10-23-evening.md) (23.10.2026), [third audit, spec 0.3](docs/audit-2026-10-24.md) (24.10.2026), [fourth audit, spec 0.4](docs/audit-2026-10-24-v04.md) (24.10.2026). Every finding is fixed or documented, with regression tests.
-- **Not solved by design:** a fake invoice from a real payee within the limits, collusion between real signatories, a compromised signer phone within the signed scope. They are bounded and visible in the receipt; see [residual risks](spec/mandate.md#11-threat-model).
-- **Open:** a standard revocation-list format, joint signing inside delegation links, ISO 20022 mapping, real vLEI (ACDC/KERI) credential verification (today vLEI is an authority source).
+- **Draft 0.5.** The format may still change; feedback from payment, fraud and compliance people is very welcome. 0.5 is additive: 0.4 mandates are checked exactly as before, and only objects that use something new carry `0.5`.
+- **Versions.** Packages are at 0.4.0, the last release (spec 0.4). The code here implements spec 0.5 and is not released yet. Releases are published from tags by `.github/workflows/release.yml`. Changes: [CHANGELOG.md](CHANGELOG.md).
+- **Audited four times** up to spec 0.4 by independent reviewers who wrote every attack as a test: [first audit](docs/audit-2026-10-23.md), [second audit and re-verification](docs/audit-2026-10-23-evening.md) (23.10.2026), [third audit, spec 0.3](docs/audit-2026-10-24.md) (24.10.2026), [fourth audit, spec 0.4](docs/audit-2026-10-24-v04.md) (24.10.2026). Every finding is fixed or documented, with regression tests. The 0.5 changes have had internal reviews, not yet an independent audit.
+- **Not solved by design:** a fake invoice from a real payee within the limits, collusion between real signatories, a compromised signer phone within the signed scope, a person who approves a fraudulent new payee. They are bounded and visible in the receipt; see [residual risks](spec/mandate.md#11-threat-model).
+- **Open:** a standard revocation-list format, joint signing inside delegation links, real vLEI (ACDC/KERI) credential verification (today vLEI is an authority source), a hosted checker for real money.
+
+## Tests
+
+```bash
+uv sync --all-packages
+uv run ruff check python spec examples
+uv run pytest python                      # 954 passed, 10 skipped, 1 xfailed
+
+cd typescript && npm ci && npm run build
+npx vitest run                            # all packages incl. hosted: 762 passed, 2 skipped
+npx tsc -p tsconfig.test.json --noEmit    # typecheck
+npm run interop                           # Python and TypeScript read each other's output
+npm run build:site                        # rebuilds the site bundles; a test fails if a committed one is stale
+```
+
+The 192 shared mandate vectors are generated by `python/gleipnir-verify/tests/mandate_vectors.py`, and both test suites run them.
 
 ---
 
@@ -218,16 +251,6 @@ No API keys, no network. The same agent as readable code, step by step: [example
 Python and TypeScript (`@getgleipnir/verify`, `@getgleipnir/sdk`) produce and accept the same bytes; CI checks it on every commit. Format: [spec/format.md](spec/format.md).
 
 Docs: [design](docs/design.md), [adapters](docs/adapters.md), [threat model](docs/threat-model.md) (what a valid result proves, and what it doesn't).
-
-### Status
-
-Packages are at version 0.4.0, the last release (spec 0.4). The code here implements spec 0.5 (draft) and still accepts every 0.4 object with 0.4 behaviour; 0.5 is not released yet. Releases are published from tags by `.github/workflows/release.yml`.
-
-```bash
-git clone https://github.com/getgleipnir/gleipnir && cd gleipnir
-uv sync --all-packages
-uv run pytest python
-```
 
 ## License
 
