@@ -18,7 +18,7 @@ def test_vector(c):
     assert V.expected(decisions) == c["expect"]
     first = (c.get("mandates") or [c["mandate"]])[(c.get("which") or [0])[0]]
     receipt = M.verify_receipt(first, c["payments"][0], decisions[0], [DATA["bank"]["public_key"]],
-                               webauthn=c["webauthn"])
+                               webauthn=c["webauthn"], payee_approvals=(c.get("approvals") or [[]])[0] or [])
     assert {k: v for k, v in receipt.items() if k != "checked_at"} == c["receipt"]
 
 
@@ -45,8 +45,10 @@ def test_signed_decisions_verify():
 
 
 def test_problem_messages():
+    fns = {"mandate": M.mandate_problem, "payment": M.payment_problem, "payee_approval": M.payee_approval_problem,
+           "revocation": M.revocation_problem, "payee_name_key": M.payee_name_key}
     for kind, obj, problem in DATA["problems"]:
-        assert (M.mandate_problem if kind == "mandate" else M.payment_problem)(obj) == problem
+        assert fns[kind](obj) == problem
 
 
 def test_keysets():

@@ -1,6 +1,6 @@
 /**
- * Mandates for AI agents that pay (spec/mandate.md v0.3), TypeScript port of the Python reference
- * `gleipnir_verify.mandate`. Same hashes, signatures, check order and reason codes; conformance is
+ * Mandates for AI agents that pay (spec/mandate.md 0.5; 0.4 objects keep their 0.4 behaviour), TypeScript port
+ * of the Python reference `gleipnir_verify.mandate`. Same hashes, signatures, check order and reason codes; conformance is
  * pinned by the shared vectors in test/fixtures/mandate-vectors.json.
  *
  * A company signatory (or a threshold of signatories) signs a mandate for one agent, possibly on the
@@ -29,8 +29,14 @@ import { hasKey, isDict, type JsonDict } from "./py.js";
 import { isoMillis, microsFromDate, parseTime, type Micros } from "./time.js";
 import { parseXml, type XmlElement } from "./xml.js";
 
+/** The draft of objects 0.5 left unchanged: payments, overrides, delegations, statuses, revocation lists, key sets. */
 export const MANDATE_VERSION = "0.4";
 const V = MANDATE_VERSION;
+/** Mandates that use unlisted_payees, payee approvals, revocations of them, and decisions about 0.5 mandates. */
+export const MANDATE_VERSION_05 = "0.5";
+const V5 = MANDATE_VERSION_05;
+/** The latest draft of the spec this library implements. */
+export const SPEC_VERSION = V5;
 
 // ---------- accounts and rails (spec section 6) ----------
 
@@ -75,12 +81,12 @@ export const MINOR_UNITS: Readonly<Record<string, number>> = {
 const AMOUNT_RE: Record<number, RegExp> = { 0: /^(0|[1-9][0-9]*)$/, 2: /^(0|[1-9][0-9]*)\.[0-9]{2}$/ };
 export const ESCALATE: ReadonlySet<string> = new Set([
   "signer_unknown", "status_unavailable", "over_payment_limit", "over_period_limit", "ledger_missing", "checker_unavailable",
-  "override_invalid", "override_not_authorized",
+  "override_invalid", "override_not_authorized", "new_payee",
 ]);
 /** Escalations that keep the payment id while a person decides; every other non-allow outcome releases it. */
-export const HOLDS: ReadonlySet<string> = new Set(["over_payment_limit"]);
+export const HOLDS: ReadonlySet<string> = new Set(["over_payment_limit", "new_payee"]);
 /** Escalations a company signatory may resolve; every escalation may be resolved by a bank officer. */
-export const COMPANY_OVERRIDABLE: ReadonlySet<string> = new Set(["over_payment_limit", "over_period_limit"]);
+export const COMPANY_OVERRIDABLE: ReadonlySet<string> = new Set(["over_payment_limit", "over_period_limit", "new_payee"]);
 /** Escalations no override can resolve: the bank fixes the dependency and the agent retries. */
 export const NOT_OVERRIDABLE: ReadonlySet<string> = new Set(["ledger_missing", "checker_unavailable", "override_invalid", "override_not_authorized"]);
 /** A re-check after an override that stops on one of these keeps the escalation, so the override can be retried. */
@@ -93,6 +99,9 @@ export const MANDATE_SIG_FIELDS: readonly string[] = ["sig", "sigs"];
 const COUNTRY_RE = /^[A-Z]{2}$/;
 export const MAX_DELEGATION_DEPTH = 5;
 const MAX_URL = 2048;
+/** Payee approvals presented with one payment (spec 7.2). */
+export const MAX_APPROVALS = 16;
+const UNLISTED: readonly string[] = ["block", "escalate"];
 
 /** Set an own property, also for keys like "__proto__" that plain assignment would not create. */
 function put(obj: JsonDict, key: string, value: unknown): void {
@@ -228,9 +237,19 @@ export function overrideHash(override: JsonDict): string {
   return objHash(override, "sigs");
 }
 
-/** The exact bytes a signature of this kind covers: "gleipnir/<kind>/v0.3\n" + hash. */
-export function mandateMessage(kind: string, hash: string): Uint8Array {
-  return concatBytes(utf8(`gleipnir/${kind}/v${V}\n`), utf8(hash));
+/** The exact bytes a signature of this kind covers: "gleipnir/<kind>/v<version>\n" + hash (version 0.4 by default). */
+export function mandateMessage(kind: string, hash: string, version: string = V): Uint8Array {
+  return concatBytes(utf8(`gleipnir/${kind}/v${version}\n`), utf8(hash));
+}
+
+/** The draft an object is in: "0.5" if its `v` says so, else "0.4" (the version every other check uses). */
+export function versionOf(obj: unknown, kind: string): string {
+  return isDict(obj) && hasKey(obj, "v") && obj.v === `gleipnir/${kind}/${V5}` ? V5 : V;
+}
+
+/** The hash every payee approval signature covers: the approval minus `sigs`. */
+export function payeeApprovalHash(approval: JsonDict): string {
+  return objHash(approval, "sigs");
 }
 
 /** An Ed25519 private key as its 32-byte seed. */
@@ -250,8 +269,8 @@ export function seedFromHex(hex: string): Seed {
   return s;
 }
 
-function sigText(seed: Seed, kind: string, hash: string): string {
-  return "ed25519:" + b64uEncode(ed25519Sign(seed, mandateMessage(kind, hash)));
+function sigText(seed: Seed, kind: string, hash: string, version: string = V): string {
+  return "ed25519:" + b64uEncode(ed25519Sign(seed, mandateMessage(kind, hash, version)));
 }
 
 function without(obj: JsonDict, field: string): JsonDict {
@@ -260,9 +279,9 @@ function without(obj: JsonDict, field: string): JsonDict {
   return out;
 }
 
-function sign(seed: Seed, kind: string, obj: JsonDict, sigField = "sig"): JsonDict {
+function sign(seed: Seed, kind: string, obj: JsonDict, sigField = "sig", version: string = V): JsonDict {
   const out = without(obj, sigField);
-  put(out, sigField, sigText(seed, kind, objHash(out, sigField)));
+  put(out, sigField, sigText(seed, kind, objHash(out, sigField), version));
   return out;
 }
 
@@ -371,12 +390,15 @@ export interface IssueOptions {
   validFrom?: string;
   statusUrl?: string;
   issuedAt?: string;
+  /** "0.4" or "0.5"; by default 0.5 if the scope uses unlisted_payees or max_per_unlisted_payee, else 0.4. */
+  version?: string;
 }
 
 /** An unsigned mandate. */
 export function issue(o: IssueOptions): JsonDict {
+  const version = o.version ?? (hasKey(o.scope, "unlisted_payees") || hasKey(o.scope, "max_per_unlisted_payee") ? V5 : V);
   const m: JsonDict = {
-    v: `gleipnir/mandate/${V}`, id: o.id, company: o.company, agent: o.agent, scope: o.scope,
+    v: `gleipnir/mandate/${version}`, id: o.id, company: o.company, agent: o.agent, scope: o.scope,
     valid_until: o.validUntil, issued_at: o.issuedAt ?? fmtTs(nowMicros()),
   };
   if (o.signer) m.signer = o.signer;
@@ -392,13 +414,13 @@ export function issue(o: IssueOptions): JsonDict {
 /** Sign a single-signer mandate. */
 export function signMandate(mandate: JsonDict, seed: Seed): JsonDict {
   const out = without(mandate, "sig");
-  put(out, "sig", sigText(seed, "mandate", mandateHash(out)));
+  put(out, "sig", sigText(seed, "mandate", mandateHash(out), versionOf(mandate, "mandate")));
   return out;
 }
 
 /** Add (or replace) one co-signature on a multi-signature mandate. Co-signers sign the same hash. */
 export function cosign(mandate: JsonDict, seed: Seed, signerId: string): JsonDict {
-  const entry = { signer: signerId, sig: sigText(seed, "mandate", mandateHash(mandate)) };
+  const entry = { signer: signerId, sig: sigText(seed, "mandate", mandateHash(mandate), versionOf(mandate, "mandate")) };
   const prior = Array.isArray(mandate.sigs) ? (mandate.sigs as JsonDict[]) : [];
   return { ...mandate, sigs: [...prior.filter((s) => s.signer !== signerId), entry] };
 }
@@ -408,7 +430,7 @@ export function cosign(mandate: JsonDict, seed: Seed, signerId: string): JsonDic
  * mandate passkey signature is never valid as an approval of an agent action, and the reverse.
  */
 export function passkeyDigest(mandate: JsonDict): string {
-  return sha256Tagged(mandateMessage("mandate", mandateHash(mandate)));
+  return sha256Tagged(mandateMessage("mandate", mandateHash(mandate), versionOf(mandate, "mandate")));
 }
 
 /** The WebAuthn challenge: the 32 raw bytes of passkeyDigest(mandate). */
@@ -432,15 +454,23 @@ export function delegate(o: {
   return sign(o.seed, "delegation", d);
 }
 
-/** A signed revocation of a mandate or of a delegation link. */
+/**
+ * A signed revocation of a mandate, a delegation link or a payee approval. A revocation is in the draft of what it
+ * revokes: 0.5 for a 0.5 mandate and for a payee approval, else 0.4. Checkers accept both (spec 13.1).
+ */
 export function revoke(
   target: JsonDict,
   o: { signer: JsonDict; seed: Seed; id: string; reason?: string; revokedAt?: string },
 ): JsonDict {
-  const r: JsonDict = { v: `gleipnir/revocation/${V}`, id: o.id };
-  if (String(target.v ?? "").startsWith("gleipnir/delegation/")) {
+  const kind = String(target.v ?? "");
+  const ver = kind.startsWith("gleipnir/payee_approval/") || kind === `gleipnir/mandate/${V5}` ? V5 : V;
+  const r: JsonDict = { v: `gleipnir/revocation/${ver}`, id: o.id };
+  if (kind.startsWith("gleipnir/delegation/")) {
     r.delegation = target.id;
     r.delegation_hash = delegationHash(target);
+  } else if (kind.startsWith("gleipnir/payee_approval/")) {
+    r.payee_approval = target.id;
+    r.payee_approval_hash = payeeApprovalHash(target);
   } else {
     r.mandate = target.id;
     r.mandate_hash = mandateHash(target);
@@ -448,7 +478,39 @@ export function revoke(
   r.revoked_at = o.revokedAt ?? fmtTs(nowMicros());
   r.signer = o.signer;
   if (o.reason) r.reason = o.reason;
-  return sign(o.seed, "revocation", r);
+  return sign(o.seed, "revocation", r, "sig", ver);
+}
+
+/**
+ * An unsigned payee approval (spec 7.2): this payee account counts as listed on this 0.5 mandate. The company's
+ * signatories add their signatures with signPayeeApproval, as many as the mandate itself needed.
+ */
+export function approvePayee(
+  mandate: JsonDict, o: { payee: JsonDict; id: string; approvedAt?: string; validUntil?: string; reason?: string },
+): JsonDict {
+  if (versionOf(mandate, "mandate") !== V5) throw new Error("payee approvals need a 0.5 mandate");
+  const a: JsonDict = {
+    v: `gleipnir/payee_approval/${V5}`, id: o.id, mandate: { id: mandate.id, hash: mandateHash(mandate) },
+    payee: { name: hasKey(o.payee, "name") ? o.payee.name : "", account: hasKey(o.payee, "account") ? o.payee.account : null },
+    approved_at: o.approvedAt ?? fmtTs(nowMicros()), sigs: [],
+  };
+  if (o.validUntil) a.valid_until = o.validUntil;
+  if (o.reason) a.reason = o.reason;
+  const problem = payeeApprovalProblem({ ...a, sigs: [{ signer: { id: "x", public_key: "x" }, sig: "x" }] });
+  if (problem) throw new Error(problem);
+  return a;
+}
+
+/** Add (or replace) one signature on a payee approval. `signer`: {id, public_key} of the person signing. */
+export function signPayeeApproval(approval: JsonDict, seed: Seed, signer: JsonDict): JsonDict {
+  const entry = { signer, sig: sigText(seed, "payee_approval", payeeApprovalHash(approval), V5) };
+  const prior = Array.isArray(approval.sigs) ? (approval.sigs as JsonDict[]) : [];
+  return { ...approval, sigs: [...prior.filter((s) => get(s, "signer.id") !== signer.id), entry] };
+}
+
+/** What a signatory's passkey signs for a payee approval (the WebAuthn challenge is its 32 raw bytes). */
+export function payeeApprovalDigest(approval: JsonDict): string {
+  return sha256Tagged(mandateMessage("payee_approval", payeeApprovalHash(approval), V5));
 }
 
 /**
@@ -572,7 +634,7 @@ const S = (n: number): Kind => ["s", n];
 const O = (n: string): Kind => ["o", n];
 const L = (n: string): Kind => ["l", n];
 
-export const SHAPES: Readonly<Record<string, Readonly<Record<string, Kind>>>> = {
+const SHAPES_04: Record<string, Readonly<Record<string, Kind>>> = {
   person: { id: A, public_key: A, name: S(140), role: S(140) },
   company: { name: S(140), country: A, ids: "ids" },
   agent: { id: A, name: S(140), public_key: A },
@@ -595,6 +657,16 @@ export const SHAPES: Readonly<Record<string, Readonly<Record<string, Kind>>>> = 
   status: { v: A, mandate: O("ref"), status: A, at: A, signer: O("person"), sig: A },
   osig: { signer: O("person"), sig: A },
   override: { v: A, id: S(128), decision: O("ref"), outcome: A, decided_at: A, reason: S(500), sigs: L("osig"), x: "x" },
+  payee_approval: { v: A, id: S(128), mandate: O("ref"), payee: O("approved_payee"), approved_at: A, valid_until: A,
+    reason: S(500), sigs: L("osig"), x: "x" },
+  approved_payee: { name: S(140), account: A },
+};
+/** 0.5 adds fields to a mandate's scope and a third revocation target; 0.4 objects keep exactly their 0.4 shape. */
+export const SHAPES: Readonly<Record<string, Readonly<Record<string, Kind>>>> = {
+  ...SHAPES_04,
+  "scope@0.5": { ...SHAPES_04.scope, unlisted_payees: A, max_per_unlisted_payee: A },
+  "mandate@0.5": { ...SHAPES_04.mandate, scope: O("scope@0.5") },
+  "revocation@0.5": { ...SHAPES_04.revocation, payee_approval: A, payee_approval_hash: A },
 };
 
 /** Code-point order of keys, like Python's sorted(). */
@@ -723,17 +795,37 @@ function signersProblem(m: JsonDict): string | null {
   return null;
 }
 
-/** Why this is not a well-formed mandate, or null. */
+/** 0.5 scope rules for payees that are not on the list (spec 4.1). */
+function unlistedProblem(sc: JsonDict): string | null {
+  if (hasKey(sc, "unlisted_payees") && !UNLISTED.includes(sc.unlisted_payees as string)) {
+    return "unlisted_payees must be block or escalate";
+  }
+  if (hasKey(sc, "max_per_unlisted_payee")) {
+    if (!hasKey(sc, "unlisted_payees") || sc.unlisted_payees !== "escalate") {
+      return "max_per_unlisted_payee needs unlisted_payees: escalate";
+    }
+    try {
+      parseAmount(sc.max_per_unlisted_payee, sc.currency);
+    } catch (e) {
+      return msg(e);
+    }
+  }
+  return null;
+}
+
+/** Why this is not a well-formed mandate (0.4 or 0.5), or null. */
 export function mandateProblem(m: unknown): string | null {
-  if (!isDict(m) || m.v !== `gleipnir/mandate/${V}`) return "unknown mandate version";
+  if (!isDict(m) || (m.v !== `gleipnir/mandate/${V}` && m.v !== `gleipnir/mandate/${V5}`)) return "unknown mandate version";
   const bad = strFields(m, ["id", "company.name", "company.country", "agent.id", "scope.currency",
     "scope.max_per_payment", "valid_until", "issued_at"]);
   if (bad) return bad;
   if (!jcsOk(m)) return "mandate is not valid I-JSON";
-  const shapeBad = shapeProblem(m, "mandate", "");
+  const v5 = versionOf(m, "mandate") === V5;
+  const shapeBad = shapeProblem(m, v5 ? "mandate@0.5" : "mandate", "");
   if (shapeBad) return shapeBad;
   if (!COUNTRY_RE.test((m.company as JsonDict).country as string)) return "company.country must be an ISO 3166-1 alpha-2 code";
-  const bad2 = signersProblem(m) ?? scopeProblem(m.scope as JsonDict, true) ?? validityProblem(m);
+  const bad2 = signersProblem(m) ?? scopeProblem(m.scope as JsonDict, true) ?? validityProblem(m)
+    ?? (v5 ? unlistedProblem(m.scope as JsonDict) : null);
   if (bad2) return bad2;
   if (hasKey(m, "status_url")) {
     const url = m.status_url;
@@ -791,13 +883,22 @@ export function paymentProblem(p: unknown): string | null {
   return null;
 }
 
+const TARGETS: readonly [string, string][] = [
+  ["mandate", "mandate_hash"], ["delegation", "delegation_hash"], ["payee_approval", "payee_approval_hash"],
+];
+
+/** Why this is not a well-formed revocation (0.4: of a mandate or delegation; 0.5: also of a payee approval), or null. */
 export function revocationProblem(r: unknown): string | null {
-  if (!isDict(r) || r.v !== `gleipnir/revocation/${V}`) return "unknown revocation version";
-  if (hasKey(r, "mandate_hash") === hasKey(r, "delegation_hash")) return "a revocation targets exactly one mandate or delegation";
-  const target = hasKey(r, "mandate_hash") ? ["mandate", "mandate_hash"] : ["delegation", "delegation_hash"];
-  const bad = strFields(r, [...target, "id", "revoked_at", "signer.id", "signer.public_key"]);
+  if (!isDict(r) || (r.v !== `gleipnir/revocation/${V}` && r.v !== `gleipnir/revocation/${V5}`)) return "unknown revocation version";
+  const v5 = versionOf(r, "revocation") === V5;
+  const targets = (v5 ? TARGETS : TARGETS.slice(0, 2)).filter((t) => hasKey(r, t[1]));
+  if (targets.length !== 1) {
+    return v5 ? "a revocation targets exactly one mandate, delegation or payee approval"
+      : "a revocation targets exactly one mandate or delegation";
+  }
+  const bad = strFields(r, [...targets[0]!, "id", "revoked_at", "signer.id", "signer.public_key"]);
   if (bad || !jcsOk(r)) return bad ?? "revocation is not valid I-JSON";
-  const shapeBad = shapeProblem(r, "revocation", "");
+  const shapeBad = shapeProblem(r, v5 ? "revocation@0.5" : "revocation", "");
   if (shapeBad) return shapeBad;
   try {
     ts(r.revoked_at);
@@ -830,8 +931,19 @@ export function overrideProblem(o: unknown): string | null {
   if (shapeBad) return shapeBad;
   if (o.outcome !== "allow" && o.outcome !== "block") return "outcome must be allow or block";
   if (hasKey(o, "reason") && typeof o.reason !== "string") return "reason must be a string";
-  const sigs = hasKey(o, "sigs") ? o.sigs : null;
-  if (!Array.isArray(sigs) || sigs.length === 0) return "an override needs at least one signature";
+  const sigsBad = osigsProblem(hasKey(o, "sigs") ? o.sigs : null, "an override");
+  if (sigsBad) return sigsBad;
+  try {
+    ts(o.decided_at);
+  } catch (e) {
+    return msg(e);
+  }
+  return null;
+}
+
+/** Signatures of people named in the entry ({signer: {id, public_key}, sig}): overrides, payee approvals. */
+function osigsProblem(sigs: unknown, what: string): string | null {
+  if (!Array.isArray(sigs) || sigs.length === 0) return `${what} needs at least one signature`;
   if (sigs.length > MAX_SIGNERS) return `at most ${MAX_SIGNERS} signatures`;
   for (const s of sigs) {
     if (!isDict(s) || personProblem(hasKey(s, "signer") ? s.signer : null, "sigs[].signer")
@@ -843,12 +955,67 @@ export function overrideProblem(o: unknown): string | null {
   if (new Set(people.map((p) => p.id)).size !== sigs.length || new Set(people.map((p) => p.public_key)).size !== sigs.length) {
     return "one signature per person and per key";
   }
+  return null;
+}
+
+/** Why this is not a well-formed payee approval (0.5 only, spec 7.2), or null. */
+export function payeeApprovalProblem(a: unknown): string | null {
+  if (!isDict(a) || a.v !== `gleipnir/payee_approval/${V5}`) return "unknown payee approval version";
+  const bad = strFields(a, ["id", "mandate.id", "mandate.hash", "payee.name", "approved_at"]);
+  if (bad || !jcsOk(a)) return bad ?? "payee approval is not valid I-JSON";
+  const shapeBad = shapeProblem(a, "payee_approval", "");
+  if (shapeBad) return shapeBad;
+  const payee = a.payee as JsonDict;
+  const accBad = accountProblem(hasKey(payee, "account") ? payee.account : null);
+  if (accBad) return `payee.account: ${accBad}`;
+  const sigsBad = osigsProblem(hasKey(a, "sigs") ? a.sigs : null, "a payee approval");
+  if (sigsBad) return sigsBad;
   try {
-    ts(o.decided_at);
+    const at = ts(a.approved_at);
+    if (hasKey(a, "valid_until") && ts(a.valid_until) < at) return "valid_until is before approved_at";
   } catch (e) {
     return msg(e);
   }
   return null;
+}
+
+function approvalsProblem(approvals: unknown): string | null {
+  if (!Array.isArray(approvals)) return "payee approvals must be a list";
+  if (approvals.length > MAX_APPROVALS) return `at most ${MAX_APPROVALS} payee approvals`;
+  for (const a of approvals) {
+    const bad = payeeApprovalProblem(a);
+    if (bad) return bad;
+  }
+  return null;
+}
+
+// ---------- payee names (spec 7, step 21) ----------
+
+/**
+ * Look-alike letters from other scripts (lowercase, or the lowercase of a capital look-alike such as Cyrillic
+ * В -> в -> b), and digits that pass for letters, mapped to the Latin letter they imitate. Applied to both sides
+ * after lowercasing; the comparison can only block, never allow. The same table is in the Python reference.
+ */
+const CONFUSABLE: Readonly<Record<string, string>> = {
+  "а": "a", "в": "b", "е": "e", "к": "k", "м": "m", "н": "h", "о": "o", "р": "p", "с": "c", "т": "t",
+  "у": "y", "х": "x", "і": "i", "ј": "j", "ѕ": "s", "һ": "h", "ԁ": "d", "ԛ": "q", "ԝ": "w", "ӏ": "l",
+  "α": "a", "β": "b", "ε": "e", "ζ": "z", "η": "h", "ι": "i", "κ": "k", "μ": "m", "ν": "v", "ο": "o",
+  "ρ": "p", "τ": "t", "υ": "u", "χ": "x",
+  "ı": "i", "ȷ": "j", "ɑ": "a", "ɡ": "g", "0": "o", "1": "l",
+};
+const LETTER_OR_DIGIT = /^[\p{L}\p{N}]$/u;
+
+/**
+ * The comparison key of a payee name (spec 7, step 21): compatibility-decomposed (NFKD), lowercased, every
+ * character that is not a letter or a digit removed, and look-alike characters folded. Empty for a missing
+ * name or one without letters or digits; an empty key matches nothing.
+ */
+export function payeeNameKey(name: unknown): string {
+  if (typeof name !== "string") return "";
+  const t = name.normalize("NFKD").toLowerCase().normalize("NFKD").replace(/ß/g, "ss").replace(/ς/g, "σ");
+  let out = "";
+  for (const c of t) if (LETTER_OR_DIGIT.test(c)) out += CONFUSABLE[c] ?? c;
+  return out;
 }
 
 type Signed = [JsonDict, unknown];
@@ -867,14 +1034,17 @@ export interface WebauthnOptions {
   origins?: readonly string[];
 }
 
-/** A signature over mandateMessage(kind, hash). Passkeys are accepted for what people sign: mandates, overrides. */
-function verify(kind: string, hash: string, sig: unknown, pubText: unknown, wa: WebauthnOptions): boolean {
+/**
+ * A signature over mandateMessage(kind, hash, version). Passkeys are accepted for what people sign: mandates,
+ * overrides and payee approvals.
+ */
+function verify(kind: string, hash: string, sig: unknown, pubText: unknown, wa: WebauthnOptions, version: string = V): boolean {
   try {
     const pub = decodePublicKey(pubText);
-    if (isDict(sig) && sig.type === "webauthn" && (kind === "mandate" || kind === "override")) {
-      return webauthnProblem(sig, pub, sha256Tagged(mandateMessage(kind, hash)), wa.rpId ?? "", wa.origins ?? [], null) === null;
+    if (isDict(sig) && sig.type === "webauthn" && (kind === "mandate" || kind === "override" || kind === "payee_approval")) {
+      return webauthnProblem(sig, pub, sha256Tagged(mandateMessage(kind, hash, version)), wa.rpId ?? "", wa.origins ?? [], null) === null;
     }
-    return verifySignature(pub, mandateMessage(kind, hash), sig);
+    return verifySignature(pub, mandateMessage(kind, hash, version), sig);
   } catch {
     return false; // any malformed key or signature fails closed
   }
@@ -947,6 +1117,7 @@ function within(child: JsonDict, parent: JsonDict): boolean {
   if (hasKey(ps, "payees")) {
     const allowed = new Set((ps.payees as JsonDict[]).map((x) => accKey(x.account)));
     if (!hasKey(cs, "payees") || !(cs.payees as JsonDict[]).every((x) => allowed.has(accKey(x.account)))) return false;
+    if (cs.unlisted_payees === "escalate") return false; // a person could add payees the delegator never allowed
   }
   if (hasKey(ps, "from_accounts")) {
     const allowed = new Set((ps.from_accounts as JsonDict[]).map(accKey));
@@ -1137,6 +1308,7 @@ function unkey(k: string): Person {
 
 type State = {
   registered: boolean; key: string; refs?: JsonDict; signers?: Person[]; unknown?: string[]; restore?: JsonDict;
+  payeeApproval?: JsonDict;
 };
 
 // ---------- checking ----------
@@ -1241,9 +1413,14 @@ export class Checker {
     return { source: res.source, maySign: maySignRaw, joint, person: who as string | null };
   }
 
-  /** Check one payment against one mandate. Never throws on input; always resolves to a signed decision. */
-  async check(mandate: unknown, payment: unknown): Promise<JsonDict> {
-    return this.checked(mandate, payment, (pHash, at, checks, state) => this.run(mandate, payment, pHash, at, checks, state));
+  /**
+   * Check one payment against one mandate. Never throws on input; always resolves to a signed decision.
+   * `payeeApprovals`: signed payee approvals that travel with the payment (spec 7.2), used for 0.5 mandates only;
+   * a 0.4 mandate is checked exactly as in 0.4.
+   */
+  async check(mandate: unknown, payment: unknown, payeeApprovals?: unknown): Promise<JsonDict> {
+    return this.checked(mandate, payment, (pHash, at, checks, state) =>
+      this.run(mandate, payment, pHash, at, checks, state, new Set(), null, new Set(), payeeApprovals));
   }
 
   /**
@@ -1251,9 +1428,9 @@ export class Checker {
    * Returns the final decision (allow or block, signed, naming the escalation and the override), a later
    * escalation if re-checking hit another one, or an escalate `override_invalid` / `override_not_authorized`.
    */
-  async resolve(mandate: unknown, payment: unknown, decision: unknown, override: unknown): Promise<JsonDict> {
+  async resolve(mandate: unknown, payment: unknown, decision: unknown, override: unknown, payeeApprovals?: unknown): Promise<JsonDict> {
     return this.checked(mandate, payment, (pHash, at, checks, state) =>
-      this.resolveRun(mandate, payment, decision, override, pHash, at, checks, state));
+      this.resolveRun(mandate, payment, decision, override, pHash, at, checks, state, payeeApprovals));
   }
 
   /**
@@ -1261,7 +1438,7 @@ export class Checker {
    * signed, aimed at it, by someone who may revoke it (section 9). For a store that accepts revocations from
    * outside. Never throws; a source that is down gives false.
    */
-  async revocationCounts(mandate: unknown, revocation: unknown): Promise<boolean> {
+  async revocationCounts(mandate: unknown, revocation: unknown, payeeApproval?: unknown): Promise<boolean> {
     try {
       if (mandateProblem(mandate) || revocationProblem(revocation)) return false;
       const md = mandate as JsonDict, r = revocation as JsonDict;
@@ -1272,10 +1449,17 @@ export class Checker {
       if (hasKey(r, "mandate_hash")) {
         if (r.mandate_hash !== mandateHash(md)) return false;
         parties = mandateParties;
-      } else if (linkParties.has(r.delegation_hash as string)) parties = linkParties.get(r.delegation_hash as string)!;
-      else return false;
+      } else if (hasKey(r, "delegation_hash") && linkParties.has(r.delegation_hash as string)) {
+        parties = linkParties.get(r.delegation_hash as string)!;
+      } else if (hasKey(r, "payee_approval_hash")) {
+        if (versionOf(md, "mandate") !== V5 || payeeApprovalProblem(payeeApproval)) return false;
+        const a = payeeApproval as JsonDict;
+        if (!same(a.mandate, { id: md.id, hash: mandateHash(md) }) || r.payee_approval_hash !== payeeApprovalHash(a)) return false;
+        parties = new Set([...mandateParties, ...(a.sigs as JsonDict[]).map((s) => personKey(s.signer as JsonDict))]);
+      } else return false;
       const signer = r.signer as JsonDict;
-      if (!verify("revocation", objHash(r), hasKey(r, "sig") ? r.sig : null, signer.public_key, this.webauthn)) return false;
+      if (!verify("revocation", objHash(r), hasKey(r, "sig") ? r.sig : null, signer.public_key, this.webauthn,
+        versionOf(r, "revocation"))) return false;
       return await this.mayRevoke(md, signer, parties, r.revoked_at);
     } catch {
       return false;
@@ -1305,6 +1489,7 @@ export class Checker {
     const extra: JsonDict = { ...(state.refs ?? {}) };
     if (state.signers) extra.signers = state.signers;
     if (reason === "signer_unknown" && state.unknown && state.unknown.length) extra.unknown = state.unknown.map(unkey);
+    if (state.payeeApproval) extra.payee_approval = state.payeeApproval;
     const d = this.decision(mandate, payment, pHash, reason, checks, at, extra);
     if (state.registered) {
       try {
@@ -1331,12 +1516,13 @@ export class Checker {
       mh = null;
     }
     const rnd = globalThis.crypto.getRandomValues(new Uint8Array(12));
+    const ver = versionOf(m, "mandate"); // a decision is in the draft of the mandate it is about
     const d: JsonDict = {
-      v: `gleipnir/decision/${V}`, id: "d_" + [...rnd].map((b) => b.toString(16).padStart(2, "0")).join(""),
+      v: `gleipnir/decision/${ver}`, id: "d_" + [...rnd].map((b) => b.toString(16).padStart(2, "0")).join(""),
       payment: { id: pid, hash: pHash }, mandate: { id: mid, hash: mh }, outcome, reasons: reason ? [reason] : [],
       checks, checked_at: fmtTs(at), checker: { id: this.id, public_key: this.publicKey }, ...extra,
     };
-    return sign(this.seed, "decision", d);
+    return sign(this.seed, "decision", d, "sig", ver);
   }
 
   /** authorized(), except for unknown people: null if a bank override vouched for exactly this person, else recorded. */
@@ -1418,14 +1604,17 @@ export class Checker {
   }
 
   /** Steps 1-6: parse, then every signature on the objects themselves. No external system is asked. */
-  private authentic(m: unknown, p: unknown, pHash: string | null): string | null {
+  private authentic(m: unknown, p: unknown, pHash: string | null, approvals?: unknown): string | null {
     if (mandateProblem(m)) return "mandate_malformed";
     if (pHash === null || paymentProblem(p)) return "payment_malformed";
     const md = m as JsonDict, pd = p as JsonDict;
+    const mv = versionOf(md, "mandate");
+    // Step 2: every payee approval presented is well formed (0.5 mandates only).
+    if (mv === V5 && approvals !== undefined && approvals !== null && approvalsProblem(approvals)) return "payee_approval_invalid";
     const mh = mandateHash(md);
     if ((pd.mandate as JsonDict).hash !== mh) return "mandate_mismatch";
     const [sigs] = signatures(md);
-    if (sigs.length === 0 || !sigs.every(([s, sig]) => verify("mandate", mh, sig, s.public_key, this.webauthn))) {
+    if (sigs.length === 0 || !sigs.every(([s, sig]) => verify("mandate", mh, sig, s.public_key, this.webauthn, mv))) {
       return "mandate_bad_signature";
     }
     const chain = hasKey(md, "delegation") ? (md.delegation as JsonDict[]) : [];
@@ -1448,8 +1637,9 @@ export class Checker {
   private async run(
     m: unknown, p: unknown, pHash: string | null, at: Micros, checks: string[], state: State,
     waive: ReadonlySet<string> = new Set(), claimed: boolean | null = null, vouched: ReadonlySet<string> = new Set(),
+    approvals?: unknown,
   ): Promise<string | JsonDict | null> {
-    const bad = this.authentic(m, p, pHash);
+    const bad = this.authentic(m, p, pHash, approvals);
     if (bad) return bad;
     const md = m as JsonDict, pd = p as JsonDict;
     const mh = mandateHash(md);
@@ -1497,6 +1687,7 @@ export class Checker {
     if (at > ts(md.valid_until)) return "mandate_expired";
     const revoked = await this.revoked(md, mh, chain, sigs, at, this.revocations);
     if (revoked) return revoked;
+    const known: unknown[] = [...this.revocations]; // the revocations this check relies on, for payee approvals too
     if (this.revocationFeed !== null) {
       let fed: unknown;
       try {
@@ -1505,6 +1696,7 @@ export class Checker {
         fed = null;
       }
       if (Array.isArray(fed)) {
+        known.push(...(fed as unknown[]));
         const r = await this.revoked(md, mh, chain, sigs, at, fed);
         if (r) return r;
         checks.push("revocation_list_current");
@@ -1525,12 +1717,16 @@ export class Checker {
     const payeeAcc = (pd.payee as JsonDict).account as JsonDict;
     if (!railFits(pd.rail as string, pd.currency as string, [fa, payeeAcc])) return "rail_mismatch";
     if (pd.currency !== sc.currency) return "currency_mismatch";
-    if (hasKey(sc, "payees")) {
+    const amt = parseAmount(pd.amount, pd.currency);
+    if (versionOf(md, "mandate") === V5) {
+      const b = await this.payee(md, mh, chain, sigs, pd, amt, at, checks, state, waive,
+        Array.isArray(approvals) ? (approvals as JsonDict[]) : [], known);
+      if (b) return b;
+    } else if (hasKey(sc, "payees")) {
       const want = accKey(payeeAcc);
       if (!(sc.payees as JsonDict[]).some((x) => accKey(x.account) === want)) return "payee_not_on_mandate";
       checks.push("payee_on_mandate");
     } else if (this.requirePayees) return "payees_required";
-    const amt = parseAmount(pd.amount, pd.currency);
     if (amt > parseAmount(sc.max_per_payment, sc.currency)) {
       if (!waive.has("over_payment_limit")) return "over_payment_limit";
       checks.push("over_payment_limit_approved");
@@ -1538,6 +1734,96 @@ export class Checker {
     // A bank officer's waiver lifts every period limit; the company's own signatories lift only the mandate's.
     const force = waive.has("over_period_limit") ? "links" : waive.has("over_period_limit:mandate") ? "mandate" : "";
     return this.reserve(md, mh, chain, amt, at, checks, force);
+  }
+
+  /**
+   * Step 21 for a 0.5 mandate (spec 7): a listed or approved payee account passes; a listed payee's name with another
+   * account blocks; any other payee follows the mandate's unlisted_payees.
+   */
+  private async payee(
+    m: JsonDict, mh: string, chain: JsonDict[], sigs: Signed[], p: JsonDict, amt: bigint, at: Micros, checks: string[],
+    state: State, waive: ReadonlySet<string>, approvals: JsonDict[], revocations: unknown[],
+  ): Promise<string | null> {
+    const sc = m.scope as JsonDict;
+    const payee = p.payee as JsonDict;
+    const acc = payee.account as JsonDict;
+    const listed = hasKey(sc, "payees") ? (sc.payees as JsonDict[]) : [];
+    if (listed.some((x) => accKey(x.account) === accKey(acc))) {
+      checks.push("payee_on_mandate");
+      return null;
+    }
+    const policy = hasKey(sc, "unlisted_payees") ? sc.unlisted_payees : null;
+    if (!hasKey(sc, "payees") && policy === null) return this.requirePayees ? "payees_required" : null; // as in 0.4
+    if (await this.approved(m, mh, chain, sigs, acc, at, checks, state, approvals, revocations)) return null;
+    const name = payeeNameKey(hasKey(payee, "name") ? payee.name : null);
+    if (name && listed.some((x) => payeeNameKey(hasKey(x, "name") ? x.name : null) === name)) {
+      return "payee_account_changed"; // "we changed our bank details": never escalated, never waived
+    }
+    if (policy !== "escalate") return "payee_not_on_mandate";
+    if (hasKey(sc, "max_per_unlisted_payee")) {
+      if (amt > parseAmount(sc.max_per_unlisted_payee, sc.currency)) return "over_unlisted_payee_limit";
+      checks.push("within_unlisted_payee_limit");
+    }
+    if (!waive.has("new_payee")) return "new_payee";
+    checks.push("new_payee_approved");
+    return null;
+  }
+
+  /**
+   * Spec 7.2: whether a payee approval presented with the payment makes this payee account count as listed. Only
+   * approvals of this mandate (id and hash) for exactly this account are looked at, in the order given. One that is
+   * badly signed, dated ahead, outside a delegation link's payee list, or not signed by enough people who may sign
+   * blocks (`payee_approval_invalid`); a revoked or expired one does not count.
+   */
+  private async approved(
+    m: JsonDict, mh: string, chain: JsonDict[], sigs: Signed[], acc: JsonDict, at: Micros, checks: string[], state: State,
+    approvals: JsonDict[], revocations: unknown[],
+  ): Promise<boolean> {
+    for (const a of approvals) {
+      if (!same(a.mandate, { id: m.id, hash: mh }) || accKey((a.payee as JsonDict).account) !== accKey(acc)) continue;
+      const ah = payeeApprovalHash(a);
+      const asigs = a.sigs as JsonDict[];
+      if (!asigs.every((s) => verify("payee_approval", ah, s.sig, (s.signer as JsonDict).public_key, this.webauthn, V5))) {
+        throw new Stop("payee_approval_invalid");
+      }
+      if (ts(a.approved_at) > at + this.maxSkew) throw new Stop("payee_approval_invalid");
+      for (const d of chain) { // an approval cannot add a payee a delegator's payee list excludes
+        const ds = d.scope as JsonDict;
+        if (hasKey(ds, "payees") && !(ds.payees as JsonDict[]).some((x) => accKey(x.account) === accKey(acc))) {
+          throw new Stop("payee_approval_invalid");
+        }
+      }
+      if (await this.approvalRevoked(m, chain, sigs, a, ah, at, revocations)) {
+        checks.push("payee_approval_revoked");
+        continue;
+      }
+      if (hasKey(a, "valid_until") && at > ts(a.valid_until)) {
+        checks.push("payee_approval_expired");
+        continue;
+      }
+      const [approvers, needed] = await this.companySigners(m, asigs, a.approved_at, "payee_approval_invalid");
+      checks.push(`payee_approved:${approvers.length}/${needed}`);
+      state.payeeApproval = { id: a.id, hash: ah, approvers: approvers.map((x) => ({ id: x.id, public_key: x.public_key })) };
+      return true;
+    }
+    return false;
+  }
+
+  /** A valid revocation of this payee approval, effective now, by someone who may revoke the mandate or who signed it. */
+  private async approvalRevoked(
+    m: JsonDict, chain: JsonDict[], sigs: Signed[], a: JsonDict, ah: string, at: Micros, revocations: unknown[],
+  ): Promise<boolean> {
+    const parties = new Set([...Checker.parties(chain, sigs)[0], ...(a.sigs as JsonDict[]).map((s) => personKey(s.signer as JsonDict))]);
+    for (const r of revocations) {
+      if (revocationProblem(r)) continue;
+      const rd = r as JsonDict;
+      if (!hasKey(rd, "payee_approval_hash") || rd.payee_approval_hash !== ah || ts(rd.revoked_at) > at) continue;
+      const signer = rd.signer as JsonDict;
+      if (!verify("revocation", objHash(rd), hasKey(rd, "sig") ? rd.sig : null, signer.public_key, this.webauthn,
+        versionOf(rd, "revocation"))) continue;
+      if (await this.mayRevoke(m, signer, parties, rd.revoked_at)) return true;
+    }
+    return false;
   }
 
   /**
@@ -1657,12 +1943,13 @@ export class Checker {
         if (rd.mandate_hash !== mh) continue;
         reason = "mandate_revoked";
         parties = mandateParties;
-      } else if (linkParties.has(rd.delegation_hash as string)) {
+      } else if (hasKey(rd, "delegation_hash") && linkParties.has(rd.delegation_hash as string)) {
         reason = "delegation_revoked";
         parties = linkParties.get(rd.delegation_hash as string)!;
-      } else continue;
+      } else continue; // another mandate's link, or a payee approval (step 21)
       const signer = rd.signer as JsonDict;
-      if (!verify("revocation", objHash(rd), hasKey(rd, "sig") ? rd.sig : null, signer.public_key, this.webauthn)) continue;
+      if (!verify("revocation", objHash(rd), hasKey(rd, "sig") ? rd.sig : null, signer.public_key, this.webauthn,
+        versionOf(rd, "revocation"))) continue;
       if (await this.mayRevoke(m, signer, parties, rd.revoked_at)) return reason;
     }
     return null;
@@ -1694,8 +1981,9 @@ export class Checker {
 
   private async resolveRun(
     m: unknown, p: unknown, d: unknown, o: unknown, pHash: string | null, at: Micros, checks: string[], state: State,
+    approvals?: unknown,
   ): Promise<string | JsonDict | null> {
-    const bad = this.authentic(m, p, pHash);
+    const bad = this.authentic(m, p, pHash, approvals);
     if (bad) return bad;
     const md = m as JsonDict, pd = p as JsonDict;
     const mh = mandateHash(md);
@@ -1793,14 +2081,22 @@ export class Checker {
       state.key = key;
       return "blocked_by_override";
     }
-    return this.run(m, p, pHash, at, checks, state, waive, heldHere, vouched);
+    return this.run(m, p, pHash, at, checks, state, waive, heldHere, vouched, approvals);
+  }
+
+  /** Company signatories resolving an over-limit or new-payee escalation (spec 7.1). Throws Stop. */
+  private async companyOverride(m: JsonDict, o: JsonDict): Promise<[string, JsonDict[]]> {
+    const [approvers, needed] = await this.companySigners(m, o.sigs as JsonDict[], null, "override_not_authorized");
+    return [`override:company:${approvers.length}/${needed}`, approvers.map((a) => ({ ...a, role: "company" }))];
   }
 
   /**
-   * Company signatories resolving an over-limit escalation: as many authorized people as the mandate itself
-   * needed (its threshold and the joint rule of everyone who signed it or the override). Throws Stop.
+   * The company's own people signing an override or a payee approval: as many authorized people as the mandate
+   * itself needed (its threshold and the joint rule of everyone who signed it or this object), each counted once.
+   * `issued`: when they signed, for retired keys (null: current keys only). Throws Stop(refused), or
+   * Stop("checker_unavailable") if the source is down.
    */
-  private async companyOverride(m: JsonDict, o: JsonDict): Promise<[string, JsonDict[]]> {
+  private async companySigners(m: JsonDict, osigs: JsonDict[], issued: unknown, refused: string): Promise<[JsonDict[], number]> {
     const [sigs, threshold] = signatures(m);
     const joints = [threshold];
     for (const [signer] of sigs) {
@@ -1812,23 +2108,23 @@ export class Checker {
     }
     const seen = new Set<string>();
     const approvers: JsonDict[] = [];
-    for (const s of o.sigs as JsonDict[]) {
+    for (const s of osigs) {
       let res: Accepted;
       try {
-        res = await this.authorized(m.company as JsonDict, s.signer as JsonDict, true);
+        res = await this.authorized(m.company as JsonDict, s.signer as JsonDict, true, issued);
       } catch (e) {
         if (e instanceof Stop && e.reason === "checker_unavailable") throw e;
-        throw new Stop("override_not_authorized");
+        throw new Stop(refused);
       }
       const who = res.person !== null ? "person:" + res.person : "id:" + ((s.signer as JsonDict).id as string);
       if (seen.has(who)) continue;
       seen.add(who);
       joints.push(res.joint);
-      approvers.push({ ...(s.signer as JsonDict), role: "company" });
+      approvers.push({ ...(s.signer as JsonDict) });
     }
     const needed = Math.max(...joints);
-    if (approvers.length < needed) throw new Stop("override_not_authorized");
-    return [`override:company:${approvers.length}/${needed}`, approvers];
+    if (approvers.length < needed) throw new Stop(refused);
+    return [approvers, needed];
   }
 }
 
@@ -1914,7 +2210,7 @@ export function verifyDecision(decision: unknown, checkerKeys: Iterable<string> 
       if (keysetProblem(checkerKeys) || decision.checker.id !== checkerKeys.checker
         || !keyValid(checkerKeys, pubText, decision.checked_at)) return false;
     } else if (!new Set(checkerKeys as Iterable<string>).has(pubText)) return false;
-    return verifySignature(decodePublicKey(pubText), mandateMessage("decision", objHash(decision)),
+    return verifySignature(decodePublicKey(pubText), mandateMessage("decision", objHash(decision), versionOf(decision, "decision")),
       hasKey(decision, "sig") ? decision.sig : null);
   } catch {
     return false;
@@ -1991,6 +2287,8 @@ export interface Receipt {
   authority: string[];
   approved_by: string[];
   payment: { id: unknown; amount: unknown; currency: unknown; from: unknown; payee: unknown };
+  /** 0.5 decisions only: who signed the payee approval the bank relied on (spec 7.2). */
+  payee_approved_by?: string[];
 }
 
 /**
@@ -2002,7 +2300,7 @@ export interface Receipt {
  */
 export function verifyReceipt(
   mandate: unknown, payment: unknown, decision: unknown, checkerKeys: Iterable<string> | JsonDict,
-  opts: { webauthn?: WebauthnOptions; override?: unknown } = {},
+  opts: { webauthn?: WebauthnOptions; override?: unknown; payeeApprovals?: readonly unknown[] } = {},
 ): Receipt {
   const wa = opts.webauthn ?? {};
   const problems: string[] = [];
@@ -2017,7 +2315,8 @@ export function verifyReceipt(
     const mh = mandateHash(md);
     if (get(decision, "mandate.hash") !== mh) problems.push("decision_mandate_mismatch");
     const [sigs] = signatures(md);
-    const valid = sigs.filter(([s, sig]) => verify("mandate", mh, sig, s.public_key, wa)).map(([s]) => s);
+    const mv = versionOf(md, "mandate");
+    const valid = sigs.filter(([s, sig]) => verify("mandate", mh, sig, s.public_key, wa, mv)).map(([s]) => s);
     signedBy = valid.map((s) => s.id as string);
     if (sigs.length === 0 || valid.length !== sigs.length) problems.push("mandate_bad_signature");
     const recorded = get(decision, "signers");
@@ -2068,7 +2367,29 @@ export function verifyReceipt(
       else approvedBy = (approvers as JsonDict[]).map((a) => a.id as string);
     }
   }
+  let approvedPayeeBy: string[] = [];
+  const pref = get(decision, "payee_approval");
+  if (pref !== null) {
+    const found = (opts.payeeApprovals ?? []).filter((a): a is JsonDict => isDict(a) && payeeApprovalProblem(a) === null
+      && isDict(pref) && pref.id === a.id && pref.hash === payeeApprovalHash(a));
+    if (!found.length) problems.push("payee_approval_missing");
+    else {
+      const a = found[0]!;
+      if (!same(a.mandate, get(decision, "mandate")) || paymentProblem(payment)
+        || accKey((a.payee as JsonDict).account) !== accKey(((payment as JsonDict).payee as JsonDict).account)) {
+        problems.push("payee_approval_mismatch");
+      }
+      const ah = payeeApprovalHash(a);
+      const valid = new Set((a.sigs as JsonDict[])
+        .filter((s) => verify("payee_approval", ah, s.sig, (s.signer as JsonDict).public_key, wa, V5))
+        .map((s) => personKey(s.signer as JsonDict)));
+      const listed = persons((pref as JsonDict).approvers);
+      if (listed === null || listed.length === 0 || !listed.every((k) => valid.has(k))) problems.push("payee_approval_bad_signature");
+      else approvedPayeeBy = listed.map((k) => unkey(k).id);
+    }
+  }
   const checks = get(decision, "checks");
+  const extra = versionOf(decision, "decision") === V5 ? { payee_approved_by: approvedPayeeBy } : {};
   return {
     valid: problems.length === 0,
     problems,
@@ -2088,6 +2409,7 @@ export function verifyReceipt(
       id: get(payment, "id"), amount: get(payment, "amount"), currency: get(payment, "currency"),
       from: get(payment, "from_account"), payee: get(payment, "payee.account"),
     },
+    ...extra,
   };
 }
 

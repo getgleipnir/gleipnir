@@ -18,6 +18,9 @@ import {
   makeOverride,
   mandateProblem,
   paymentProblem,
+  payeeApprovalProblem,
+  payeeNameKey,
+  revocationProblem,
   pain001,
   pain001Problems,
   revocationsFromList,
@@ -57,6 +60,7 @@ interface Vector {
   webauthn: { rp_id?: string; origins?: string[] };
   mandates?: unknown[];
   which?: number[];
+  approvals?: (unknown[] | null)[];
 }
 
 const DATA = JSON.parse(
@@ -131,10 +135,11 @@ async function run(c: Vector): Promise<J[]> {
     const mandates = c.mandates ?? [c.mandate];
     const md = mandates[(c.which ?? [])[i] ?? 0];
     const op = (c.ops ?? [])[i] ?? "check";
-    if (op === "check") out.push(await checker.check(md, c.payments[i]));
+    const ap = (c.approvals ?? [])[i] ?? undefined;
+    if (op === "check") out.push(await checker.check(md, c.payments[i], ap));
     else {
       const d = out[op.resolve.of]!;
-      out.push(await checker.resolve(md, c.payments[i], d, buildOverride(op, d)));
+      out.push(await checker.resolve(md, c.payments[i], d, buildOverride(op, d), ap));
     }
   }
   return out;
@@ -178,7 +183,7 @@ describe("mandate conformance vectors (shared with the Python reference)", () =>
     for (const d of decisions) expect(verifyDecision(d, [DATA.bank.public_key])).toBe(true);
     const first = (c.mandates ?? [c.mandate])[(c.which ?? [0])[0]!];
     const receipt: J = { ...verifyReceipt(first, c.payments[0], decisions[0], [DATA.bank.public_key], {
-      webauthn: { rpId: c.webauthn.rp_id, origins: c.webauthn.origins },
+      webauthn: { rpId: c.webauthn.rp_id, origins: c.webauthn.origins }, payeeApprovals: (c.approvals ?? [])[0] ?? [],
     }) };
     delete receipt.checked_at;
     expect(receipt).toEqual(c.receipt);
@@ -210,9 +215,11 @@ describe("mandate conformance vectors (shared with the Python reference)", () =>
   it("problem messages are the same as the Python reference", () => {
     const rows = (DATA as unknown as { problems: [string, unknown, string][] }).problems;
     expect(rows.length).toBeGreaterThan(10);
-    for (const [kind, input, problem] of rows) {
-      expect(kind === "mandate" ? mandateProblem(input) : paymentProblem(input)).toBe(problem);
-    }
+    const fns: Record<string, (v: unknown) => unknown> = {
+      mandate: mandateProblem, payment: paymentProblem, payee_approval: payeeApprovalProblem,
+      revocation: revocationProblem, payee_name_key: payeeNameKey,
+    };
+    for (const [kind, input, problem] of rows) expect(fns[kind]!(input), `${kind} ${JSON.stringify(input)}`).toBe(problem);
   });
 
   it("payment log keys are the same bytes as the Python reference, and unambiguous", () => {

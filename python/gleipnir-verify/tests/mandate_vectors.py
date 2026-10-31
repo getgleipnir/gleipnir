@@ -587,7 +587,7 @@ def pain001_cases() -> list[dict[str, Any]]:
 
 
 def problem_cases() -> list[list[Any]]:
-    """[kind, input, problem]: the exact messages both implementations give (third audit, F16)."""
+    """[kind, input, problem]: the exact messages both implementations give (third audit, F16; 0.5)."""
     m = mandate(sign=False)
     p = pay(mandate(), "p_1")
     out: list[list[Any]] = []
@@ -604,6 +604,28 @@ def problem_cases() -> list[list[Any]]:
                   {"from_account": {"scheme": "iban", "iban": "AT621904300234573201"}}):
         pp = {**p, **extra}
         out.append(["payment", pp, M.payment_problem(pp)])
+    m5 = {**m, "v": "gleipnir/mandate/0.5"}
+    for sc in (scope(unlisted_payees="sometimes"), scope(unlisted_payees="escalate", max_per_unlisted_payee="1.0"),
+               scope(max_per_unlisted_payee="10.00"), scope(unlisted_payees="escalate", purposes="x")):
+        mm = {**m5, "scope": sc}
+        out.append(["mandate", mm, M.mandate_problem(mm)])
+    out.append(["mandate", {**m, "scope": scope(unlisted_payees="escalate")},
+                M.mandate_problem({**m, "scope": scope(unlisted_payees="escalate")})])
+    esc = mandate(v="gleipnir/mandate/0.5", scope=scope(unlisted_payees="escalate"))
+    a = approval(esc, BRENNER)
+    for bad in ({**a, "v": "gleipnir/payee_approval/0.4"}, {**a, "payee": {"account": BRENNER["account"]}},
+                {**a, "payee": {**BRENNER, "account": {"scheme": "iban", "iban": "AT621904300234573201"}}},
+                {**a, "sigs": []}, {**a, "sigs": [a["sigs"][0], a["sigs"][0]]},
+                {**a, "valid_until": "2026-10-19T00:00:00.000Z"}, {**a, "approved_at": "yesterday"},
+                {**a, "note": "x"}):
+        out.append(["payee_approval", bad, M.payee_approval_problem(bad)])
+    r5 = M.revoke(a, signer=signer(), sk=SIGNER, id="r_x")
+    for bad in ({**r5, "mandate": "m", "mandate_hash": "sha256:x"}, {**r5, "v": "gleipnir/revocation/0.4"}):
+        out.append(["revocation", bad, M.revocation_problem(bad)])
+    for name in ("Brenner Stahl AG", "BRENNER-STAHL A.G.", "Brenner\u200bStahl\u00a0AG", "\u0412renner St\u0430hl AG",
+                 "Br\u00e9nner Stahl AG", "\uff22renner Stahl AG", "Stra\u00dfe", "STRASSE", "\u039f\u0394\u039f\u03a3",
+                 "Stah1 0rt", "", "---", None, 7):
+        out.append(["payee_name_key", name, M.payee_name_key(name)])
     return out
 
 
@@ -663,7 +685,8 @@ def case(name: str, m: Any, payments: list[Any], *, now: str | list[str] = NOW, 
          revocations: list | None = None, status: Any = None, ledger: bool | str = True,
          webauthn: dict | None = None, mandates: list | None = None, which: list[int] | None = None,
          holds: list | None = None, ops: list | None = None, policy: dict | None = None,
-         officers: list[str] | None = None, feed: Any = None, payment_log: str | None = None) -> dict[str, Any]:
+         officers: list[str] | None = None, feed: Any = None, payment_log: str | None = None,
+         approvals: list | None = None) -> dict[str, Any]:
     """One checker, several steps. Step i checks payments[i] against mandates[which[i]] (default: the mandate),
     or, when ops[i] is a resolve op, applies an override to the decision of step ops[i]["of"].
 
@@ -671,7 +694,7 @@ def case(name: str, m: Any, payments: list[Any], *, now: str | list[str] = NOW, 
     ``holds``: the bank's accounts as {company, account}. ``policy``: {"require_payees": bool}.
     ``ledger``: True (in-memory), False (none wired), "error" (every call raises) or "junk" (reserve answers
     "ok", not a bool). ``payment_log``: None (in-memory), "error" (every call raises) or "junk" (register
-    answers 1, not a bool).
+    answers 1, not a bool). ``approvals``: per step, the payee approvals presented with that payment (0.5).
     """
     extra: dict[str, Any] = {"mandates": mandates, "which": which} if mandates else {}
     if ops:
@@ -680,6 +703,8 @@ def case(name: str, m: Any, payments: list[Any], *, now: str | list[str] = NOW, 
         extra["feed"] = feed
     if payment_log is not None:
         extra["payment_log"] = payment_log
+    if approvals is not None:
+        extra["approvals"] = approvals
     return {"name": name, "mandate": m, "payments": payments, "webauthn": webauthn or {}, **extra,
             "now": now if isinstance(now, list) else [now] * len(payments),
             "authority": KYB if authority is None else authority, "revocations": revocations or [],
@@ -763,6 +788,139 @@ def cases() -> list[dict[str, Any]]:
              [pay(m, "p_1")]),
         *v02_cases(),
         *attack_cases(),
+        *v05_cases(),
+    ]
+
+
+def approval(m: dict, payee: dict, aid: str = "pa_1", signers: tuple = ((SIGNER, SIGNER_ID),),
+             at: str = "2026-10-20T00:00:00.000Z", **kw: Any) -> dict[str, Any]:
+    a = M.approve_payee(m, payee=payee, id=aid, approved_at=at, **kw)
+    for sk, sid in signers:
+        a = M.sign_payee_approval(a, sk, {"id": sid, "public_key": M.public_key_of(sk)})
+    return a
+
+
+def v05_cases() -> list[dict[str, Any]]:  # noqa: PLR0915
+    """0.5: payees that are not on the mandate (spec 4.1, 7 step 21, 7.1, 7.2), and 0.4 mandates unchanged."""
+    officer_sk = key(9)
+    officer = M.public_key_of(officer_sk)
+    esc = mandate(v="gleipnir/mandate/0.5", scope=scope(unlisted_payees="escalate"))
+    capped = mandate(v="gleipnir/mandate/0.5",
+                     scope=scope(unlisted_payees="escalate", max_per_unlisted_payee="5000.00"))
+    blk = mandate(v="gleipnir/mandate/0.5")  # unlisted_payees absent: block, as in 0.4
+    blk_explicit = mandate(v="gleipnir/mandate/0.5", scope=scope(unlisted_payees="block"))
+    only_approved = mandate(v="gleipnir/mandate/0.5", scope=scope(payees=None, unlisted_payees="block"))
+    any_new = mandate(v="gleipnir/mandate/0.5", scope=scope(payees=None, unlisted_payees="escalate"))
+    m4 = mandate()
+    new = {"name": "Kranbau Wels GmbH", "account": {"scheme": "iban", "iban": "LT121000011101001000"}}
+    changed = {"name": "BRENNER-STAHL A.G.", "account": new["account"]}
+    look_alike = {"name": "\u0412renner St\u0430hl AG", "account": new["account"]}  # Cyrillic В and а
+    nameless = {"account": new["account"]}
+    ok_new = approval(esc, new)
+    ok_changed = approval(esc, changed)
+    rev_new = M.revoke(ok_new, signer=signer(), sk=SIGNER, id="r_pa", revoked_at="2026-10-22T00:00:00.000Z")
+    rev_changed = M.revoke(ok_changed, signer=signer(), sk=SIGNER, id="r_pa2", revoked_at="2026-10-22T00:00:00.000Z")
+    elsewhere = approval(esc, {"name": "Kranbau Wels GmbH",
+                               "account": {"scheme": "iban", "iban": "DE89370400440532013000"}}, aid="pa_de")
+    rev_outsider = M.revoke(ok_new, signer=signer(OTHER, "intern@nordhafen.at"), sk=OTHER, id="r_pa_x",
+                            revoked_at="2026-10-22T00:00:00.000Z")
+    expired = approval(esc, new, aid="pa_exp", valid_until="2026-10-22T00:00:00.000Z")
+    forged = {**ok_new, "sigs": [{**ok_new["sigs"][0], "sig": approval(esc, new, signers=((OTHER, SIGNER_ID),))[
+        "sigs"][0]["sig"]}]}
+    future = approval(esc, new, aid="pa_future", at="2026-10-24T00:00:00.000Z")
+    by_outsider = approval(esc, new, aid="pa_out", signers=((OTHER, "intern@nordhafen.at"),))
+    other_mandate = approval(capped, new, aid="pa_other")
+    both = multi(v="gleipnir/mandate/0.5", scope=scope(unlisted_payees="escalate"))
+    joint_kyb = [row(SIGNER_ID, SIGNER, joint=2), row(HOFER_P["id"], HOFER, joint=2)]
+    one_of_two = approval(both, new, aid="pa_one")
+    two_of_two = approval(both, new, aid="pa_two", signers=((SIGNER, SIGNER_ID), (HOFER, HOFER_P["id"])))
+    g_payees = link("g_payees5", (CEO, CEO_P), CFO_P, sc={**WIDE, "payees": [BRENNER]})
+    under_link = delegated([g_payees], v="gleipnir/mandate/0.5", scope=scope(unlisted_payees="escalate"))
+    under_link_block = delegated([g_payees], v="gleipnir/mandate/0.5")
+    link_approval = approval(under_link_block, new, aid="pa_link", signers=((CEO, CEO_P["id"]),))
+    rev_m5 = M.revoke(esc, signer=signer(), sk=SIGNER, id="r_m5", revoked_at="2026-10-22T00:00:00.000Z")
+    a4 = {"v": "gleipnir/payee_approval/0.5", "id": "pa_m4", "mandate": {"id": m4["id"], "hash": M.mandate_hash(m4)},
+          "payee": new, "approved_at": "2026-10-20T00:00:00.000Z", "sigs": []}
+    a4 = M.sign_payee_approval(a4, SIGNER, {"id": SIGNER_ID, "public_key": M.public_key_of(SIGNER)})
+    big_ok = pay(esc, "p_big", "30000.00", payee=new)
+    return [
+        # unlisted_payees: escalate holds the id while a person decides
+        case("v05_unlisted_escalate", esc, [pay(esc, "p_1", payee=new), pay(esc, "p_1", payee=new),
+                                            pay(esc, "p_1", "99.00", payee=new)]),
+        case("v05_unlisted_escalate_without_name", esc, [pay(esc, "p_1", payee=nameless)]),
+        case("v05_unlisted_block_by_default", blk, [pay(blk, "p_1", payee=new), pay(blk, "p_1")]),
+        case("v05_unlisted_block_explicit", blk_explicit, [pay(blk_explicit, "p_1", payee=new)]),
+        case("v05_listed_payee_allow", esc, [pay(esc, "p_1", "18400.00")]),
+        # "we changed our bank details": a listed name with another account blocks, whatever the policy
+        case("v05_name_match_account_changed", esc, [pay(esc, "p_1", payee=changed), pay(esc, "p_2", payee=look_alike),
+                                                     pay(esc, "p_3", payee=new)]),
+        case("v05_name_match_account_changed_block_policy", blk, [pay(blk, "p_1", payee=changed)]),
+        # payee approvals
+        case("v05_approval_new_payee_allow", esc, [pay(esc, "p_1", payee=new)], approvals=[[ok_new]]),
+        case("v05_approval_new_account_allow", blk, [pay(blk, "p_1", payee=changed)],
+             approvals=[[approval(blk, changed)]]),
+        case("v05_approval_changed_account_on_escalate", esc, [pay(esc, "p_1", payee=changed)],
+             approvals=[[ok_changed]]),
+        case("v05_approval_only_approved_payees", only_approved,
+             [pay(only_approved, "p_1", payee=new), pay(only_approved, "p_2", payee=new)],
+             approvals=[[approval(only_approved, new)], []]),
+        case("v05_approval_revoked", esc, [pay(esc, "p_1", payee=new), pay(esc, "p_2", payee=changed)],
+             approvals=[[ok_new], [ok_changed]], revocations=[rev_new, rev_changed]),
+        case("v05_approval_revoked_by_outsider_ignored", esc, [pay(esc, "p_1", payee=new)], approvals=[[ok_new]],
+             revocations=[rev_outsider], authority=[*KYB, row("intern@nordhafen.at", OTHER, may_sign=False)]),
+        case("v05_approval_revocation_from_list", esc, [pay(esc, "p_1", payee=new)], approvals=[[ok_new]],
+             feed={"doc": M.revocation_list([rev_new], issuer="bank:HOME", sk=key(11),
+                                            issued_at="2026-10-23T09:00:00.000Z",
+                                            next_update="2026-10-23T10:00:00.000Z"),
+                   "keys": [M.public_key_of(key(11))]}),
+        case("v05_approval_expired", esc, [pay(esc, "p_1", payee=new)], approvals=[[expired]]),
+        case("v05_approval_forged_signature", esc, [pay(esc, "p_1", payee=new)], approvals=[[forged]]),
+        case("v05_approval_dated_ahead", esc, [pay(esc, "p_1", payee=new)], approvals=[[future]]),
+        case("v05_approval_by_outsider", esc, [pay(esc, "p_1", payee=new)], approvals=[[by_outsider]],
+             authority=[*KYB, row("intern@nordhafen.at", OTHER, may_sign=False)]),
+        case("v05_approval_for_other_mandate_ignored", esc, [pay(esc, "p_1", payee=new)], approvals=[[other_mandate]]),
+        case("v05_approval_for_other_account_ignored", esc, [pay(esc, "p_1", payee=new)], approvals=[[elsewhere]]),
+        case("v05_approval_is_for_the_account_not_the_name", esc, [pay(esc, "p_1", payee=changed)],
+             approvals=[[ok_new]]),
+        case("v05_approval_malformed", esc, [pay(esc, "p_1", payee=new), pay(esc, "p_2", payee=new),
+                                             pay(esc, "p_3", payee=new)],
+             approvals=[[{**ok_new, "extra": 1}], [ok_new] * 17, ["junk"]]),
+        case("v05_approval_joint_needs_cosigner", both, [pay(both, "p_1", payee=new), pay(both, "p_2", payee=new)],
+             approvals=[[one_of_two], [two_of_two]], authority=joint_kyb),
+        case("v05_approval_cannot_widen_delegated_payees", under_link_block, [pay(under_link_block, "p_1", payee=new)],
+             approvals=[[link_approval]], authority=CHAIN_KYB),
+        case("v05_escalate_under_payee_limited_link", under_link, [pay(under_link, "p_1", payee=new)],
+             authority=CHAIN_KYB),
+        case("v05_over_limit_after_approval", esc, [big_ok, big_ok], approvals=[[ok_new], [ok_new]],
+             ops=["check", resolve(0)]),
+        # overrides of a new-payee escalation (spec 7.1)
+        case("v05_override_new_payee_by_company", esc, [pay(esc, "p_1", payee=new)] * 3,
+             ops=["check", resolve(0), "check"]),
+        case("v05_override_new_payee_block_holds_id", esc, [pay(esc, "p_1", payee=new)] * 3,
+             ops=["check", resolve(0, "block", reason="Unknown supplier"), "check"]),
+        case("v05_override_new_payee_by_officer", esc, [pay(esc, "p_1", payee=new)] * 2, officers=[officer],
+             ops=["check", resolve(0, signers=((officer_sk, "ops@bank"),))]),
+        case("v05_override_new_payee_by_outsider", esc, [pay(esc, "p_1", payee=new)] * 2,
+             authority=[*KYB, row("intern@nordhafen.at", OTHER, may_sign=False)],
+             ops=["check", resolve(0, signers=((OTHER, "intern@nordhafen.at"),))]),
+        case("v05_override_new_payee_then_over_limit", esc,
+             [pay(esc, "p_1", "30000.00", payee=new)] * 3, ops=["check", resolve(0), resolve(1, oid="o_2")]),
+        # max_per_unlisted_payee is a hard cap
+        case("v05_cap_exceeded_block", capped, [pay(capped, "p_1", "5000.01", payee=new),
+                                                pay(capped, "p_2", "5000.00", payee=new),
+                                                pay(capped, "p_3", "6000.00", payee=new)],
+             approvals=[[], [], [approval(capped, new, aid="pa_cap")]]),
+        case("v05_payees_policy_satisfied_by_escalate", any_new, [pay(any_new, "p_1", payee=new)],
+             policy={"require_payees": True}),
+        case("v05_mandate_revoked_by_05_revocation", esc, [pay(esc, "p_1")], revocations=[rev_m5]),
+        # a 0.4 mandate is checked exactly as in 0.4
+        case("v05_04_mandate_unchanged", m4, [pay(m4, "p_1", payee=new), pay(m4, "p_2", payee=changed),
+                                               pay(m4, "p_3", "18400.00")],
+             approvals=[[a4], [a4], ["junk"]]),
+        case("v05_04_mandate_with_05_fields_malformed", {**m4, "scope": scope(unlisted_payees="escalate")},
+             [pay(m4, "p_1")]),
+        case("v05_cap_needs_escalate_malformed",
+             mandate(v="gleipnir/mandate/0.5", scope=scope(max_per_unlisted_payee="10.00")), [pay(m4, "p_1")]),
     ]
 
 
@@ -910,13 +1068,14 @@ def run(c: dict[str, Any]) -> list[dict[str, Any]]:
     mandates = c.get("mandates") or [c["mandate"]]
     which = c.get("which") or [0] * len(c["payments"])
     ops = c.get("ops") or ["check"] * len(c["payments"])
-    for p, at, i, op in zip(c["payments"], c["now"], which, ops, strict=True):
+    approvals = c.get("approvals") or [None] * len(c["payments"])
+    for p, at, i, op, ap in zip(c["payments"], c["now"], which, ops, approvals, strict=True):
         clock["now"] = at
         if op == "check":
-            out.append(checker.check(mandates[i], p))
+            out.append(checker.check(mandates[i], p, ap))
         else:
             d = out[op["resolve"]["of"]]
-            out.append(checker.resolve(mandates[i], p, d, build_override(op["resolve"], d)))
+            out.append(checker.resolve(mandates[i], p, d, build_override(op["resolve"], d), ap))
     return out
 
 
@@ -946,7 +1105,8 @@ def build() -> dict[str, Any]:
         decisions = run(c)
         first = (c.get("mandates") or [c["mandate"]])[(c.get("which") or [0])[0]]
         receipt = M.verify_receipt(first, c["payments"][0], decisions[0], [M.public_key_of(BANK)],
-                                   webauthn=c.get("webauthn") or {})
+                                   webauthn=c.get("webauthn") or {},
+                                   payee_approvals=(c.get("approvals") or [[]])[0] or [])
         out_cases.append({**c, "expect": expected(decisions), "receipt": {k: v for k, v in receipt.items()
                                                                           if k != "checked_at"}})
         signed.append(decisions[0])

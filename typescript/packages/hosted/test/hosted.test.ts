@@ -359,7 +359,7 @@ interface Vector {
   ops?: ("check" | { resolve: { of: number; id: string; outcome: "allow" | "block"; decided_at: string; reason?: string;
     decision_hash?: string; signers: { seed: string; id: string }[] } })[];
   expect: J[]; webauthn: { rp_id?: string; origins?: string[] }; mandates?: unknown[]; which?: number[];
-  ledger: boolean | "error" | "junk"; payment_log?: "error" | "junk";
+  ledger: boolean | "error" | "junk"; payment_log?: "error" | "junk"; approvals?: (unknown[] | null)[];
 }
 
 /** The KV ledger, failing as a vector asks (spec 0.4.1: "error" throws, "junk" answers a non-boolean). */
@@ -444,7 +444,8 @@ describe("conformance vectors on the KV-backed payment log and ledger", () => {
       now = c.now[i]!;
       const md = (c.mandates ?? [c.mandate])[(c.which ?? [])[i] ?? 0];
       const op = (c.ops ?? [])[i] ?? "check";
-      if (op === "check") out.push(await checker.check(md, c.payments[i]));
+      const ap = (c.approvals ?? [])[i] ?? undefined;
+      if (op === "check") out.push(await checker.check(md, c.payments[i], ap));
       else {
         const d = out[op.resolve.of]!;
         let o = makeOverride(d, { outcome: op.resolve.outcome, id: op.resolve.id, reason: op.resolve.reason ?? "", decidedAt: op.resolve.decided_at });
@@ -453,7 +454,7 @@ describe("conformance vectors on the KV-backed payment log and ledger", () => {
           const seed = seedFromHex(sg.seed);
           o = signOverride(o, seed, { id: sg.id, public_key: publicKeyOf(seed) });
         }
-        out.push(await checker.resolve(md, c.payments[i], d, o));
+        out.push(await checker.resolve(md, c.payments[i], d, o, ap));
       }
     }
     expect(expected(out)).toEqual(c.expect);
