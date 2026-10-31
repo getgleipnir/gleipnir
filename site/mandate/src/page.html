@@ -106,7 +106,7 @@ select { width: 100%; font: inherit; padding: .5rem; border-radius: 6px; border:
     <div class="actions"><button type="button" id="copy">Copy</button></div>
   </div>
 
-  <footer><p>Gleipnir mandates (spec 0.5; 0.4 mandates too). The passkey signs SHA-256("gleipnir/mandate/v0.4\n" or "v0.5\n", as the mandate's version, + mandate hash), so this signature is valid for this mandate and nothing else. Payees not on the list are never paid without a person: they are blocked, or wait for a signatory's approval, and a listed payee's name with another account is always blocked. The bank checks the signature, the origin and the relying party, and who you are, from its own KYB records.</p></footer>
+  <footer><p>Gleipnir mandates (spec 0.5; 0.4 mandates too). The passkey signs SHA-256("gleipnir/mandate/v0.4\n" or "v0.5\n", as the mandate's version, + mandate hash), so this signature is valid for this mandate and nothing else. Payees not on the list are never paid without a person: they are blocked, or wait for a signatory's approval, and a listed payee's name with another account is blocked unless a signatory approves that exact new account. The bank checks the signature, the origin and the relying party, and who you are, from its own KYB records.</p></footer>
 </main>
 <script type="module">__SCRIPT__</script>
 </body>

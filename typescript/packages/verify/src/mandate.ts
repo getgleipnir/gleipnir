@@ -1772,8 +1772,8 @@ export class Checker {
   /**
    * Spec 7.2: whether a payee approval presented with the payment makes this payee account count as listed. Only
    * approvals of this mandate (id and hash) for exactly this account are looked at, in the order given. One that is
-   * badly signed, dated ahead, outside a delegation link's payee list, or not signed by enough people who may sign
-   * blocks (`payee_approval_invalid`); a revoked or expired one does not count.
+   * badly signed, dated ahead or before the mandate's `issued_at`, outside a delegation link's payee list, or not
+   * signed by enough people who may sign blocks (`payee_approval_invalid`); a revoked or expired one does not count.
    */
   private async approved(
     m: JsonDict, mh: string, chain: JsonDict[], sigs: Signed[], acc: JsonDict, at: Micros, checks: string[], state: State,
@@ -1787,6 +1787,7 @@ export class Checker {
         throw new Stop("payee_approval_invalid");
       }
       if (ts(a.approved_at) > at + this.maxSkew) throw new Stop("payee_approval_invalid");
+      if (ts(a.approved_at) < ts(m.issued_at)) throw new Stop("payee_approval_invalid"); // cannot predate its mandate
       for (const d of chain) { // an approval cannot add a payee a delegator's payee list excludes
         const ds = d.scope as JsonDict;
         if (hasKey(ds, "payees") && !(ds.payees as JsonDict[]).some((x) => accKey(x.account) === accKey(acc))) {

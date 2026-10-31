@@ -221,7 +221,7 @@ Docs: [design](docs/design.md), [adapters](docs/adapters.md), [threat model](doc
 
 ### Status
 
-Version 0.4.0, matching spec 0.4. Releases are published from tags by `.github/workflows/release.yml`.
+Packages are at version 0.4.0, the last release (spec 0.4). The code here implements spec 0.5 (draft) and still accepts every 0.4 object with 0.4 behaviour; 0.5 is not released yet. Releases are published from tags by `.github/workflows/release.yml`.
 
 ```bash
 git clone https://github.com/getgleipnir/gleipnir && cd gleipnir

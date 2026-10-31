@@ -619,7 +619,7 @@ def problem_cases() -> list[list[Any]]:
                 {**a, "valid_until": "2026-10-19T00:00:00.000Z"}, {**a, "approved_at": "yesterday"},
                 {**a, "note": "x"}):
         out.append(["payee_approval", bad, M.payee_approval_problem(bad)])
-    r5 = M.revoke(a, signer=signer(), sk=SIGNER, id="r_x")
+    r5 = M.revoke(a, signer=signer(), sk=SIGNER, id="r_x", revoked_at="2026-10-22T00:00:00.000Z")
     for bad in ({**r5, "mandate": "m", "mandate_hash": "sha256:x"}, {**r5, "v": "gleipnir/revocation/0.4"}):
         out.append(["revocation", bad, M.revocation_problem(bad)])
     for name in ("Brenner Stahl AG", "BRENNER-STAHL A.G.", "Brenner\u200bStahl\u00a0AG", "\u0412renner St\u0430hl AG",
@@ -693,8 +693,9 @@ def case(name: str, m: Any, payments: list[Any], *, now: str | list[str] = NOW, 
     ``status``: None (no status client), "error" (unreachable), or the signed response the status client returns.
     ``holds``: the bank's accounts as {company, account}. ``policy``: {"require_payees": bool}.
     ``ledger``: True (in-memory), False (none wired), "error" (every call raises) or "junk" (reserve answers
-    "ok", not a bool). ``payment_log``: None (in-memory), "error" (every call raises) or "junk" (register
-    answers 1, not a bool). ``approvals``: per step, the payee approvals presented with that payment (0.5).
+    "ok", not a bool). ``payment_log``: None (in-memory), or a ``BrokenPaymentLog`` mode: "error" (every call
+    raises), "junk" (register answers 1), "junk_take" (take answers 1) or "junk_late_register" (every register
+    after the first answers 1). ``approvals``: per step, the payee approvals presented with that payment (0.5).
     """
     extra: dict[str, Any] = {"mandates": mandates, "which": which} if mandates else {}
     if ops:
@@ -843,6 +844,19 @@ def v05_cases() -> list[dict[str, Any]]:  # noqa: PLR0915
           "payee": new, "approved_at": "2026-10-20T00:00:00.000Z", "sigs": []}
     a4 = M.sign_payee_approval(a4, SIGNER, {"id": SIGNER_ID, "public_key": M.public_key_of(SIGNER)})
     big_ok = pay(esc, "p_big", "30000.00", payee=new)
+    # Review 05 L1: an approval cannot predate the mandate it names (esc is issued 2026-10-01T08:00:00.000Z).
+    predates = approval(esc, new, aid="pa_early", at="2026-09-15T00:00:00.000Z")
+    at_issue = approval(esc, new, aid="pa_at_issue", at="2026-10-01T08:00:00.000Z")
+    just_before = approval(esc, new, aid="pa_ms_early", at="2026-10-01T07:59:59.999Z")
+    # ... so a key retired before the mandate was issued cannot approve payees by backdating the approval.
+    berger_new = key(12)
+    retired_kyb = [row(SIGNER_ID, berger_new, keys=[M.public_key_of(berger_new)])
+                   | {"retired": {M.public_key_of(SIGNER): "2026-09-01T00:00:00.000Z"}}, row(HOFER_P["id"], HOFER)]
+    by_hofer = mandate(sk=HOFER, v="gleipnir/mandate/0.5",
+                       signer={"id": HOFER_P["id"], "name": "M. Hofer", "role": "Managing director",
+                               "public_key": M.public_key_of(HOFER)})
+    mallory = {"name": "Mallory Ltd", "account": {"scheme": "iban", "iban": "DE89370400440532013000"}}
+    backdated = approval(by_hofer, mallory, aid="pa_backdated", at="2026-08-01T00:00:00.000Z")
     return [
         # unlisted_payees: escalate holds the id while a person decides
         case("v05_unlisted_escalate", esc, [pay(esc, "p_1", payee=new), pay(esc, "p_1", payee=new),
@@ -876,6 +890,11 @@ def v05_cases() -> list[dict[str, Any]]:  # noqa: PLR0915
         case("v05_approval_expired", esc, [pay(esc, "p_1", payee=new)], approvals=[[expired]]),
         case("v05_approval_forged_signature", esc, [pay(esc, "p_1", payee=new)], approvals=[[forged]]),
         case("v05_approval_dated_ahead", esc, [pay(esc, "p_1", payee=new)], approvals=[[future]]),
+        case("v05_approval_predates_mandate", esc, [pay(esc, "p_1", payee=new), pay(esc, "p_2", payee=new)],
+             approvals=[[predates], [just_before]]),
+        case("v05_approval_at_mandate_issue_allow", esc, [pay(esc, "p_1", payee=new)], approvals=[[at_issue]]),
+        case("v05_approval_backdated_with_retired_key", by_hofer, [pay(by_hofer, "p_1", payee=mallory)],
+             approvals=[[backdated]], authority=retired_kyb),
         case("v05_approval_by_outsider", esc, [pay(esc, "p_1", payee=new)], approvals=[[by_outsider]],
              authority=[*KYB, row("intern@nordhafen.at", OTHER, may_sign=False)]),
         case("v05_approval_for_other_mandate_ignored", esc, [pay(esc, "p_1", payee=new)], approvals=[[other_mandate]]),
@@ -933,6 +952,7 @@ def attack_cases() -> list[dict[str, Any]]:
     own_id = mandate(sk=OTHER, signer=signer(OTHER, "ceo@nordhafen-payments.example"))
     rev = M.revoke(m, signer=signer(), sk=SIGNER, id="r_atk", revoked_at="2026-10-23T09:00:00.000Z")
     after_expiry = "2027-01-01T00:00:10.000Z"
+    small_period = mandate(scope=scope(max_per_period={"amount": "50.00", "period": "P1M"}))
     return [
         case("attack_C1_self_asserted_key_for_known_signer", known_id, [pay(known_id, "p_1")]),
         case("attack_C1_self_asserted_signer", own_id, [pay(own_id, "p_1")]),
@@ -955,6 +975,14 @@ def attack_cases() -> list[dict[str, Any]]:
         case("attack_H2_no_ledger_wired", m, [pay(m, "p_1")], ledger=False),
         case("attack_H1_payment_log_raises", m, [pay(m, "p_1")], payment_log="error"),
         case("attack_H1_payment_log_answers_junk", m, [pay(m, "p_1")], payment_log="junk"),
+        # The override paths: a junk answer from take (held escalation) or from the override-block register
+        # (escalation that did not hold the id) is checker_unavailable, never a block or allow it cannot back.
+        case("attack_H1_take_answers_junk_override_block", m, [pay(m, "p_1", "30000.00")] * 2,
+             payment_log="junk_take", ops=["check", resolve(0, "block", reason="not ours")]),
+        case("attack_H1_take_answers_junk_override_allow", m, [pay(m, "p_1", "30000.00")] * 2,
+             payment_log="junk_take", ops=["check", resolve(0)]),
+        case("attack_H1_register_answers_junk_override_block", small_period, [pay(small_period, "p_1")] * 2,
+             payment_log="junk_late_register", ops=["check", resolve(0, "block", reason="not ours")]),
     ]
 
 
@@ -1030,20 +1058,44 @@ class BrokenLedger(M.InMemoryLedger):
 
 
 class BrokenPaymentLog(M.InMemoryPaymentLog):
-    """A payment log that fails: "error" raises on every call, "junk" claims with an answer that is not a bool."""
+    """A payment log that fails. "error": every call raises. "junk": ``register`` claims, then answers 1 (not a
+    bool). "junk_take": ``take`` takes, then answers 1. "junk_late_register": the first ``register`` works, every
+    later one claims and answers 1 (reaches the override-block ``register`` of an escalation that did not hold
+    the id)."""
 
     def __init__(self, mode: str) -> None:
         super().__init__()
         self.mode = mode
+        self.registers = 0
 
-    def lookup(self, key: str, payment_hash: str) -> Any:
+    def _down(self) -> None:
         if self.mode == "error":
             raise ConnectionError("payment log down")
+
+    def lookup(self, key: str, payment_hash: str) -> Any:
+        self._down()
         return super().lookup(key, payment_hash)
 
     def register(self, key: str, payment_hash: str) -> Any:
-        super().register(key, payment_hash)
-        return 1
+        self._down()
+        self.registers += 1
+        ok = super().register(key, payment_hash)
+        if self.mode == "junk" or (self.mode == "junk_late_register" and self.registers > 1):
+            return 1
+        return ok
+
+    def remember(self, key: str, decision: dict) -> None:
+        self._down()
+        super().remember(key, decision)
+
+    def forget(self, key: str) -> None:
+        self._down()
+        super().forget(key)
+
+    def take(self, key: str, payment_hash: str, decision_id: str) -> Any:
+        self._down()
+        took = super().take(key, payment_hash, decision_id)
+        return 1 if self.mode == "junk_take" else took
 
 
 def ledger_of(mode: bool | str) -> Any:

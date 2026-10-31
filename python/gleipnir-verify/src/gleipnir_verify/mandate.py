@@ -1549,8 +1549,9 @@ class Checker:
                   revocations: list[dict]) -> bool:
         """Spec 7.2: whether a payee approval presented with the payment makes this payee account count as listed.
         Only approvals of this mandate (id and hash) for exactly this account are looked at, in the order given.
-        One that is badly signed, dated ahead, outside a delegation link's payee list, or not signed by enough
-        people who may sign blocks (``payee_approval_invalid``); a revoked or expired one does not count."""
+        One that is badly signed, dated ahead or before the mandate's ``issued_at``, outside a delegation link's
+        payee list, or not signed by enough people who may sign blocks (``payee_approval_invalid``); a revoked or
+        expired one does not count."""
         for a in approvals:
             if a["mandate"] != {"id": m["id"], "hash": mh} or _key(a["payee"]["account"]) != _key(acc):
                 continue
@@ -1559,6 +1560,8 @@ class Checker:
                        for s in a["sigs"]):
                 raise _Stop("payee_approval_invalid")
             if _ts(a["approved_at"]) > at + self.max_skew:
+                raise _Stop("payee_approval_invalid")
+            if _ts(a["approved_at"]) < _ts(m["issued_at"]):  # cannot predate the mandate whose hash it names
                 raise _Stop("payee_approval_invalid")
             for d in chain:  # an approval cannot add a payee a delegator's payee list excludes
                 if "payees" in d["scope"] and _key(acc) not in {_key(x["account"]) for x in d["scope"]["payees"]}:

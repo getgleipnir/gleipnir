@@ -48,7 +48,7 @@ interface Vector {
   revocations: unknown[];
   status: unknown;
   ledger: boolean | "error" | "junk";
-  payment_log?: "error" | "junk";
+  payment_log?: LogMode;
   holds: { company: string; account: J; customer?: string }[];
   policy: { require_payees?: boolean };
   officers: string[];
@@ -76,16 +76,41 @@ class BrokenLedger extends InMemoryLedger {
   }
 }
 
-/** A payment log that fails: "error" throws on every call, "junk" claims with an answer that is not a boolean. */
+type LogMode = "error" | "junk" | "junk_take" | "junk_late_register";
+
+/**
+ * A payment log that fails: "error" throws on every call, "junk" claims and answers a non-boolean, "junk_take"
+ * takes and answers a non-boolean, "junk_late_register" answers a non-boolean from every register after the first
+ * (the override-block register of an escalation that did not hold the id).
+ */
 class BrokenPaymentLog extends InMemoryPaymentLog {
-  constructor(private readonly mode: "error" | "junk") { super(); }
-  override lookup(key: string, paymentHash: string): J | null {
+  private registers = 0;
+  constructor(private readonly mode: LogMode) { super(); }
+  private down(): void {
     if (this.mode === "error") throw new Error("payment log down");
+  }
+  override lookup(key: string, paymentHash: string): J | null {
+    this.down();
     return super.lookup(key, paymentHash);
   }
   override register(key: string, paymentHash: string): boolean {
-    super.register(key, paymentHash);
-    return 1 as unknown as boolean;
+    this.down();
+    this.registers += 1;
+    const ok = super.register(key, paymentHash);
+    return this.mode === "junk" || (this.mode === "junk_late_register" && this.registers > 1) ? 1 as unknown as boolean : ok;
+  }
+  override remember(key: string, decision: J): void {
+    this.down();
+    super.remember(key, decision);
+  }
+  override forget(key: string): void {
+    this.down();
+    super.forget(key);
+  }
+  override take(key: string, paymentHash: string, decisionId: string): boolean {
+    this.down();
+    const took = super.take(key, paymentHash, decisionId);
+    return this.mode === "junk_take" ? 1 as unknown as boolean : took;
   }
 }
 
