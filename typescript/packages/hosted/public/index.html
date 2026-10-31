@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Gleipnir Sandbox Checker</title>
+<style>
+  :root { --bg: #fff; --fg: #111; --muted: #555; --warn: #8a4b00; --warn-bg: #fff4e0; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #111; --fg: #eee; --muted: #aaa; --warn: #ffc067; --warn-bg: #2a1d08; } }
+  body { background: var(--bg); color: var(--fg); font: 16px/1.5 system-ui, sans-serif; margin: 0; padding: 32px 16px; }
+  main { max-width: 640px; margin: 0 auto; }
+  .warn { background: var(--warn-bg); color: var(--warn); padding: 12px 16px; border-radius: 6px; font-weight: 600; }
+  code { font-size: 14px; }
+  p { color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Gleipnir sandbox checker</h1>
+  <div class="warn">SANDBOX. Test checker for pilot partners. Not for real money.</div>
+  <p>Know Your Agent for bank transfers: before a platform sends a transfer an AI agent started, it asks this
+  checker whether a company signatory's signed mandate covers it, and gets back a signed allow, block or escalate.</p>
+  <p>API: <code>POST /v1/check</code>, <code>POST /v1/resolve</code>, <code>POST /v1/revoke</code>,
+  <code>GET /v1/revocations</code>, public keys at <code>/t/&lt;tenant&gt;/keys</code>. Access by API key only.</p>
+</main>
+</body>
+</html>
