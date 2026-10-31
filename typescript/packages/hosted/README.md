@@ -57,7 +57,7 @@ Same contract as `gleipnir mandate serve`, under `/v1`, with a bearer key:
 | `POST /v1/check` | check key | `{"mandate", "payment"[, "payee_approvals"]}` → the signed decision |
 | `POST /v1/resolve` | check key | `{"mandate", "payment", "decision", "override"[, "payee_approvals"]}` → the decision after a signed override |
 | `POST /v1/revoke` | check key | `{"revocation", "mandate"[, "payee_approval"]}` → `{"ok": true, "checker"}` |
-| `POST /v1/release` | check key | `{"mandate", "payment", "decision"}` → `{"released": true, ...}`: the bank did not execute this allowed payment; its reservations come back once, within `RELEASE_WINDOW_HOURS` and the same limit period; the payment id stays used |
+| `POST /v1/release` | check key | `{"mandate", "payment", "decision"}` → `{"released": true, ...}`: the bank did not execute this allowed payment; its reservations come back once, within `RELEASE_WINDOW_HOURS` and the same limit period; the payment id stays used. **Off by default** (`403`) |
 | `GET /v1/revocations` | check key | signed list of the stored revocations, current for an hour |
 | `GET /v1/keys` | check key | `{"checker", "keys"}` |
 | `GET /t/<tenant>/keys` | public | `{"checker", "keys"}` |
@@ -99,8 +99,9 @@ and be the decision the payment log holds for that payment now. Then:
   wants to try again needs a **new payment id**, which is checked against the limits like any other. We chose the
   existing code over a new one (`payment_released`) so every 0.5 verifier and receipt already understands it; the
   release answer and this page say why the id is used.
-- **Only soon after the decision, and in the same period.** The release must come within `RELEASE_WINDOW_HOURS`
-  (default 24) of the decision's `checked_at`, and while each limit period the allow reserved in is still the
+- **Off unless turned on.** With `RELEASE_WINDOW_HOURS` unset, blank or `0`, release answers `403`.
+- **Only soon after the decision, and in the same period.** When on, the release must come within `RELEASE_WINDOW_HOURS`
+  of the decision's `checked_at`, and while each limit period the allow reserved in is still the
   current one (an allow of 31 October cannot be released on 1 November). Otherwise `409`, and the reservation
   stands. `RELEASE_WINDOW_HOURS=0` turns release off (`403`); a value that is not a whole number from 0 to 744 is
   `503`.
@@ -117,8 +118,11 @@ and be the decision the payment log holds for that payment now. Then:
 **What release still trusts.** The check key holder says the bank did not execute the payment; the checker cannot
 see the bank's books. With the window, the period rule and the id kept used, the most a check key holder can do is
 claim that an allowed payment was not executed: once per allow, within its window and its period. It can no longer
-reset limits with old decisions or get the same payment allowed twice. If the party
-holding the check key is not the one executing payments, set `RELEASE_WINDOW_HOURS=0`.
+reset limits with old decisions or get the same payment allowed twice. **It can still get past a period limit in
+money:** checking new payments under fresh ids and releasing each allow frees its amount every time. That is why
+release is off by default. Turn it on only where the party holding the check key is the one executing the payments
+(so its word about non-execution is the bank's own record), and keep it off for pilots where the agent's platform
+holds the check key.
 
 **Deleting a tenant** (`DELETE /v1/admin/tenants/<id>`) removes the tenant record first, so its check and KYB keys
 stop working at once, then every key under `t/<id>/`: its public key, the authority table log, the payment log, the
@@ -187,7 +191,7 @@ Environment variables:
 | `ADMIN_TOKEN` | yes for admin (≥ 32 chars) | bearer token for `/v1/admin/*`. Without it admin is closed. |
 | `RATE_LIMIT_PER_MIN` | no (120) | requests per minute per key, per function instance |
 | `ALLOW_ORIGINS` | no | comma-separated browser origins allowed to call authenticated endpoints |
-| `RELEASE_WINDOW_HOURS` | no (24) | hours after an allow during which `/v1/release` may give its reservations back; `0` turns release off, max 744 |
+| `RELEASE_WINDOW_HOURS` | no (off) | hours after an allow during which `/v1/release` may give its reservations back; unset, blank or `0` = release off (`403`), max 744. Turn on only where the check key holder executes the payments |
 
 The build runs `npm ci` at `typescript/` and builds `@getgleipnir/verify`, which the function imports; Netlify
 bundles the function with esbuild (Node 20). State lives in the site-wide Blobs store `gleipnir-sandbox-checker`

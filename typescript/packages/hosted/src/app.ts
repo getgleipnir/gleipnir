@@ -9,7 +9,7 @@
  *   POST /v1/revoke       {"revocation", "mandate"[, "payee_approval"]}  -> {"ok": true, "checker"}
  *   POST /v1/release      {"mandate", "payment", "decision"}             -> {"released": true, ...}: the bank did not
  *                         execute this allowed payment; its period reservations are given back, once, within
- *                         RELEASE_WINDOW_HOURS and the same limit period; the payment id stays used
+ *                         RELEASE_WINDOW_HOURS (off by default) and the same limit period; the payment id stays used
  *   GET  /v1/revocations  -> the signed list of stored revocations, current for an hour
  *   GET  /v1/keys         -> {"checker", "keys"}
  *   GET  /t/<tenant>/keys, /t/<tenant>/.well-known/gleipnir-checker.json  (public, no auth)
@@ -466,8 +466,13 @@ async function revokeFor(t: Tenant, ctx: Ctx, r: unknown, mandate: unknown, appr
   await storeCall(() => addRevocation(ctx.deps.kv, t.id, target, rd, until, ctx.now().getTime(), canonicalText));
 }
 
-/** Default for RELEASE_WINDOW_HOURS: how long after an allow the bank may still release it. */
-export const RELEASE_WINDOW_HOURS = 24;
+/**
+ * Default for RELEASE_WINDOW_HOURS: 0, release is off unless the operator turns it on. Release trusts the check key
+ * holder's word that the bank did not execute an allowed payment, and each released allow frees its amount from the
+ * period limit, so with fresh payment ids a key holder could keep claiming non-execution and get past the limit.
+ * Turn it on only where the check key holder is the party executing the payments.
+ */
+export const RELEASE_WINDOW_HOURS = 0;
 const MAX_RELEASE_WINDOW_HOURS = 24 * 31;
 
 /** The release window in microseconds; 0 disables /v1/release. A bad setting is 503 (never a guess). */
@@ -486,7 +491,7 @@ function releaseWindow(ctx: Ctx): bigint {
  *
  * - Bound to the decision by its hash, which must be one this tenant's checker signed, an allow naming exactly this
  *   payment and mandate, and the one the payment log holds for this payment now.
- * - Only within RELEASE_WINDOW_HOURS (default 24) of the decision's `checked_at`, and only while every limit period
+ * - Off by default (RELEASE_WINDOW_HOURS unset or 0: 403). When on, only within RELEASE_WINDOW_HOURS of the decision's `checked_at`, and only while every limit period
  *   it reserved in (the mandate's, and each delegation link's with a period limit) is still the current one. Later
  *   the reservation stands.
  * - The payment id is NOT freed: the payment log keeps the key claimed and records the release, so the same payment

@@ -419,6 +419,10 @@ describe("deleting a tenant", () => {
 // ---------- releasing an allowed payment that was not executed ----------
 
 describe("releasing a reservation", () => {
+  // Release is off by default; these tests turn it on with the window an operator would set.
+  beforeEach(() => {
+    env = { ...ENV, RELEASE_WINDOW_HOURS: "24" };
+  });
   const check = (s: Awaited<ReturnType<typeof setup>>, payment: J) => call("POST", "/v1/check", { mandate: s.mandate, payment }, s.apiKey);
   const release = (s: Awaited<ReturnType<typeof setup>>, payment: J, decision: J) =>
     call("POST", "/v1/release", { mandate: s.mandate, payment, decision }, s.apiKey);
@@ -490,7 +494,21 @@ describe("releasing a reservation", () => {
     expect((await check(s, s.pay("p_4", "0.01")))[1].reasons).toEqual(["over_period_limit"]);
   });
 
-  it("only within the release window after the decision (RELEASE_WINDOW_HOURS, default 24)", async () => {
+  it("release is off by default (RELEASE_WINDOW_HOURS unset or blank: 403)", async () => {
+    const s = await setup();
+    const p = attach(s.mandate, { id: "off_1", rail: "sepa", amount: "15000.00", currency: "EUR", payee: BRENNER,
+      agentSeed: s.agentSeed, requestedAt: new Date().toISOString() });
+    const [, d] = await check(s, p);
+    expect(d.outcome).toBe("allow");
+    for (const off of [undefined, "", "  "]) {
+      env = { ...ENV };
+      if (off !== undefined) env.RELEASE_WINDOW_HOURS = off;
+      else delete env.RELEASE_WINDOW_HOURS;
+      expect((await release(s, p, d))[0]).toBe(403);
+    }
+  });
+
+  it("only within the release window after the decision (RELEASE_WINDOW_HOURS=24)", async () => {
     const s = await setup();
     let now = Date.parse("2026-10-05T08:00:00.000Z");
     clock = () => new Date(now);
